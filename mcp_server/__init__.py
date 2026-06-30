@@ -145,5 +145,5 @@ def initialize(context: Any) -> None:
     context.add_plugin_menu("MCP Server/Start Server", _plugin.start)
     context.add_plugin_menu("MCP Server/Stop Server", _plugin.stop)
 
-    if context.get_setting("mcp_server_auto_start", False):
+    if context.get_setting("auto_start", False):
         _plugin.start()

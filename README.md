@@ -141,7 +141,7 @@ curl http://127.0.0.1:7891/health
 To start the server automatically every time MoleditPy launches, run this once in the **Python Console** plugin:
 
 ```python
-context.set_setting("mcp_server_auto_start", True)
+context.set_setting("auto_start", True)
 ```
 
 ---
@@ -219,7 +219,7 @@ All file operations are restricted to a **base directory** you configure:
 
 ```python
 # In MoleditPy's Python Console plugin — run once to configure
-context.set_setting("mcp_server_file_io_base_dir", "/home/you/dft_jobs")
+context.set_setting("file_io_base_dir", "/home/you/dft_jobs")
 ```
 
 Or let the LLM set it via `set_file_io_config`:

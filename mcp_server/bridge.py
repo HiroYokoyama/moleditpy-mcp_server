@@ -412,8 +412,8 @@ def _run_python(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _get_file_io_config(ctx: Any) -> Dict[str, Any]:
-    base_dir = ctx.get_setting("mcp_server_file_io_base_dir", None)
-    exts_raw = ctx.get_setting("mcp_server_file_io_allowed_extensions", None)
+    base_dir = ctx.get_setting("file_io_base_dir", None)
+    exts_raw = ctx.get_setting("file_io_allowed_extensions", None)
     allowed_exts = sorted(
         set(exts_raw) if exts_raw is not None else _DEFAULT_EXTENSIONS
     )
@@ -422,13 +422,13 @@ def _get_file_io_config(ctx: Any) -> Dict[str, Any]:
 
 def _set_file_io_config(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     if "base_dir" in args:
-        ctx.set_setting("mcp_server_file_io_base_dir", args["base_dir"])
+        ctx.set_setting("file_io_base_dir", args["base_dir"])
         ctx.show_status_message(
             f"MCP file I/O base directory set to: {args['base_dir']}", 5000
         )
     if "allowed_extensions" in args:
         exts = [e if e.startswith(".") else f".{e}" for e in args["allowed_extensions"]]
-        ctx.set_setting("mcp_server_file_io_allowed_extensions", exts)
+        ctx.set_setting("file_io_allowed_extensions", exts)
     return {"success": True}
 
 

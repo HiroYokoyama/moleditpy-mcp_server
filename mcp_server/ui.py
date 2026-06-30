@@ -85,7 +85,7 @@ class MCPStatusDialog(QDialog):
         # Auto-start checkbox
         self._auto_start_chk = QCheckBox("Auto-start server on launch")
         self._auto_start_chk.setChecked(
-            self._plugin.context.get_setting("mcp_server_auto_start", False)
+            self._plugin.context.get_setting("auto_start", False)
         )
         self._auto_start_chk.toggled.connect(self._on_auto_start_toggled)
         layout.addWidget(self._auto_start_chk)
@@ -95,7 +95,7 @@ class MCPStatusDialog(QDialog):
         dir_row.addWidget(QLabel("File I/O base dir:"))
         self._base_dir_edit = QLineEdit()
         self._base_dir_edit.setPlaceholderText("(unrestricted)")
-        saved_dir = self._plugin.context.get_setting("mcp_server_file_io_base_dir", None)
+        saved_dir = self._plugin.context.get_setting("file_io_base_dir", None)
         if saved_dir:
             self._base_dir_edit.setText(saved_dir)
         self._base_dir_edit.editingFinished.connect(self._on_base_dir_changed)
@@ -172,11 +172,11 @@ class MCPStatusDialog(QDialog):
         self.refresh()
 
     def _on_auto_start_toggled(self, checked: bool) -> None:
-        self._plugin.context.set_setting("mcp_server_auto_start", checked)
+        self._plugin.context.set_setting("auto_start", checked)
 
     def _on_base_dir_changed(self) -> None:
         text = self._base_dir_edit.text().strip()
-        self._plugin.context.set_setting("mcp_server_file_io_base_dir", text or None)
+        self._plugin.context.set_setting("file_io_base_dir", text or None)
 
     def _browse_base_dir(self) -> None:
         directory = QFileDialog.getExistingDirectory(
@@ -184,7 +184,7 @@ class MCPStatusDialog(QDialog):
         )
         if directory:
             self._base_dir_edit.setText(directory)
-            self._plugin.context.set_setting("mcp_server_file_io_base_dir", directory)
+            self._plugin.context.set_setting("file_io_base_dir", directory)
 
     def _copy_url(self) -> None:
         QApplication.clipboard().setText(self._plugin.url)

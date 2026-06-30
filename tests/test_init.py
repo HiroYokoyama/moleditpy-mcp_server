@@ -156,7 +156,7 @@ def test_initialize_no_auto_start_by_default(pkg, ctx):
 
 def test_initialize_auto_starts_when_setting_true(pkg, ctx):
     ctx.get_setting.side_effect = lambda key, default=None: {
-        "mcp_server_auto_start": True,
+        "auto_start": True,
         "port": 0,
     }.get(key, default)
     with _mock_server_modules():
@@ -182,7 +182,7 @@ def test_initialize_idempotent_plugin_instance(pkg, ctx):
 def test_start_stop_lifecycle(pkg, ctx):
     ctx.get_setting.side_effect = lambda key, default=None: {
         "port": 0,
-        "mcp_server_auto_start": False,
+        "auto_start": False,
     }.get(key, default)
     with _mock_server_modules():
         plugin = pkg.MCPServerPlugin(ctx)
@@ -206,7 +206,7 @@ def test_start_returns_false_if_already_running(pkg, ctx):
 def test_url_reflects_configured_port(pkg, ctx):
     ctx.get_setting.side_effect = lambda key, default=None: {
         "port": 9999,
-        "mcp_server_auto_start": False,
+        "auto_start": False,
     }.get(key, default)
     plugin = pkg.MCPServerPlugin(ctx)
     assert "9999" in plugin.url
