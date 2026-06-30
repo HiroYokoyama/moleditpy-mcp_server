@@ -118,11 +118,21 @@ context.set_setting("auto_start", True)
 | `get_selected_atoms` | Indices and symbols of user-selected atoms |
 | `load_molecule_from_smiles` | Draw a molecule from a SMILES string |
 | `load_from_mol_block` | Load a molecule from a MOL/SDF block |
+| `load_molecule_by_name` | Look up by common/IUPAC name on PubChem and load (e.g. `"aspirin"`) |
 | `show_xyz_in_viewer` | Display an XYZ block in the 3D viewer |
 | `trigger_3d_conversion` | Run MoleditPy's built-in 2D→3D optimizer (ETKDG/MMFF) |
 | `highlight_atoms` | Override atom colors in the 3D viewer (hex color per atom index) |
+| `highlight_bonds` | Override bond colors in the 3D viewer (hex color per bond index) |
+| `push_undo_checkpoint` | Push the current state onto MoleditPy's undo stack |
+| `enter_3d_mode` | Switch the UI to 3D viewer mode |
+| `fit_3d_view` | Zoom and re-center the 3D viewport to fit the molecule |
+| `reset_3d_camera` | Reset and re-center the 3D camera |
+| `refresh_3d_view` | Force a redraw of the 3D scene |
+| `check_chemistry` | Trigger MoleditPy's valence-violation validation pass |
+| `refresh_ui` | Sync info panel, undo/redo state, and title bar |
 | `clear_canvas` | Clear the 2D editor (undo-safe) |
 | `get_app_info` | MoleditPy version and MCP plugin version |
+| `run_python` | Execute arbitrary Python on the Qt main thread with `ctx` access — see below |
 
 ### File I/O tools (sandboxed)
 
@@ -134,6 +144,23 @@ context.set_setting("auto_start", True)
 | `delete_file` | Delete a file; requires explicit `confirm=true` |
 | `get_file_io_config` | Show current base directory and allowed extension list |
 | `set_file_io_config` | Set the sandbox directory and/or update the extension allowlist |
+
+#### `run_python` — execute arbitrary Python
+
+`run_python` lets an AI run any Python code on the Qt main thread with full access to MoleditPy's `PluginContext` as `ctx`. Use it for complex RDKit operations, custom manipulations, or reading/pushing molecules back into the editor:
+
+```python
+# Example: add an isotope label to atom 0 and reload
+from rdkit import Chem
+mol = ctx.current_molecule
+mol.GetAtomWithIdx(0).SetIsotope(13)
+ctx.current_molecule = mol
+ctx.push_undo_checkpoint()
+ctx.refresh_ui()
+result = mol.GetNumAtoms()
+```
+
+stdout, stderr, and the value of `result` are returned to the AI. There are no extra sandbox restrictions beyond running inside MoleditPy's process — treat it as a trusted power tool.
 
 #### Security model
 

@@ -14,6 +14,8 @@ import logging
 import os
 import socketserver
 import threading
+import urllib.parse
+import urllib.request
 import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -203,6 +205,131 @@ _TOOLS: List[Dict[str, Any]] = [
             "and this MCP server plugin."
         ),
         "inputSchema": {"type": "object", "properties": {}},
+    },
+    # ------------------------------------------------------------------
+    # Load by name (PubChem lookup)
+    # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Python execution (runs on Qt main thread, has full ctx access)
+    # ------------------------------------------------------------------
+    {
+        "name": "run_python",
+        "description": (
+            "Execute arbitrary Python code on the Qt main thread with full access to the "
+            "MoleditPy PluginContext as `ctx`. "
+            "stdout and stderr are captured and returned. "
+            "Assign any value to `result` to get it back. "
+            "Use this for complex RDKit manipulations, or to read/push molecules directly "
+            "back to the editor (e.g. `ctx.current_molecule = mol; ctx.refresh_ui()`). "
+            "Example: `result = ctx.current_molecule.GetNumAtoms()`. "
+            "The code runs in an isolated namespace — no extra sandbox restrictions, "
+            "so limit use to trusted operations."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string",
+                    "description": "Python source code to execute (may be multi-line).",
+                }
+            },
+            "required": ["code"],
+        },
+    },
+    {
+        "name": "load_molecule_by_name",
+        "description": (
+            "Look up a molecule by its common name or IUPAC name on PubChem, "
+            "retrieve its SMILES, and load it into the MoleditPy 2D editor. "
+            "Examples: 'aspirin', 'caffeine', 'water', 'glucose', 'methanol'."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Common name or IUPAC name, e.g. 'aspirin' or 'acetylsalicylic acid'.",
+                }
+            },
+            "required": ["name"],
+        },
+    },
+    # ------------------------------------------------------------------
+    # 3D / UI helpers
+    # ------------------------------------------------------------------
+    {
+        "name": "push_undo_checkpoint",
+        "description": (
+            "Push the current molecular state onto the undo stack. "
+            "Call this AFTER modifying the molecule so the user can revert. "
+            "The system only records a new checkpoint if the state has changed."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "enter_3d_mode",
+        "description": (
+            "Switch the MoleditPy UI to 3D viewer mode. "
+            "Maximizes the 3D scene and minimizes the 2D drawing canvas."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "fit_3d_view",
+        "description": "Zoom and re-center the 3D viewport to tightly fit the current molecule.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "reset_3d_camera",
+        "description": "Reset and re-center the 3D camera to fit the current molecule.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "refresh_3d_view",
+        "description": (
+            "Force a lightweight redraw of the 3D scene. "
+            "Use after color overrides (highlight_atoms / highlight_bonds) "
+            "to make them immediately visible."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "check_chemistry",
+        "description": (
+            "Trigger MoleditPy's chemistry validation pass. "
+            "Updates valence-violation flags on atoms, visible in the 2D view. "
+            "Also refreshes the UI info panel."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "refresh_ui",
+        "description": (
+            "Sync the MoleditPy info panel, undo/redo button states, "
+            "and title bar after an edit. "
+            "Use after direct molecule modifications that bypass the undo system."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "highlight_bonds",
+        "description": (
+            "Override the display color of specific bonds in the 3D viewer. "
+            "bond_colors maps bond index (as string key) to a hex color "
+            "(e.g. {\"0\": \"#FF0000\", \"3\": \"#0000FF\"}). "
+            "Call refresh_3d_view afterwards to show the changes."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "bond_colors": {
+                    "type": "object",
+                    "description": "Bond index → hex color, e.g. {\"0\": \"#FF0000\"}.",
+                    "additionalProperties": {"type": "string"},
+                }
+            },
+            "required": ["bond_colors"],
+        },
     },
     # ------------------------------------------------------------------
     # File I/O (sandboxed to the configured base directory)
@@ -398,6 +525,37 @@ def _get_sandbox(bridge: Any) -> tuple[str, List[str]]:
 
 
 # ---------------------------------------------------------------------------
+# PubChem helper (runs in server thread — no Qt needed)
+# ---------------------------------------------------------------------------
+
+
+def _fetch_smiles_by_name(name: str) -> str:
+    """
+    Resolve *name* to an IsomericSMILES string via the PubChem REST API.
+
+    Raises ``ValueError`` if the compound is not found or the request fails.
+    """
+    url = (
+        "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/"
+        + urllib.parse.quote(name)
+        + "/property/IsomericSMILES/JSON"
+    )
+    try:
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+        return data["PropertyTable"]["Properties"][0]["IsomericSMILES"]
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            raise ValueError(
+                f"Compound {name!r} was not found on PubChem. "
+                "Try a different name, IUPAC name, or CAS number."
+            ) from exc
+        raise ValueError(f"PubChem request failed (HTTP {exc.code})") from exc
+    except Exception as exc:
+        raise ValueError(f"PubChem lookup error: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
 # Tool dispatch
 # ---------------------------------------------------------------------------
 
@@ -536,6 +694,68 @@ def dispatch_tool(  # noqa: C901
                 f"Application: {info['app']}\n"
                 f"Version: {info['version']}\n"
                 f"MCP Plugin: {info['mcp_plugin_version']}"
+            )
+
+        if name == "run_python":
+            code = arguments.get("code", "").strip()
+            if not code:
+                return _tool_err("'code' argument is required.")
+            result = bridge.call("run_python", {"code": code}, timeout=30.0)
+            parts: List[str] = []
+            if result.get("stdout"):
+                parts.append(f"stdout:\n{result['stdout']}")
+            if result.get("stderr"):
+                parts.append(f"stderr:\n{result['stderr']}")
+            res_repr = result.get("result", "None")
+            if res_repr != "None":
+                parts.append(f"result: {res_repr}")
+            return _tool_ok("\n".join(parts) or "(no output)")
+
+        if name == "load_molecule_by_name":
+            mol_name = arguments.get("name", "").strip()
+            if not mol_name:
+                return _tool_err("'name' argument is required.")
+            smiles = _fetch_smiles_by_name(mol_name)
+            bridge.call("load_smiles", {"smiles": smiles})
+            return _tool_ok(
+                f"Loaded {mol_name!r} from PubChem.\nSMILES: {smiles}"
+            )
+
+        if name == "push_undo_checkpoint":
+            bridge.call("push_undo_checkpoint")
+            return _tool_ok("Undo checkpoint pushed.")
+
+        if name == "enter_3d_mode":
+            bridge.call("enter_3d_mode")
+            return _tool_ok("Switched to 3D viewer mode.")
+
+        if name == "fit_3d_view":
+            bridge.call("fit_3d_view")
+            return _tool_ok("3D view fitted to molecule.")
+
+        if name == "reset_3d_camera":
+            bridge.call("reset_3d_camera")
+            return _tool_ok("3D camera reset.")
+
+        if name == "refresh_3d_view":
+            bridge.call("refresh_3d_view")
+            return _tool_ok("3D view refreshed.")
+
+        if name == "check_chemistry":
+            bridge.call("check_chemistry")
+            return _tool_ok("Chemistry validation complete.")
+
+        if name == "refresh_ui":
+            bridge.call("refresh_ui")
+            return _tool_ok("UI refreshed.")
+
+        if name == "highlight_bonds":
+            bond_colors = arguments.get("bond_colors")
+            if not bond_colors:
+                return _tool_err("'bond_colors' argument is required.")
+            bridge.call("highlight_bonds", {"bond_colors": bond_colors})
+            return _tool_ok(
+                f"Highlighted {len(bond_colors)} bond(s) in the 3D viewer."
             )
 
         # ------------------------------------------------------------------

@@ -510,3 +510,130 @@ def test_file_io_no_base_dir_configured(srv, tmp_path):
     })
     assert result.get("isError") is True
     assert "not configured" in result["content"][0]["text"]
+
+
+# ---------------------------------------------------------------------------
+# run_python
+# ---------------------------------------------------------------------------
+
+
+def test_run_python_stdout(srv):
+    bridge = make_bridge({
+        "run_python": {"stdout": "hello\n", "stderr": "", "result": "None"}
+    })
+    result = srv.dispatch_tool(bridge, "run_python", {"code": "print('hello')"})
+    assert result.get("isError") is not True
+    assert "hello" in result["content"][0]["text"]
+
+
+def test_run_python_result_value(srv):
+    bridge = make_bridge({
+        "run_python": {"stdout": "", "stderr": "", "result": "42"}
+    })
+    result = srv.dispatch_tool(bridge, "run_python", {"code": "result = 42"})
+    assert "42" in result["content"][0]["text"]
+
+
+def test_run_python_no_output(srv):
+    bridge = make_bridge({
+        "run_python": {"stdout": "", "stderr": "", "result": "None"}
+    })
+    result = srv.dispatch_tool(bridge, "run_python", {"code": "pass"})
+    assert "(no output)" in result["content"][0]["text"]
+
+
+def test_run_python_empty_code(srv):
+    bridge = make_bridge({})
+    result = srv.dispatch_tool(bridge, "run_python", {"code": ""})
+    assert result.get("isError") is True
+
+
+# ---------------------------------------------------------------------------
+# load_molecule_by_name
+# ---------------------------------------------------------------------------
+
+
+def test_load_molecule_by_name_ok(srv):
+    bridge = make_bridge({"load_smiles": {"success": True}})
+    with patch.object(srv, "_fetch_smiles_by_name", return_value="CC(=O)Oc1ccccc1C(=O)O"):
+        result = srv.dispatch_tool(bridge, "load_molecule_by_name", {"name": "aspirin"})
+    assert result.get("isError") is not True
+    text = result["content"][0]["text"]
+    assert "aspirin" in text
+    assert "CC(=O)Oc1ccccc1C(=O)O" in text
+
+
+def test_load_molecule_by_name_not_found(srv):
+    bridge = make_bridge({})
+    with patch.object(srv, "_fetch_smiles_by_name", side_effect=ValueError("not found")):
+        result = srv.dispatch_tool(bridge, "load_molecule_by_name", {"name": "zzznonsense"})
+    assert result.get("isError") is True
+
+
+def test_load_molecule_by_name_empty(srv):
+    bridge = make_bridge({})
+    result = srv.dispatch_tool(bridge, "load_molecule_by_name", {"name": ""})
+    assert result.get("isError") is True
+
+
+# ---------------------------------------------------------------------------
+# New molecule tools (push_undo_checkpoint, enter_3d_mode, etc.)
+# ---------------------------------------------------------------------------
+
+
+def test_push_undo_checkpoint(srv):
+    bridge = make_bridge({"push_undo_checkpoint": {"success": True}})
+    result = srv.dispatch_tool(bridge, "push_undo_checkpoint", {})
+    assert result.get("isError") is not True
+    assert "checkpoint" in result["content"][0]["text"].lower()
+
+
+def test_enter_3d_mode(srv):
+    bridge = make_bridge({"enter_3d_mode": {"success": True}})
+    result = srv.dispatch_tool(bridge, "enter_3d_mode", {})
+    assert result.get("isError") is not True
+
+
+def test_fit_3d_view(srv):
+    bridge = make_bridge({"fit_3d_view": {"success": True}})
+    result = srv.dispatch_tool(bridge, "fit_3d_view", {})
+    assert result.get("isError") is not True
+
+
+def test_reset_3d_camera(srv):
+    bridge = make_bridge({"reset_3d_camera": {"success": True}})
+    result = srv.dispatch_tool(bridge, "reset_3d_camera", {})
+    assert result.get("isError") is not True
+
+
+def test_refresh_3d_view(srv):
+    bridge = make_bridge({"refresh_3d_view": {"success": True}})
+    result = srv.dispatch_tool(bridge, "refresh_3d_view", {})
+    assert result.get("isError") is not True
+
+
+def test_check_chemistry(srv):
+    bridge = make_bridge({"check_chemistry": {"success": True}})
+    result = srv.dispatch_tool(bridge, "check_chemistry", {})
+    assert result.get("isError") is not True
+
+
+def test_refresh_ui(srv):
+    bridge = make_bridge({"refresh_ui": {"success": True}})
+    result = srv.dispatch_tool(bridge, "refresh_ui", {})
+    assert result.get("isError") is not True
+
+
+def test_highlight_bonds_ok(srv):
+    bridge = make_bridge({"highlight_bonds": {"success": True}})
+    result = srv.dispatch_tool(bridge, "highlight_bonds", {
+        "bond_colors": {"0": "#FF0000", "2": "#0000FF"}
+    })
+    assert result.get("isError") is not True
+    assert "2" in result["content"][0]["text"]
+
+
+def test_highlight_bonds_empty(srv):
+    bridge = make_bridge({})
+    result = srv.dispatch_tool(bridge, "highlight_bonds", {"bond_colors": {}})
+    assert result.get("isError") is True

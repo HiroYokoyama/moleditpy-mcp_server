@@ -84,22 +84,62 @@ def execute_operation(ctx: Any, operation: str, args: Dict[str, Any]) -> Any:  #
         return _get_bond_info(ctx)
 
     if operation == "load_mol_block":
-        mol_block = args.get("mol_block", "").strip()
-        if not mol_block:
-            raise ValueError("'mol_block' argument is required")
-        mol = ctx.load_from_mol_block(mol_block)
-        return {"success": mol is not None}
+        return _load_mol_block(ctx, args)
 
     if operation == "trigger_3d_conversion":
-        ctx.generate_3d_coords()
-        return {"success": True}
+        return _trigger_3d_conversion(ctx)
 
     if operation == "highlight_atoms":
         atom_colors = args.get("atom_colors")
         if not atom_colors:
             raise ValueError("'atom_colors' argument is required")
-        ctx.set_atom_colors(atom_colors)
+        ctrl = ctx.get_3d_controller()
+        for idx_str, color in atom_colors.items():
+            ctrl.set_atom_color(int(idx_str), color)
+        ctx.refresh_3d_view()
         return {"success": True}
+
+    if operation == "highlight_bonds":
+        bond_colors = args.get("bond_colors")
+        if not bond_colors:
+            raise ValueError("'bond_colors' argument is required")
+        ctrl = ctx.get_3d_controller()
+        for idx_str, color in bond_colors.items():
+            ctrl.set_bond_color(int(idx_str), color)
+        ctx.refresh_3d_view()
+        return {"success": True}
+
+    if operation == "push_undo_checkpoint":
+        ctx.push_undo_checkpoint()
+        return {"success": True}
+
+    if operation == "enter_3d_mode":
+        ctx.enter_3d_viewer_mode()
+        return {"success": True}
+
+    if operation == "fit_3d_view":
+        ctx.fit_3d_view()
+        return {"success": True}
+
+    if operation == "reset_3d_camera":
+        ctx.reset_3d_camera()
+        return {"success": True}
+
+    if operation == "refresh_3d_view":
+        ctx.refresh_3d_view()
+        return {"success": True}
+
+    if operation == "check_chemistry":
+        ctx.check_chemistry_problems()
+        ctx.refresh_ui()
+        return {"success": True}
+
+    if operation == "refresh_ui":
+        ctx.refresh_ui()
+        return {"success": True}
+
+    if operation == "run_python":
+        return _run_python(ctx, args)
 
     if operation == "get_selected_atoms":
         return _get_selected_atoms(ctx)
@@ -207,6 +247,63 @@ def _get_selected_atoms(ctx: Any) -> Dict[str, Any]:
                 }
             )
     return {"selected_atoms": atoms, "count": len(atoms)}
+
+
+def _load_mol_block(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+    from rdkit import Chem  # pylint: disable=import-outside-toplevel
+    mol_block = args.get("mol_block", "").strip()
+    if not mol_block:
+        raise ValueError("'mol_block' argument is required")
+    mol = Chem.MolFromMolBlock(mol_block, removeHs=False)
+    if mol is None:
+        return {"success": False}
+    ctx.current_molecule = mol
+    ctx.push_undo_checkpoint()
+    ctx.refresh_ui()
+    return {"success": True}
+
+
+def _trigger_3d_conversion(ctx: Any) -> Dict[str, Any]:
+    # Prefer the native compute manager (non-blocking trigger).
+    mw = ctx.get_main_window()
+    if mw is not None and hasattr(mw, "compute_manager"):
+        cm = mw.compute_manager
+        if hasattr(cm, "trigger_conversion"):
+            cm.trigger_conversion()
+            return {"success": True}
+    # Fallback: RDKit ETKDG + MMFF in-thread.
+    from rdkit import Chem  # pylint: disable=import-outside-toplevel
+    from rdkit.Chem import AllChem  # pylint: disable=import-outside-toplevel
+    mol = ctx.current_molecule
+    if mol is None:
+        raise ValueError("No molecule loaded")
+    mol_h = Chem.AddHs(mol)
+    if AllChem.EmbedMolecule(mol_h, AllChem.ETKDGv3()) != 0:
+        raise ValueError("3D embedding failed — molecule may be too constrained")
+    AllChem.MMFFOptimizeMolecule(mol_h)
+    ctx.current_molecule = mol_h
+    ctx.push_undo_checkpoint()
+    ctx.enter_3d_viewer_mode()
+    ctx.refresh_ui()
+    return {"success": True}
+
+
+def _run_python(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+    import io  # pylint: disable=import-outside-toplevel
+    import contextlib  # pylint: disable=import-outside-toplevel
+    code = args.get("code", "").strip()
+    if not code:
+        raise ValueError("'code' argument is required")
+    namespace: Dict[str, Any] = {"ctx": ctx, "result": None}
+    stdout_buf = io.StringIO()
+    stderr_buf = io.StringIO()
+    with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
+        exec(code, namespace)  # noqa: S102
+    return {
+        "stdout": stdout_buf.getvalue(),
+        "stderr": stderr_buf.getvalue(),
+        "result": repr(namespace.get("result")),
+    }
 
 
 def _get_file_io_config(ctx: Any) -> Dict[str, Any]:

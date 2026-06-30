@@ -247,10 +247,28 @@ def test_execute_get_bond_info_aromatic(bridge_mod, ctx):
 
 
 def test_execute_load_mol_block_ok(bridge_mod, ctx):
-    ctx.load_from_mol_block.return_value = MagicMock()
-    result = bridge_mod.execute_operation(ctx, "load_mol_block", {"mol_block": "\n  Mrv2211\n\n..."})
+    mol_mock = MagicMock()
+    chem_mock = MagicMock(name="Chem")
+    chem_mock.MolFromMolBlock.return_value = mol_mock
+    rdkit_mock = MagicMock(name="rdkit")
+    rdkit_mock.Chem = chem_mock
+    saved = {k: sys.modules.get(k) for k in ("rdkit", "rdkit.Chem")}
+    sys.modules["rdkit"] = rdkit_mock
+    sys.modules["rdkit.Chem"] = chem_mock
+    try:
+        result = bridge_mod.execute_operation(
+            ctx, "load_mol_block", {"mol_block": "\n  Mrv2211\n\n..."}
+        )
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = v
     assert result["success"] is True
-    ctx.load_from_mol_block.assert_called_once()
+    assert ctx.current_molecule == mol_mock
+    ctx.push_undo_checkpoint.assert_called()
+    ctx.refresh_ui.assert_called()
 
 
 def test_execute_load_mol_block_empty_raises(bridge_mod, ctx):
@@ -259,8 +277,21 @@ def test_execute_load_mol_block_empty_raises(bridge_mod, ctx):
 
 
 def test_execute_load_mol_block_parse_failure(bridge_mod, ctx):
-    ctx.load_from_mol_block.return_value = None
-    result = bridge_mod.execute_operation(ctx, "load_mol_block", {"mol_block": "garbage"})
+    chem_mock = MagicMock(name="Chem")
+    chem_mock.MolFromMolBlock.return_value = None
+    rdkit_mock = MagicMock(name="rdkit")
+    rdkit_mock.Chem = chem_mock
+    saved = {k: sys.modules.get(k) for k in ("rdkit", "rdkit.Chem")}
+    sys.modules["rdkit"] = rdkit_mock
+    sys.modules["rdkit.Chem"] = chem_mock
+    try:
+        result = bridge_mod.execute_operation(ctx, "load_mol_block", {"mol_block": "garbage"})
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = v
     assert result["success"] is False
 
 
@@ -269,10 +300,49 @@ def test_execute_load_mol_block_parse_failure(bridge_mod, ctx):
 # ---------------------------------------------------------------------------
 
 
-def test_execute_trigger_3d_conversion(bridge_mod, ctx):
+def test_execute_trigger_3d_conversion_via_compute_manager(bridge_mod, ctx):
+    mw = ctx.get_main_window.return_value
+    cm = MagicMock()
+    mw.compute_manager = cm
     result = bridge_mod.execute_operation(ctx, "trigger_3d_conversion", {})
-    ctx.generate_3d_coords.assert_called_once()
+    cm.trigger_conversion.assert_called_once()
     assert result["success"] is True
+
+
+def test_execute_trigger_3d_conversion_fallback_rdkit(bridge_mod, ctx):
+    # No compute_manager on main window → fallback to RDKit ETKDG
+    mw = MagicMock(spec=[])  # spec=[] means no attributes match hasattr
+    ctx.get_main_window.return_value = mw
+
+    allchem_mock = MagicMock(name="AllChem")
+    allchem_mock.EmbedMolecule.return_value = 0  # success
+    allchem_mock.ETKDGv3.return_value = MagicMock()
+
+    mol_mock = MagicMock()
+    ctx.current_molecule = mol_mock
+
+    chem_mock = MagicMock(name="Chem")
+    chem_mock.AddHs.return_value = mol_mock
+    chem_mock.AllChem = allchem_mock
+
+    rdkit_mock = MagicMock(name="rdkit")
+    rdkit_mock.Chem = chem_mock
+
+    saved = {k: sys.modules.get(k) for k in ("rdkit", "rdkit.Chem", "rdkit.Chem.AllChem")}
+    sys.modules["rdkit"] = rdkit_mock
+    sys.modules["rdkit.Chem"] = chem_mock
+    sys.modules["rdkit.Chem.AllChem"] = allchem_mock
+    try:
+        result = bridge_mod.execute_operation(ctx, "trigger_3d_conversion", {})
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = v
+    assert result["success"] is True
+    ctx.enter_3d_viewer_mode.assert_called()
+    ctx.refresh_ui.assert_called()
 
 
 # ---------------------------------------------------------------------------
@@ -283,13 +353,122 @@ def test_execute_trigger_3d_conversion(bridge_mod, ctx):
 def test_execute_highlight_atoms_ok(bridge_mod, ctx):
     colors = {"0": "#FF0000", "3": "#00FF00"}
     result = bridge_mod.execute_operation(ctx, "highlight_atoms", {"atom_colors": colors})
-    ctx.set_atom_colors.assert_called_once_with(colors)
+    ctrl = ctx.get_3d_controller.return_value
+    assert ctrl.set_atom_color.call_count == 2
+    ctx.refresh_3d_view.assert_called()
     assert result["success"] is True
 
 
 def test_execute_highlight_atoms_empty_raises(bridge_mod, ctx):
     with pytest.raises(ValueError, match="required"):
         bridge_mod.execute_operation(ctx, "highlight_atoms", {"atom_colors": {}})
+
+
+# ---------------------------------------------------------------------------
+# highlight_bonds
+# ---------------------------------------------------------------------------
+
+
+def test_execute_highlight_bonds_ok(bridge_mod, ctx):
+    colors = {"0": "#FF0000", "2": "#0000FF"}
+    result = bridge_mod.execute_operation(ctx, "highlight_bonds", {"bond_colors": colors})
+    ctrl = ctx.get_3d_controller.return_value
+    assert ctrl.set_bond_color.call_count == 2
+    ctx.refresh_3d_view.assert_called()
+    assert result["success"] is True
+
+
+def test_execute_highlight_bonds_empty_raises(bridge_mod, ctx):
+    with pytest.raises(ValueError, match="required"):
+        bridge_mod.execute_operation(ctx, "highlight_bonds", {"bond_colors": {}})
+
+
+# ---------------------------------------------------------------------------
+# push_undo_checkpoint / enter_3d_mode / fit_3d_view / reset_3d_camera
+# ---------------------------------------------------------------------------
+
+
+def test_execute_push_undo_checkpoint(bridge_mod, ctx):
+    result = bridge_mod.execute_operation(ctx, "push_undo_checkpoint", {})
+    ctx.push_undo_checkpoint.assert_called_once()
+    assert result["success"] is True
+
+
+def test_execute_enter_3d_mode(bridge_mod, ctx):
+    result = bridge_mod.execute_operation(ctx, "enter_3d_mode", {})
+    ctx.enter_3d_viewer_mode.assert_called_once()
+    assert result["success"] is True
+
+
+def test_execute_fit_3d_view(bridge_mod, ctx):
+    result = bridge_mod.execute_operation(ctx, "fit_3d_view", {})
+    ctx.fit_3d_view.assert_called_once()
+    assert result["success"] is True
+
+
+def test_execute_reset_3d_camera(bridge_mod, ctx):
+    result = bridge_mod.execute_operation(ctx, "reset_3d_camera", {})
+    ctx.reset_3d_camera.assert_called_once()
+    assert result["success"] is True
+
+
+def test_execute_refresh_3d_view(bridge_mod, ctx):
+    result = bridge_mod.execute_operation(ctx, "refresh_3d_view", {})
+    ctx.refresh_3d_view.assert_called_once()
+    assert result["success"] is True
+
+
+# ---------------------------------------------------------------------------
+# check_chemistry / refresh_ui
+# ---------------------------------------------------------------------------
+
+
+def test_execute_check_chemistry(bridge_mod, ctx):
+    result = bridge_mod.execute_operation(ctx, "check_chemistry", {})
+    ctx.check_chemistry_problems.assert_called_once()
+    ctx.refresh_ui.assert_called()
+    assert result["success"] is True
+
+
+def test_execute_refresh_ui(bridge_mod, ctx):
+    result = bridge_mod.execute_operation(ctx, "refresh_ui", {})
+    ctx.refresh_ui.assert_called_once()
+    assert result["success"] is True
+
+
+# ---------------------------------------------------------------------------
+# run_python
+# ---------------------------------------------------------------------------
+
+
+def test_execute_run_python_stdout(bridge_mod, ctx):
+    result = bridge_mod.execute_operation(ctx, "run_python", {"code": "print('hello')"})
+    assert "hello" in result["stdout"]
+    assert result["stderr"] == ""
+
+
+def test_execute_run_python_result(bridge_mod, ctx):
+    result = bridge_mod.execute_operation(ctx, "run_python", {"code": "result = 1 + 2"})
+    assert result["result"] == "3"
+
+
+def test_execute_run_python_ctx_access(bridge_mod, ctx):
+    result = bridge_mod.execute_operation(
+        ctx, "run_python", {"code": "result = ctx is not None"}
+    )
+    assert result["result"] == "True"
+
+
+def test_execute_run_python_stderr(bridge_mod, ctx):
+    result = bridge_mod.execute_operation(
+        ctx, "run_python", {"code": "import sys; print('err', file=sys.stderr)"}
+    )
+    assert "err" in result["stderr"]
+
+
+def test_execute_run_python_empty_raises(bridge_mod, ctx):
+    with pytest.raises(ValueError, match="required"):
+        bridge_mod.execute_operation(ctx, "run_python", {"code": ""})
 
 
 # ---------------------------------------------------------------------------
