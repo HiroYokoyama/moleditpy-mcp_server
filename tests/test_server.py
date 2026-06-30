@@ -691,3 +691,23 @@ def test_reload_plugins_ok(srv):
     result = srv.dispatch_tool(bridge, "reload_plugins", {})
     assert result.get("isError") is not True
     assert "3" in result["content"][0]["text"]
+
+
+# ---------------------------------------------------------------------------
+# list_app_source_tree
+# ---------------------------------------------------------------------------
+
+
+def test_list_app_source_tree_ok(srv):
+    bridge = make_bridge({"list_app_source_tree": {"content": "moleditpy/\n├── plugins/\n│   └── plugin_interface.py"}})
+    result = srv.dispatch_tool(bridge, "list_app_source_tree", {})
+    assert result.get("isError") is not True
+    text = result["content"][0]["text"]
+    assert "plugins" in text
+    assert "plugin_interface.py" in text
+
+
+def test_list_app_source_tree_subtree(srv):
+    bridge = make_bridge({"list_app_source_tree": {"content": "plugins/\n└── plugin_interface.py"}})
+    result = srv.dispatch_tool(bridge, "list_app_source_tree", {"path": "plugins"})
+    assert result.get("isError") is not True

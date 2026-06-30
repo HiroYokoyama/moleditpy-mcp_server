@@ -164,6 +164,9 @@ def execute_operation(ctx: Any, operation: str, args: Dict[str, Any]) -> Any:  #
         plugins = mw.plugin_manager.discover_plugins(mw)
         return {"success": True, "plugin_count": len(plugins) if plugins else 0}
 
+    if operation == "list_app_source_tree":
+        return _list_app_source_tree(args)
+
     if operation == "get_app_source":
         return _get_app_source(args)
 
@@ -304,13 +307,67 @@ def _trigger_3d_conversion(ctx: Any) -> Dict[str, Any]:
     return {"success": True}
 
 
-def _get_app_source(args: Dict[str, Any]) -> Dict[str, Any]:
+def _find_moleditpy_spec() -> Any:
+    """Return the importlib.util spec for the moleditpy package (tries both install names)."""
     import importlib.util  # pylint: disable=import-outside-toplevel
+    for name in ("moleditpy", "moleditpy_linux"):
+        spec = importlib.util.find_spec(name)
+        if spec is not None and spec.submodule_search_locations:
+            return spec
+    raise ValueError(
+        "moleditpy package not found in the current Python environment. "
+        "Tried package names: moleditpy, moleditpy_linux."
+    )
+
+
+def _list_app_source_tree(args: Dict[str, Any]) -> Dict[str, Any]:
+    from pathlib import Path  # pylint: disable=import-outside-toplevel
+    spec = _find_moleditpy_spec()
+    if spec is None or not spec.submodule_search_locations:
+        raise ValueError("moleditpy package not found in the current Python environment")
+    pkg_root = Path(spec.submodule_search_locations[0]).resolve()
+    rel_path = args.get("path", "").strip()
+    if rel_path:
+        start = (pkg_root / rel_path).resolve()
+        try:
+            start.relative_to(pkg_root)
+        except ValueError:
+            raise ValueError(f"Path {rel_path!r} is outside the moleditpy package")
+    else:
+        start = pkg_root
+    lines: List[str] = [f"{start.name}/  [{start}]"]
+    _append_tree(start, "", lines)
+    return {"content": "\n".join(lines)}
+
+
+def _append_tree(directory: Any, prefix: str, lines: List[str]) -> None:
+    from pathlib import Path  # pylint: disable=import-outside-toplevel
+    skip = {"__pycache__", ".git", ".mypy_cache", ".pytest_cache"}
+    entries = sorted(
+        [
+            e for e in Path(directory).iterdir()
+            if e.name not in skip and not e.name.endswith((".pyc", ".pyo"))
+        ],
+        key=lambda p: (p.is_file(), p.name.lower()),
+    )
+    for i, entry in enumerate(entries):
+        is_last = i == len(entries) - 1
+        connector = "└── " if is_last else "├── "
+        if entry.is_dir():
+            lines.append(f"{prefix}{connector}{entry.name}/")
+            _append_tree(entry, prefix + ("    " if is_last else "│   "), lines)
+        else:
+            lines.append(
+                f"{prefix}{connector}{entry.name}  ({entry.stat().st_size:,} bytes)"
+            )
+
+
+def _get_app_source(args: Dict[str, Any]) -> Dict[str, Any]:
     from pathlib import Path  # pylint: disable=import-outside-toplevel
     rel_path = args.get("path", "").strip()
     if not rel_path:
         raise ValueError("'path' argument is required")
-    spec = importlib.util.find_spec("moleditpy")
+    spec = _find_moleditpy_spec()
     if spec is None or not spec.submodule_search_locations:
         raise ValueError("moleditpy package not found in the current Python environment")
     pkg_root = Path(spec.submodule_search_locations[0]).resolve()

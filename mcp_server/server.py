@@ -345,6 +345,27 @@ _TOOLS: List[Dict[str, Any]] = [
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
+        "name": "list_app_source_tree",
+        "description": (
+            "Return a recursive directory tree of the installed moleditpy package source. "
+            "Call this first to orient yourself — it shows every file and subdirectory "
+            "with sizes, so you know exactly what paths to pass to get_app_source. "
+            "Optionally pass a sub-path (e.g. 'plugins') to tree only that subtree."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": (
+                        "Optional sub-path within the package to tree "
+                        "(e.g. 'plugins'). Omit for the full package tree."
+                    ),
+                }
+            },
+        },
+    },
+    {
         "name": "get_app_source",
         "description": (
             "Read a source file or list a directory from the installed moleditpy package. "
@@ -838,6 +859,11 @@ def dispatch_tool(  # noqa: C901
         if name == "get_plugin_dev_manual":
             manual = _fetch_plugin_dev_manual()
             return _tool_ok(manual)
+
+        if name == "list_app_source_tree":
+            path = arguments.get("path", "").strip()
+            result = bridge.call("list_app_source_tree", {"path": path})
+            return _tool_ok(result["content"])
 
         if name == "get_app_source":
             path = arguments.get("path", "").strip()

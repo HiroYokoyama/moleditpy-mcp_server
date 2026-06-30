@@ -517,6 +517,40 @@ def test_execute_get_app_source_missing_path_raises(bridge_mod, ctx):
 
 
 # ---------------------------------------------------------------------------
+# list_app_source_tree
+# ---------------------------------------------------------------------------
+
+
+def test_execute_list_app_source_tree(bridge_mod, ctx, tmp_path):
+    # Build a fake package in tmp_path
+    (tmp_path / "core").mkdir()
+    (tmp_path / "core" / "molecular_data.py").write_text("# data", encoding="utf-8")
+    (tmp_path / "plugins").mkdir()
+    (tmp_path / "plugins" / "plugin_interface.py").write_text("# interface", encoding="utf-8")
+    (tmp_path / "__pycache__").mkdir()
+    (tmp_path / "__pycache__" / "cache.pyc").write_text("junk", encoding="utf-8")
+
+    fake_spec = MagicMock()
+    fake_spec.submodule_search_locations = [str(tmp_path)]
+
+    # Patch _find_moleditpy_spec directly on the isolated module object so
+    # _list_app_source_tree picks it up from its own __globals__.
+    original = bridge_mod._find_moleditpy_spec
+    bridge_mod._find_moleditpy_spec = lambda: fake_spec
+    try:
+        result = bridge_mod.execute_operation(ctx, "list_app_source_tree", {})
+    finally:
+        bridge_mod._find_moleditpy_spec = original
+
+    tree = result["content"]
+    assert "core" in tree
+    assert "plugins" in tree
+    assert "molecular_data.py" in tree
+    assert "plugin_interface.py" in tree
+    assert "__pycache__" not in tree
+
+
+# ---------------------------------------------------------------------------
 # get_selected_atoms
 # ---------------------------------------------------------------------------
 
