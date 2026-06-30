@@ -2,7 +2,7 @@
 
 Expose [MoleditPy](https://github.com/HiroYokoyama/python_molecular_editor) to AI assistants via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
 
-Once running, any MCP-compatible client — **Claude Desktop**, **Claude Code**, or any HTTP client — can query and control the molecular editor in real time.
+Once running, any MCP-compatible client — **Claude Desktop**, **Claude Code**, **Cursor**, **Windsurf**, **Zed**, **VS Code (Copilot)**, **OpenAI Codex CLI**, **Google Antigravity**, or any HTTP client — can query and control the molecular editor in real time.
 
 [![Tests](https://github.com/HiroYokoyama/moleditpy-mcp_server/actions/workflows/test.yml/badge.svg)](https://github.com/HiroYokoyama/moleditpy-mcp_server/actions/workflows/test.yml)
 
@@ -111,6 +111,86 @@ Add the server to your Claude Code MCP configuration:
 ```
 
 Or set it per-project in `.claude/settings.json` inside your project folder.
+
+### Cursor
+
+Add to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project):
+
+```json
+{
+  "mcpServers": {
+    "moleditpy": {
+      "url": "http://127.0.0.1:7891/mcp"
+    }
+  }
+}
+```
+
+### Windsurf
+
+Add to `~/.codeium/windsurf/mcp_config.json` (Windows: `%USERPROFILE%\.codeium\windsurf\mcp_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "moleditpy": {
+      "serverUrl": "http://127.0.0.1:7891/mcp"
+    }
+  }
+}
+```
+
+### Zed
+
+Add to `~/.config/zed/settings.json` (macOS: `Zed → Settings…`):
+
+```json
+{
+  "context_servers": {
+    "moleditpy": {
+      "url": "http://127.0.0.1:7891/mcp"
+    }
+  }
+}
+```
+
+### VS Code (GitHub Copilot)
+
+Add to `.vscode/mcp.json` in your workspace (VS Code 1.101+):
+
+```json
+{
+  "servers": {
+    "moleditpy": {
+      "type": "http",
+      "url": "http://127.0.0.1:7891/mcp"
+    }
+  }
+}
+```
+
+### OpenAI Codex CLI
+
+Add to `~/.codex/config.toml` (global) or `.codex/config.toml` (project):
+
+```toml
+[mcp_servers.moleditpy]
+url = "http://127.0.0.1:7891/mcp"
+```
+
+### Google Antigravity
+
+Add to `~/.gemini/antigravity/mcp_config.json` (Windows: `%USERPROFILE%\.gemini\antigravity\mcp_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "moleditpy": {
+      "serverUrl": "http://127.0.0.1:7891/mcp"
+    }
+  }
+}
+```
 
 ### curl / raw HTTP
 
