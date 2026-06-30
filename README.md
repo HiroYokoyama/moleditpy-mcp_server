@@ -138,11 +138,7 @@ curl http://127.0.0.1:7891/health
 
 ### Auto-start
 
-To start the server automatically every time MoleditPy launches, run this once in the **Python Console** plugin:
-
-```python
-context.set_setting("auto_start", True)
-```
+To start the server automatically every time MoleditPy launches, open **Plugins → MCP Server → Status & Settings** and check **Auto-start server on launch**.
 
 ---
 
@@ -215,14 +211,7 @@ stdout, stderr, and the value of `result` are returned to the AI. There are no e
 
 #### Security model
 
-All file operations are restricted to a **base directory** you configure:
-
-```python
-# In MoleditPy's Python Console plugin — run once to configure
-context.set_setting("file_io_base_dir", "/home/you/dft_jobs")
-```
-
-Or let the LLM set it via `set_file_io_config`:
+All file operations are restricted to a **base directory** you configure. Set it in **Plugins → MCP Server → Status & Settings** (File I/O base dir field), or let the LLM set it via `set_file_io_config`:
 
 ```
 Set the file I/O base directory to /home/you/dft_jobs

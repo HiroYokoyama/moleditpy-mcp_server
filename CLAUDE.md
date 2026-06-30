@@ -43,10 +43,10 @@ All settings are stored under `plugin.mcp_server.<key>` in the app's persistent 
 
 | Key | Type | Default | Where set |
 |---|---|---|---|
-| `auto_start` | bool | `False` | GUI checkbox or `context.set_setting(...)` |
+| `auto_start` | bool | `False` | GUI checkbox (Status & Settings dialog) |
 | `port` | int | `7891` | GUI port spinner |
-| `file_io_base_dir` | str or None | `None` (unrestricted) | GUI browse field or `context.set_setting(...)` |
-| `file_io_allowed_extensions` | list[str] | see `_DEFAULT_EXTENSIONS` | `set_file_io_config` MCP tool or `context.set_setting(...)` |
+| `file_io_base_dir` | str or None | `None` (unrestricted) | GUI browse field or `set_file_io_config` MCP tool |
+| `file_io_allowed_extensions` | list[str] | see `_DEFAULT_EXTENSIONS` | `set_file_io_config` MCP tool |
 
 ## Adding New MCP Tools
 
