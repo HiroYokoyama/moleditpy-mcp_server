@@ -472,6 +472,51 @@ def test_execute_run_python_empty_raises(bridge_mod, ctx):
 
 
 # ---------------------------------------------------------------------------
+# get_plugin_dir / reload_plugins
+# ---------------------------------------------------------------------------
+
+
+def test_execute_get_plugin_dir(bridge_mod, ctx):
+    mw = ctx.get_main_window.return_value
+    mw.plugin_manager.plugin_dir = "/home/user/.moleditpy/plugins"
+    result = bridge_mod.execute_operation(ctx, "get_plugin_dir", {})
+    assert "/home/user/.moleditpy/plugins" in result["plugin_dir"]
+
+
+def test_execute_get_plugin_dir_no_plugin_manager(bridge_mod, ctx):
+    mw_mock = MagicMock(spec=[])  # no attributes → hasattr returns False
+    ctx.get_main_window.return_value = mw_mock
+    with pytest.raises(ValueError, match="not available"):
+        bridge_mod.execute_operation(ctx, "get_plugin_dir", {})
+
+
+def test_execute_reload_plugins(bridge_mod, ctx):
+    mw = ctx.get_main_window.return_value
+    mw.plugin_manager.discover_plugins.return_value = [MagicMock(), MagicMock()]
+    result = bridge_mod.execute_operation(ctx, "reload_plugins", {})
+    assert result["success"] is True
+    assert result["plugin_count"] == 2
+    mw.plugin_manager.discover_plugins.assert_called_once_with(mw)
+
+
+def test_execute_reload_plugins_returns_none(bridge_mod, ctx):
+    mw = ctx.get_main_window.return_value
+    mw.plugin_manager.discover_plugins.return_value = None
+    result = bridge_mod.execute_operation(ctx, "reload_plugins", {})
+    assert result["plugin_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# get_app_source
+# ---------------------------------------------------------------------------
+
+
+def test_execute_get_app_source_missing_path_raises(bridge_mod, ctx):
+    with pytest.raises(ValueError, match="required"):
+        bridge_mod.execute_operation(ctx, "get_app_source", {"path": ""})
+
+
+# ---------------------------------------------------------------------------
 # get_selected_atoms
 # ---------------------------------------------------------------------------
 

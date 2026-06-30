@@ -151,6 +151,22 @@ def execute_operation(ctx: Any, operation: str, args: Dict[str, Any]) -> Any:  #
     if operation == "get_app_info":
         return _get_app_info(ctx)
 
+    if operation == "get_plugin_dir":
+        mw = ctx.get_main_window()
+        if mw is None or not hasattr(mw, "plugin_manager"):
+            raise ValueError("Plugin manager is not available on main window")
+        return {"plugin_dir": str(mw.plugin_manager.plugin_dir)}
+
+    if operation == "reload_plugins":
+        mw = ctx.get_main_window()
+        if mw is None or not hasattr(mw, "plugin_manager"):
+            raise ValueError("Plugin manager is not available on main window")
+        plugins = mw.plugin_manager.discover_plugins(mw)
+        return {"success": True, "plugin_count": len(plugins) if plugins else 0}
+
+    if operation == "get_app_source":
+        return _get_app_source(args)
+
     if operation == "get_file_io_config":
         return _get_file_io_config(ctx)
 
@@ -286,6 +302,38 @@ def _trigger_3d_conversion(ctx: Any) -> Dict[str, Any]:
     ctx.enter_3d_viewer_mode()
     ctx.refresh_ui()
     return {"success": True}
+
+
+def _get_app_source(args: Dict[str, Any]) -> Dict[str, Any]:
+    import importlib.util  # pylint: disable=import-outside-toplevel
+    from pathlib import Path  # pylint: disable=import-outside-toplevel
+    rel_path = args.get("path", "").strip()
+    if not rel_path:
+        raise ValueError("'path' argument is required")
+    spec = importlib.util.find_spec("moleditpy")
+    if spec is None or not spec.submodule_search_locations:
+        raise ValueError("moleditpy package not found in the current Python environment")
+    pkg_root = Path(spec.submodule_search_locations[0]).resolve()
+    target = (pkg_root / rel_path).resolve()
+    try:
+        target.relative_to(pkg_root)
+    except ValueError:
+        raise ValueError(f"Path {rel_path!r} is outside the moleditpy package")
+    if target.is_dir():
+        entries = sorted(target.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
+        lines = [f"Directory listing: {rel_path}"]
+        for e in entries:
+            lines.append(f"  {'[dir]' if e.is_dir() else '[file]'}  {e.name}"
+                         + (f"  ({e.stat().st_size:,} bytes)" if e.is_file() else ""))
+        return {"type": "directory", "content": "\n".join(lines)}
+    if not target.exists():
+        raise ValueError(f"{rel_path!r} does not exist in the moleditpy package")
+    size = target.stat().st_size
+    if size > 200 * 1024:
+        raise ValueError(
+            f"File is {size:,} bytes; exceeds the 200 KB read limit for source files"
+        )
+    return {"type": "file", "content": target.read_text(encoding="utf-8")}
 
 
 def _run_python(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:

@@ -637,3 +637,57 @@ def test_highlight_bonds_empty(srv):
     bridge = make_bridge({})
     result = srv.dispatch_tool(bridge, "highlight_bonds", {"bond_colors": {}})
     assert result.get("isError") is True
+
+
+# ---------------------------------------------------------------------------
+# Plugin authoring helpers
+# ---------------------------------------------------------------------------
+
+
+def test_get_plugin_dev_manual_ok(srv):
+    bridge = make_bridge({})
+    with patch.object(srv, "_fetch_plugin_dev_manual", return_value="# Plugin Dev Manual\n..."):
+        result = srv.dispatch_tool(bridge, "get_plugin_dev_manual", {})
+    assert result.get("isError") is not True
+    assert "Plugin Dev Manual" in result["content"][0]["text"]
+
+
+def test_get_plugin_dev_manual_network_error(srv):
+    bridge = make_bridge({})
+    with patch.object(srv, "_fetch_plugin_dev_manual", side_effect=ValueError("network error")):
+        result = srv.dispatch_tool(bridge, "get_plugin_dev_manual", {})
+    assert result.get("isError") is True
+
+
+def test_get_app_source_ok(srv):
+    bridge = make_bridge({"get_app_source": {"type": "file", "content": "# plugin_interface\n"}})
+    result = srv.dispatch_tool(bridge, "get_app_source", {"path": "plugins/plugin_interface.py"})
+    assert result.get("isError") is not True
+    assert "plugin_interface" in result["content"][0]["text"]
+
+
+def test_get_app_source_directory(srv):
+    bridge = make_bridge({"get_app_source": {"type": "directory", "content": "Directory listing: .\n  [dir] plugins"}})
+    result = srv.dispatch_tool(bridge, "get_app_source", {"path": "."})
+    assert result.get("isError") is not True
+    assert "plugins" in result["content"][0]["text"]
+
+
+def test_get_app_source_empty_path(srv):
+    bridge = make_bridge({})
+    result = srv.dispatch_tool(bridge, "get_app_source", {"path": ""})
+    assert result.get("isError") is True
+
+
+def test_get_plugin_dir_ok(srv):
+    bridge = make_bridge({"get_plugin_dir": {"plugin_dir": "/home/user/.moleditpy/plugins"}})
+    result = srv.dispatch_tool(bridge, "get_plugin_dir", {})
+    assert result.get("isError") is not True
+    assert ".moleditpy/plugins" in result["content"][0]["text"]
+
+
+def test_reload_plugins_ok(srv):
+    bridge = make_bridge({"reload_plugins": {"success": True, "plugin_count": 3}})
+    result = srv.dispatch_tool(bridge, "reload_plugins", {})
+    assert result.get("isError") is not True
+    assert "3" in result["content"][0]["text"]

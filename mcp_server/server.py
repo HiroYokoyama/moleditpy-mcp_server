@@ -332,6 +332,60 @@ _TOOLS: List[Dict[str, Any]] = [
         },
     },
     # ------------------------------------------------------------------
+    # Plugin authoring helpers
+    # ------------------------------------------------------------------
+    {
+        "name": "get_plugin_dev_manual",
+        "description": (
+            "Fetch the MoleditPy Plugin Development Manual (V4) from GitHub. "
+            "Read this FIRST before writing any plugin — it contains the full "
+            "PluginContext API reference, lifecycle hooks, example code, and "
+            "packaging instructions."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "get_app_source",
+        "description": (
+            "Read a source file or list a directory from the installed moleditpy package. "
+            "Pass a path relative to the package root "
+            "(e.g. 'plugins/plugin_interface.py', 'core/molecular_data.py', or '.'). "
+            "Use this to inspect the real API before writing a plugin."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": (
+                        "Path relative to the moleditpy package root, e.g. "
+                        "'plugins/plugin_interface.py' or '.' for the root listing."
+                    ),
+                }
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "get_plugin_dir",
+        "description": (
+            "Return the absolute path to MoleditPy's plugin directory "
+            "('~/.moleditpy/plugins/' on Linux/macOS, "
+            "or '%USERPROFILE%\\.moleditpy\\plugins\\' on Windows). "
+            "Write new plugin files here, then call reload_plugins."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "reload_plugins",
+        "description": (
+            "Trigger MoleditPy to re-scan and reload all plugins from the plugin directory. "
+            "Call this after writing or updating a plugin via write_text_file. "
+            "Returns the number of plugins found."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    # ------------------------------------------------------------------
     # File I/O (sandboxed to the configured base directory)
     # ------------------------------------------------------------------
     {
@@ -527,6 +581,25 @@ def _get_sandbox(bridge: Any) -> tuple[str, List[str]]:
 # ---------------------------------------------------------------------------
 # PubChem helper (runs in server thread — no Qt needed)
 # ---------------------------------------------------------------------------
+
+
+_PLUGIN_DEV_MANUAL_URL = (
+    "https://hiroyokoyama.github.io/python_molecular_editor/docs/PLUGIN_DEVELOPMENT_MANUAL_V4.md"
+)
+
+
+def _fetch_plugin_dev_manual() -> str:
+    """Fetch the plugin development manual from GitHub. Raises ValueError on failure."""
+    try:
+        with urllib.request.urlopen(_PLUGIN_DEV_MANUAL_URL, timeout=15) as resp:
+            return resp.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        raise ValueError(
+            f"Failed to fetch plugin development manual (HTTP {exc.code}). "
+            "Check your internet connection or try again."
+        ) from exc
+    except Exception as exc:
+        raise ValueError(f"Failed to fetch plugin development manual: {exc}") from exc
 
 
 def _fetch_smiles_by_name(name: str) -> str:
@@ -756,6 +829,34 @@ def dispatch_tool(  # noqa: C901
             bridge.call("highlight_bonds", {"bond_colors": bond_colors})
             return _tool_ok(
                 f"Highlighted {len(bond_colors)} bond(s) in the 3D viewer."
+            )
+
+        # ------------------------------------------------------------------
+        # Plugin authoring helpers (run in server thread — no Qt for fetch/read)
+        # ------------------------------------------------------------------
+
+        if name == "get_plugin_dev_manual":
+            manual = _fetch_plugin_dev_manual()
+            return _tool_ok(manual)
+
+        if name == "get_app_source":
+            path = arguments.get("path", "").strip()
+            if not path:
+                return _tool_err("'path' argument is required.")
+            result = bridge.call("get_app_source", {"path": path})
+            return _tool_ok(result["content"])
+
+        if name == "get_plugin_dir":
+            result = bridge.call("get_plugin_dir")
+            return _tool_ok(
+                f"Plugin directory: {result['plugin_dir']}\n"
+                "Write new plugin files here, then call reload_plugins."
+            )
+
+        if name == "reload_plugins":
+            result = bridge.call("reload_plugins")
+            return _tool_ok(
+                f"Plugins reloaded. {result['plugin_count']} plugin(s) found."
             )
 
         # ------------------------------------------------------------------
