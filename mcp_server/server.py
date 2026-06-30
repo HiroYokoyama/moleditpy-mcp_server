@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import socketserver
 import threading
 import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -202,6 +204,118 @@ _TOOLS: List[Dict[str, Any]] = [
         ),
         "inputSchema": {"type": "object", "properties": {}},
     },
+    # ------------------------------------------------------------------
+    # File I/O (sandboxed to the configured base directory)
+    # ------------------------------------------------------------------
+    {
+        "name": "write_text_file",
+        "description": (
+            "Write text content to a file inside the configured base directory. "
+            "The path is relative to that directory. "
+            "Parent subdirectories are created automatically. "
+            "Set overwrite=true to replace an existing file (default: false). "
+            "Only extensions on the allowed list are accepted."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Relative path, e.g. 'run1/molecule.inp'",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Text content to write (UTF-8).",
+                },
+                "overwrite": {
+                    "type": "boolean",
+                    "description": "Allow overwriting an existing file (default false).",
+                },
+            },
+            "required": ["path", "content"],
+        },
+    },
+    {
+        "name": "read_text_file",
+        "description": (
+            "Read and return the UTF-8 text content of a file inside the "
+            "configured base directory. Path is relative to that directory."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Relative file path."},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "list_directory",
+        "description": (
+            "List files and subdirectories at a path inside the base directory. "
+            "Omit path (or use '.') to list the base directory itself."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Relative path (default '.' = base directory).",
+                },
+            },
+        },
+    },
+    {
+        "name": "delete_file",
+        "description": (
+            "Permanently delete a file inside the base directory. "
+            "This action cannot be undone. "
+            "You MUST pass confirm=true explicitly to proceed."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "confirm": {
+                    "type": "boolean",
+                    "description": "Must be true to authorise the deletion.",
+                },
+            },
+            "required": ["path", "confirm"],
+        },
+    },
+    {
+        "name": "get_file_io_config",
+        "description": (
+            "Get the current file I/O sandbox configuration: "
+            "base directory and allowed file extensions."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "set_file_io_config",
+        "description": (
+            "Configure the file I/O sandbox. "
+            "base_dir must be an existing absolute directory path — "
+            "all file tools are restricted to that directory tree. "
+            "allowed_extensions is an optional list of permitted extensions "
+            "(e.g. ['.inp', '.txt', '.xyz']); omit to keep the current list."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "base_dir": {
+                    "type": "string",
+                    "description": "Absolute path to the sandbox directory.",
+                },
+                "allowed_extensions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of permitted extensions (e.g. ['.inp', '.xyz']).",
+                },
+            },
+        },
+    },
 ]
 
 
@@ -218,6 +332,69 @@ def _tool_ok(text: str) -> Dict[str, Any]:
 def _tool_err(text: str) -> Dict[str, Any]:
     """Return a failed MCP tool result."""
     return {"content": [{"type": "text", "text": text}], "isError": True}
+
+
+# ---------------------------------------------------------------------------
+# File I/O sandbox helpers
+# ---------------------------------------------------------------------------
+
+_MAX_FILE_BYTES = 4 * 1024 * 1024  # 4 MB hard limit for reads and writes
+
+
+def _resolve_safe_path(user_path: str, base_dir: str) -> Path:
+    """
+    Resolve *user_path* relative to *base_dir* and verify it stays inside.
+
+    Raises ValueError on path traversal or absolute user_path.
+    """
+    if Path(user_path).is_absolute():
+        raise ValueError(
+            "Absolute paths are not accepted. Use a path relative to the base directory."
+        )
+    base = Path(base_dir).expanduser().resolve()
+    resolved = (base / user_path).resolve()
+    # Ensure the resolved path is inside the base (strict prefix check)
+    try:
+        resolved.relative_to(base)
+    except ValueError:
+        raise ValueError(
+            f"Path {user_path!r} resolves outside the allowed directory."
+        )
+    return resolved
+
+
+def _check_extension(path: Path, allowed_extensions: List[str]) -> None:
+    """Raise ValueError if path's extension is not in *allowed_extensions*."""
+    ext = path.suffix.lower()
+    if not ext:
+        raise ValueError(
+            f"{path.name!r} has no extension. "
+            f"Allowed extensions: {', '.join(sorted(allowed_extensions))}"
+        )
+    if ext not in {e.lower() for e in allowed_extensions}:
+        raise ValueError(
+            f"Extension {ext!r} is not on the allowlist. "
+            f"Allowed: {', '.join(sorted(allowed_extensions))}\n"
+            "Use set_file_io_config to add it."
+        )
+
+
+def _get_sandbox(bridge: Any) -> tuple[str, List[str]]:
+    """
+    Fetch the current file I/O config from the bridge.
+
+    Returns (base_dir, allowed_extensions).
+    Raises ValueError if base_dir is not configured.
+    """
+    cfg = bridge.call("get_file_io_config")
+    base_dir: Optional[str] = cfg.get("base_dir")
+    if not base_dir:
+        raise ValueError(
+            "File I/O base directory is not configured. "
+            "Call set_file_io_config with a base_dir first."
+        )
+    allowed: List[str] = cfg.get("allowed_extensions", [])
+    return base_dir, allowed
 
 
 # ---------------------------------------------------------------------------
@@ -360,6 +537,128 @@ def dispatch_tool(  # noqa: C901
                 f"Version: {info['version']}\n"
                 f"MCP Plugin: {info['mcp_plugin_version']}"
             )
+
+        # ------------------------------------------------------------------
+        # File I/O tools (sandboxed; run in server thread — no Qt needed)
+        # ------------------------------------------------------------------
+
+        if name == "get_file_io_config":
+            cfg = bridge.call("get_file_io_config")
+            base_dir = cfg.get("base_dir") or "(not configured)"
+            exts = ", ".join(cfg.get("allowed_extensions", []))
+            return _tool_ok(
+                f"Base directory: {base_dir}\n"
+                f"Allowed extensions: {exts or '(none)'}"
+            )
+
+        if name == "set_file_io_config":
+            args_inner: Dict[str, Any] = {}
+            if "base_dir" in arguments:
+                bd = arguments["base_dir"]
+                p = Path(bd).expanduser().resolve()
+                if not p.is_dir():
+                    return _tool_err(
+                        f"{bd!r} does not exist or is not a directory. "
+                        "Create it first or provide an existing path."
+                    )
+                args_inner["base_dir"] = str(p)
+            if "allowed_extensions" in arguments:
+                args_inner["allowed_extensions"] = arguments["allowed_extensions"]
+            if not args_inner:
+                return _tool_err("Provide at least base_dir or allowed_extensions.")
+            bridge.call("set_file_io_config", args_inner)
+            parts = []
+            if "base_dir" in args_inner:
+                parts.append(f"Base directory: {args_inner['base_dir']}")
+            if "allowed_extensions" in args_inner:
+                parts.append(f"Allowed extensions: {', '.join(args_inner['allowed_extensions'])}")
+            return _tool_ok("File I/O config updated.\n" + "\n".join(parts))
+
+        if name == "write_text_file":
+            user_path = arguments.get("path", "").strip()
+            content = arguments.get("content", "")
+            overwrite = bool(arguments.get("overwrite", False))
+            if not user_path:
+                return _tool_err("'path' argument is required.")
+            if len(content.encode("utf-8")) > _MAX_FILE_BYTES:
+                return _tool_err(
+                    f"Content exceeds the {_MAX_FILE_BYTES // 1024 // 1024} MB limit."
+                )
+            base_dir, allowed_exts = _get_sandbox(bridge)
+            target = _resolve_safe_path(user_path, base_dir)
+            _check_extension(target, allowed_exts)
+            if target.exists() and not overwrite:
+                return _tool_err(
+                    f"{user_path!r} already exists. Pass overwrite=true to replace it."
+                )
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+            size = target.stat().st_size
+            return _tool_ok(
+                f"Written: {user_path} ({size:,} bytes)"
+            )
+
+        if name == "read_text_file":
+            user_path = arguments.get("path", "").strip()
+            if not user_path:
+                return _tool_err("'path' argument is required.")
+            base_dir, allowed_exts = _get_sandbox(bridge)
+            target = _resolve_safe_path(user_path, base_dir)
+            _check_extension(target, allowed_exts)
+            if not target.exists():
+                return _tool_err(f"{user_path!r} does not exist.")
+            if not target.is_file():
+                return _tool_err(f"{user_path!r} is not a file.")
+            size = target.stat().st_size
+            if size > _MAX_FILE_BYTES:
+                return _tool_err(
+                    f"File is {size:,} bytes, exceeding the "
+                    f"{_MAX_FILE_BYTES // 1024 // 1024} MB read limit."
+                )
+            return _tool_ok(target.read_text(encoding="utf-8"))
+
+        if name == "list_directory":
+            user_path = arguments.get("path", ".") or "."
+            base_dir, _ = _get_sandbox(bridge)
+            target = _resolve_safe_path(user_path, base_dir)
+            if not target.exists():
+                return _tool_err(f"{user_path!r} does not exist.")
+            if not target.is_dir():
+                return _tool_err(f"{user_path!r} is not a directory.")
+            entries = sorted(target.iterdir(), key=lambda p: (p.is_file(), p.name))
+            dirs = [e for e in entries if e.is_dir()]
+            files = [e for e in entries if e.is_file()]
+            lines = [f"Directory: {target}"]
+            if dirs:
+                lines.append("Subdirectories:")
+                for d in dirs:
+                    lines.append(f"  {d.name}/")
+            if files:
+                lines.append("Files:")
+                for f in files:
+                    lines.append(f"  {f.name}  ({f.stat().st_size:,} bytes)")
+            if not dirs and not files:
+                lines.append("(empty)")
+            return _tool_ok("\n".join(lines))
+
+        if name == "delete_file":
+            user_path = arguments.get("path", "").strip()
+            confirm = arguments.get("confirm", False)
+            if not user_path:
+                return _tool_err("'path' argument is required.")
+            if not confirm:
+                return _tool_err(
+                    "Deletion is irreversible. Pass confirm=true to proceed."
+                )
+            base_dir, allowed_exts = _get_sandbox(bridge)
+            target = _resolve_safe_path(user_path, base_dir)
+            _check_extension(target, allowed_exts)
+            if not target.exists():
+                return _tool_err(f"{user_path!r} does not exist.")
+            if not target.is_file():
+                return _tool_err(f"{user_path!r} is not a regular file.")
+            target.unlink()
+            return _tool_ok(f"Deleted: {user_path}")
 
         return _tool_err(f"Unknown tool: {name!r}")
 

@@ -363,6 +363,60 @@ def test_execute_get_app_info_with_version(bridge_mod, ctx):
 
 
 # ---------------------------------------------------------------------------
+# get_file_io_config
+# ---------------------------------------------------------------------------
+
+
+def test_get_file_io_config_no_setting(bridge_mod, ctx):
+    ctx.get_setting.side_effect = lambda key, default=None: default
+    result = bridge_mod.execute_operation(ctx, "get_file_io_config", {})
+    assert result["base_dir"] is None
+    assert isinstance(result["allowed_extensions"], list)
+    assert ".inp" in result["allowed_extensions"]
+
+
+def test_get_file_io_config_with_setting(bridge_mod, ctx):
+    ctx.get_setting.side_effect = lambda key, default=None: {
+        "file_io_base_dir": "/home/user/calc",
+        "file_io_allowed_extensions": [".xyz", ".inp"],
+    }.get(key, default)
+    result = bridge_mod.execute_operation(ctx, "get_file_io_config", {})
+    assert result["base_dir"] == "/home/user/calc"
+    assert ".xyz" in result["allowed_extensions"]
+
+
+# ---------------------------------------------------------------------------
+# set_file_io_config
+# ---------------------------------------------------------------------------
+
+
+def test_set_file_io_config_base_dir(bridge_mod, ctx):
+    result = bridge_mod.execute_operation(
+        ctx, "set_file_io_config", {"base_dir": "/tmp/calc"}
+    )
+    assert result["success"] is True
+    ctx.set_setting.assert_any_call("file_io_base_dir", "/tmp/calc")
+
+
+def test_set_file_io_config_extensions(bridge_mod, ctx):
+    bridge_mod.execute_operation(
+        ctx, "set_file_io_config", {"allowed_extensions": [".inp", "xyz"]}
+    )
+    call_args = ctx.set_setting.call_args_list
+    ext_call = next(c for c in call_args if c.args[0] == "file_io_allowed_extensions")
+    exts = ext_call.args[1]
+    assert ".inp" in exts
+    assert ".xyz" in exts  # bare "xyz" should be normalized to ".xyz"
+
+
+def test_set_file_io_config_shows_status(bridge_mod, ctx):
+    bridge_mod.execute_operation(
+        ctx, "set_file_io_config", {"base_dir": "/tmp/calc"}
+    )
+    ctx.show_status_message.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
 # unknown operation
 # ---------------------------------------------------------------------------
 

@@ -23,6 +23,19 @@ from PyQt6.QtCore import QObject, Qt, pyqtSignal
 
 logger = logging.getLogger(__name__)
 
+# Default set of extensions the file I/O tools are allowed to touch.
+# Covers common DFT/QM input formats, plain text, and data files.
+_DEFAULT_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        ".inp", ".gjf", ".com", ".nw", ".in", ".orca",
+        ".xyz", ".mol", ".mol2", ".sdf", ".pdb", ".cif",
+        ".txt", ".csv", ".dat", ".log", ".out",
+        ".json", ".yaml", ".yml",
+        ".py", ".sh", ".bash",
+        ".fchk", ".chk", ".cfg", ".conf",
+    }
+)
+
 
 # ---------------------------------------------------------------------------
 # Pure-Python dispatch — no Qt dependency, fully unit-testable
@@ -97,6 +110,12 @@ def execute_operation(ctx: Any, operation: str, args: Dict[str, Any]) -> Any:  #
 
     if operation == "get_app_info":
         return _get_app_info(ctx)
+
+    if operation == "get_file_io_config":
+        return _get_file_io_config(ctx)
+
+    if operation == "set_file_io_config":
+        return _set_file_io_config(ctx, args)
 
     raise ValueError(f"Unknown operation: {operation!r}")
 
@@ -188,6 +207,27 @@ def _get_selected_atoms(ctx: Any) -> Dict[str, Any]:
                 }
             )
     return {"selected_atoms": atoms, "count": len(atoms)}
+
+
+def _get_file_io_config(ctx: Any) -> Dict[str, Any]:
+    base_dir = ctx.get_setting("file_io_base_dir", None)
+    exts_raw = ctx.get_setting("file_io_allowed_extensions", None)
+    allowed_exts = sorted(
+        set(exts_raw) if exts_raw is not None else _DEFAULT_EXTENSIONS
+    )
+    return {"base_dir": base_dir, "allowed_extensions": allowed_exts}
+
+
+def _set_file_io_config(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+    if "base_dir" in args:
+        ctx.set_setting("file_io_base_dir", args["base_dir"])
+        ctx.show_status_message(
+            f"MCP file I/O base directory set to: {args['base_dir']}", 5000
+        )
+    if "allowed_extensions" in args:
+        exts = [e if e.startswith(".") else f".{e}" for e in args["allowed_extensions"]]
+        ctx.set_setting("file_io_allowed_extensions", exts)
+    return {"success": True}
 
 
 def _get_app_info(ctx: Any) -> Dict[str, Any]:

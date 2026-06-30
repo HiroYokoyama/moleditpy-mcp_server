@@ -329,3 +329,184 @@ def test_handle_unknown_method_raises(srv):
     handler = _make_handler(srv)
     with pytest.raises(srv._MethodNotFound):
         handler._handle_method("unknown/method", {})
+
+
+# ---------------------------------------------------------------------------
+# File I/O tools
+# ---------------------------------------------------------------------------
+
+
+def _file_bridge(srv_mod, tmp_path, extra_exts=None):
+    """Bridge pre-configured with a tmp_path sandbox."""
+    exts = extra_exts or [".txt", ".inp", ".xyz"]
+    return make_bridge({
+        "get_file_io_config": {
+            "base_dir": str(tmp_path),
+            "allowed_extensions": exts,
+        },
+        "set_file_io_config": {"success": True},
+    })
+
+
+def test_write_text_file_creates_file(srv, tmp_path):
+    bridge = _file_bridge(srv, tmp_path)
+    result = srv.dispatch_tool(bridge, "write_text_file", {
+        "path": "hello.txt", "content": "Hello, world!"
+    })
+    assert result.get("isError") is not True
+    assert (tmp_path / "hello.txt").read_text() == "Hello, world!"
+
+
+def test_write_text_file_creates_parents(srv, tmp_path):
+    bridge = _file_bridge(srv, tmp_path)
+    srv.dispatch_tool(bridge, "write_text_file", {
+        "path": "subdir/deep/mol.inp", "content": "! ORCA input"
+    })
+    assert (tmp_path / "subdir" / "deep" / "mol.inp").exists()
+
+
+def test_write_text_file_no_overwrite_by_default(srv, tmp_path):
+    bridge = _file_bridge(srv, tmp_path)
+    (tmp_path / "existing.txt").write_text("original")
+    result = srv.dispatch_tool(bridge, "write_text_file", {
+        "path": "existing.txt", "content": "new"
+    })
+    assert result.get("isError") is True
+    assert (tmp_path / "existing.txt").read_text() == "original"
+
+
+def test_write_text_file_overwrite_allowed(srv, tmp_path):
+    bridge = _file_bridge(srv, tmp_path)
+    (tmp_path / "file.txt").write_text("old")
+    srv.dispatch_tool(bridge, "write_text_file", {
+        "path": "file.txt", "content": "new", "overwrite": True
+    })
+    assert (tmp_path / "file.txt").read_text() == "new"
+
+
+def test_write_text_file_path_traversal_rejected(srv, tmp_path):
+    bridge = _file_bridge(srv, tmp_path)
+    result = srv.dispatch_tool(bridge, "write_text_file", {
+        "path": "../../evil.txt", "content": "bad"
+    })
+    assert result.get("isError") is True
+    assert not (tmp_path.parent.parent / "evil.txt").exists()
+
+
+def test_write_text_file_absolute_path_rejected(srv, tmp_path):
+    bridge = _file_bridge(srv, tmp_path)
+    result = srv.dispatch_tool(bridge, "write_text_file", {
+        "path": str(tmp_path / "abs.txt"), "content": "bad"
+    })
+    assert result.get("isError") is True
+
+
+def test_write_text_file_extension_not_allowed(srv, tmp_path):
+    bridge = _file_bridge(srv, tmp_path, extra_exts=[".txt"])
+    result = srv.dispatch_tool(bridge, "write_text_file", {
+        "path": "script.exe", "content": "bad"
+    })
+    assert result.get("isError") is True
+
+
+def test_read_text_file_ok(srv, tmp_path):
+    (tmp_path / "data.txt").write_text("content here")
+    bridge = _file_bridge(srv, tmp_path)
+    result = srv.dispatch_tool(bridge, "read_text_file", {"path": "data.txt"})
+    assert result.get("isError") is not True
+    assert "content here" in result["content"][0]["text"]
+
+
+def test_read_text_file_not_found(srv, tmp_path):
+    bridge = _file_bridge(srv, tmp_path)
+    result = srv.dispatch_tool(bridge, "read_text_file", {"path": "missing.txt"})
+    assert result.get("isError") is True
+
+
+def test_read_text_file_traversal_rejected(srv, tmp_path):
+    bridge = _file_bridge(srv, tmp_path)
+    result = srv.dispatch_tool(bridge, "read_text_file", {"path": "../secret.txt"})
+    assert result.get("isError") is True
+
+
+def test_list_directory_ok(srv, tmp_path):
+    (tmp_path / "mol.xyz").write_text("3\ntest\nC 0 0 0\n")
+    (tmp_path / "sub").mkdir()
+    bridge = _file_bridge(srv, tmp_path)
+    result = srv.dispatch_tool(bridge, "list_directory", {})
+    text = result["content"][0]["text"]
+    assert "mol.xyz" in text
+    assert "sub" in text
+
+
+def test_list_directory_traversal_rejected(srv, tmp_path):
+    bridge = _file_bridge(srv, tmp_path)
+    result = srv.dispatch_tool(bridge, "list_directory", {"path": "../../"})
+    assert result.get("isError") is True
+
+
+def test_delete_file_requires_confirm(srv, tmp_path):
+    (tmp_path / "bye.txt").write_text("delete me")
+    bridge = _file_bridge(srv, tmp_path)
+    result = srv.dispatch_tool(bridge, "delete_file", {
+        "path": "bye.txt", "confirm": False
+    })
+    assert result.get("isError") is True
+    assert (tmp_path / "bye.txt").exists()
+
+
+def test_delete_file_with_confirm(srv, tmp_path):
+    (tmp_path / "gone.txt").write_text("bye")
+    bridge = _file_bridge(srv, tmp_path)
+    result = srv.dispatch_tool(bridge, "delete_file", {
+        "path": "gone.txt", "confirm": True
+    })
+    assert result.get("isError") is not True
+    assert not (tmp_path / "gone.txt").exists()
+
+
+def test_delete_file_traversal_rejected(srv, tmp_path):
+    bridge = _file_bridge(srv, tmp_path)
+    result = srv.dispatch_tool(bridge, "delete_file", {
+        "path": "../../important.txt", "confirm": True
+    })
+    assert result.get("isError") is True
+
+
+def test_get_file_io_config_no_base_dir(srv):
+    bridge = make_bridge({
+        "get_file_io_config": {"base_dir": None, "allowed_extensions": [".txt"]}
+    })
+    result = srv.dispatch_tool(bridge, "get_file_io_config", {})
+    assert "not configured" in result["content"][0]["text"]
+
+
+def test_set_file_io_config_valid(srv, tmp_path):
+    bridge = make_bridge({"set_file_io_config": {"success": True}})
+    result = srv.dispatch_tool(bridge, "set_file_io_config", {
+        "base_dir": str(tmp_path), "allowed_extensions": [".inp", ".txt"]
+    })
+    assert result.get("isError") is not True
+    bridge.call.assert_called_with("set_file_io_config", {
+        "base_dir": str(tmp_path.resolve()),
+        "allowed_extensions": [".inp", ".txt"],
+    })
+
+
+def test_set_file_io_config_nonexistent_dir(srv, tmp_path):
+    bridge = make_bridge({"set_file_io_config": {"success": True}})
+    result = srv.dispatch_tool(bridge, "set_file_io_config", {
+        "base_dir": str(tmp_path / "does_not_exist"),
+    })
+    assert result.get("isError") is True
+
+
+def test_file_io_no_base_dir_configured(srv, tmp_path):
+    bridge = make_bridge({
+        "get_file_io_config": {"base_dir": None, "allowed_extensions": [".txt"]}
+    })
+    result = srv.dispatch_tool(bridge, "write_text_file", {
+        "path": "test.txt", "content": "x"
+    })
+    assert result.get("isError") is True
+    assert "not configured" in result["content"][0]["text"]

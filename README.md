@@ -107,6 +107,8 @@ context.set_setting("auto_start", True)
 
 ## Available MCP Tools
 
+### Molecule tools
+
 | Tool | Description |
 |------|-------------|
 | `get_current_molecule` | SMILES, formula, MW, atom/bond counts, 3D availability |
@@ -121,6 +123,48 @@ context.set_setting("auto_start", True)
 | `highlight_atoms` | Override atom colors in the 3D viewer (hex color per atom index) |
 | `clear_canvas` | Clear the 2D editor (undo-safe) |
 | `get_app_info` | MoleditPy version and MCP plugin version |
+
+### File I/O tools (sandboxed)
+
+| Tool | Description |
+|------|-------------|
+| `write_text_file` | Write text to a file; auto-creates parent dirs; `overwrite=false` by default |
+| `read_text_file` | Read a file's UTF-8 text content (≤ 4 MB) |
+| `list_directory` | List files and subdirectories with sizes |
+| `delete_file` | Delete a file; requires explicit `confirm=true` |
+| `get_file_io_config` | Show current base directory and allowed extension list |
+| `set_file_io_config` | Set the sandbox directory and/or update the extension allowlist |
+
+#### Security model
+
+All file operations are restricted to a **base directory** you configure:
+
+```python
+# In MoleditPy's Python Console plugin — run once to configure
+context.set_setting("file_io_base_dir", "/home/you/dft_jobs")
+```
+
+Or let the LLM set it via `set_file_io_config`:
+
+```
+Set the file I/O base directory to /home/you/dft_jobs
+```
+
+Security guarantees:
+- **Path traversal blocked** — `../../etc/passwd` and absolute paths are rejected; every path is resolved and must stay within the base directory.
+- **Extension allowlist** — only extensions on the allowed list can be written/read/deleted. Defaults cover common DFT/QM formats (`.inp`, `.xyz`, `.gjf`, `.mol`, `.pdb`, `.txt`, `.json`, …). Use `set_file_io_config` to customise.
+- **Overwrite protection** — `write_text_file` refuses to replace existing files unless `overwrite=true` is passed explicitly.
+- **Deletion requires confirmation** — `delete_file` requires `confirm=true` in the same call.
+- **Size limit** — reads and writes are capped at 4 MB.
+
+#### Typical DFT workflow example
+
+> "Generate an ORCA input file for the current molecule using B3LYP/def2-TZVP and save it to `ethanol_opt.inp`."
+
+The LLM will:
+1. Call `get_molecule_xyz` to get the geometry.
+2. Call `write_text_file` with `path="ethanol_opt.inp"` and the generated ORCA input.
+3. Optionally call `read_text_file` to confirm what was written.
 
 ---
 
