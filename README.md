@@ -8,6 +8,47 @@ Once running, any MCP-compatible client — **Claude Desktop**, **Claude Code**,
 
 ---
 
+## What you can do with this
+
+### Molecule editing and analysis
+
+Ask an AI to load, modify, and analyze molecules entirely through conversation:
+
+- **Load by name** — "Load caffeine" → PubChem lookup → molecule appears in the editor
+- **Query the current molecule** — get SMILES, formula, MW, atom/bond tables, 3D coordinates
+- **Edit atoms and bonds** — run arbitrary RDKit code via `run_python` with full access to the molecule
+- **3D visualization** — trigger 2D→3D conversion, switch to 3D viewer, highlight specific atoms or bonds in color, fit/reset the camera
+- **Undo-safe editing** — every change can push an undo checkpoint; the user can always revert
+
+### DFT / QM input file generation
+
+Use the AI as a smart input file generator:
+
+- **Generate ORCA, Gaussian, NWChem, … inputs** from the current geometry
+- **Write files directly to disk** — the AI calls `write_text_file` into a sandboxed directory you configure
+- **Read files back** — verify what was written, or load a computed result (`.xyz`, `.log`, …)
+- **Organize jobs** — `list_directory`, create subdirectories, delete obsolete files
+
+Example prompt: *"Generate an ORCA input for B3LYP/def2-TZVP geometry optimization of the current molecule and save it to `opt.inp`."*
+
+### Plugin authoring
+
+The AI can read the MoleditPy source and write new plugins for you:
+
+1. `get_plugin_dev_manual` — fetch the full Plugin Development Manual V4 from the web
+2. `list_app_source_tree` — get a file map of the installed moleditpy package
+3. `get_app_source` — read any source file (e.g. `plugins/plugin_interface.py`) to understand the exact API
+4. `write_text_file` (pointed at the plugin directory) — write the plugin code
+5. `reload_plugins` — activate the new plugin without restarting MoleditPy
+
+Example prompt: *"Write a MoleditPy plugin that adds a menu item to export the current molecule as a TURBOMOLE `coord` file."*
+
+### Scripting and automation
+
+`run_python` lets the AI execute any Python on MoleditPy's Qt main thread with full `PluginContext` access. Use it for one-off operations too complex for the built-in tools — RDKit workflows, batch atom edits, custom property calculations — and get stdout, stderr, and a return value back.
+
+---
+
 ## Installation
 
 1. **Copy** (or symlink) the `mcp_server/` folder into your MoleditPy plugin directory:
@@ -134,6 +175,16 @@ context.set_setting("auto_start", True)
 | `get_app_info` | MoleditPy version and MCP plugin version |
 | `run_python` | Execute arbitrary Python on the Qt main thread with `ctx` access — see below |
 
+### Plugin authoring tools
+
+| Tool | Description |
+|------|-------------|
+| `get_plugin_dev_manual` | Fetch the Plugin Development Manual V4 from the web |
+| `list_app_source_tree` | Recursive file tree of the installed moleditpy package (with sizes) |
+| `get_app_source` | Read a source file or list a directory within the package |
+| `get_plugin_dir` | Return the absolute path to the plugin directory |
+| `reload_plugins` | Re-scan and reload all plugins (activates freshly written plugins) |
+
 ### File I/O tools (sandboxed)
 
 | Tool | Description |
@@ -192,6 +243,18 @@ The LLM will:
 1. Call `get_molecule_xyz` to get the geometry.
 2. Call `write_text_file` with `path="ethanol_opt.inp"` and the generated ORCA input.
 3. Optionally call `read_text_file` to confirm what was written.
+
+#### Typical plugin authoring workflow
+
+> "Write a MoleditPy plugin that adds a menu item to copy the current SMILES to the clipboard."
+
+The LLM will:
+1. Call `get_plugin_dev_manual` to read the full API.
+2. Call `list_app_source_tree` to map the source, then `get_app_source "plugins/plugin_interface.py"` for the exact contract.
+3. Call `get_plugin_dir` to find the plugin directory.
+4. Call `set_file_io_config` to point the sandbox at the plugin directory.
+5. Call `write_text_file` with `path="smiles_copy/__init__.py"` and the generated plugin code.
+6. Call `reload_plugins` to activate it — the new menu item appears immediately.
 
 ---
 
