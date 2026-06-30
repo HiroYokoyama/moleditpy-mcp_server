@@ -1,0 +1,331 @@
+"""Tests for mcp_server/server.py — MCP protocol and tool dispatch."""
+
+from __future__ import annotations
+
+import json
+from typing import Any, Dict
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from conftest import load_module, make_bridge, mock_optional_imports
+
+
+@pytest.fixture()
+def srv():
+    """Load server.py in isolation with deps mocked."""
+    with mock_optional_imports():
+        yield load_module("server.py")
+
+
+# ---------------------------------------------------------------------------
+# Tool definitions
+# ---------------------------------------------------------------------------
+
+
+def test_tools_list_nonempty(srv):
+    assert len(srv._TOOLS) >= 7
+
+
+def test_every_tool_has_required_fields(srv):
+    for tool in srv._TOOLS:
+        assert "name" in tool, f"{tool} missing 'name'"
+        assert "description" in tool, f"{tool} missing 'description'"
+        assert "inputSchema" in tool, f"{tool} missing 'inputSchema'"
+        schema = tool["inputSchema"]
+        assert schema.get("type") == "object"
+
+
+def test_tool_names_are_unique(srv):
+    names = [t["name"] for t in srv._TOOLS]
+    assert len(names) == len(set(names)), "Duplicate tool name detected"
+
+
+def test_known_tools_present(srv):
+    names = {t["name"] for t in srv._TOOLS}
+    expected = {
+        "get_current_molecule",
+        "get_molecule_xyz",
+        "load_molecule_from_smiles",
+        "show_xyz_in_viewer",
+        "get_selected_atoms",
+        "clear_canvas",
+        "get_app_info",
+    }
+    assert expected <= names
+
+
+def test_required_tools_have_required_schema_fields(srv):
+    load_tool = next(
+        t for t in srv._TOOLS if t["name"] == "load_molecule_from_smiles"
+    )
+    assert "required" in load_tool["inputSchema"]
+    assert "smiles" in load_tool["inputSchema"]["required"]
+
+
+# ---------------------------------------------------------------------------
+# Tool result helpers
+# ---------------------------------------------------------------------------
+
+
+def test_tool_ok_structure(srv):
+    result = srv._tool_ok("hello")
+    assert result["content"][0]["type"] == "text"
+    assert result["content"][0]["text"] == "hello"
+    assert "isError" not in result
+
+
+def test_tool_err_structure(srv):
+    result = srv._tool_err("oops")
+    assert result["content"][0]["text"] == "oops"
+    assert result["isError"] is True
+
+
+# ---------------------------------------------------------------------------
+# dispatch_tool
+# ---------------------------------------------------------------------------
+
+
+def _bridge(results: dict) -> MagicMock:
+    return make_bridge(results)
+
+
+def test_dispatch_get_current_molecule_no_mol(srv):
+    bridge = _bridge({"get_molecule_info": {"loaded": False}})
+    result = srv.dispatch_tool(bridge, "get_current_molecule", {})
+    assert "No molecule" in result["content"][0]["text"]
+    assert result.get("isError") is not True
+
+
+def test_dispatch_get_current_molecule_with_mol(srv):
+    bridge = _bridge({
+        "get_molecule_info": {
+            "loaded": True,
+            "smiles": "CCO",
+            "formula": "C2H6O",
+            "molecular_weight": 46.0684,
+            "num_atoms": 3,
+            "num_bonds": 2,
+            "has_3d_coords": False,
+        }
+    })
+    result = srv.dispatch_tool(bridge, "get_current_molecule", {})
+    text = result["content"][0]["text"]
+    assert "CCO" in text
+    assert "C2H6O" in text
+    assert "46.0684" in text
+
+
+def test_dispatch_get_molecule_xyz_no_data(srv):
+    bridge = _bridge({"get_xyz_block": {"has_data": False, "xyz_block": None}})
+    result = srv.dispatch_tool(bridge, "get_molecule_xyz", {})
+    assert "No 3D" in result["content"][0]["text"]
+
+
+def test_dispatch_get_molecule_xyz_with_data(srv):
+    xyz = "C  0.000  0.000  0.000\nH  0.634  0.634  0.634"
+    bridge = _bridge({"get_xyz_block": {"has_data": True, "xyz_block": xyz}})
+    result = srv.dispatch_tool(bridge, "get_molecule_xyz", {})
+    assert xyz in result["content"][0]["text"]
+
+
+def test_dispatch_load_smiles_missing_arg(srv):
+    bridge = MagicMock()
+    result = srv.dispatch_tool(bridge, "load_molecule_from_smiles", {})
+    assert result.get("isError") is True
+    bridge.call.assert_not_called()
+
+
+def test_dispatch_load_smiles_whitespace_only(srv):
+    bridge = MagicMock()
+    result = srv.dispatch_tool(bridge, "load_molecule_from_smiles", {"smiles": "  "})
+    assert result.get("isError") is True
+
+
+def test_dispatch_load_smiles_ok(srv):
+    bridge = _bridge({"load_smiles": {"success": True}})
+    result = srv.dispatch_tool(
+        bridge, "load_molecule_from_smiles", {"smiles": "c1ccccc1"}
+    )
+    assert result.get("isError") is not True
+    bridge.call.assert_called_with("load_smiles", {"smiles": "c1ccccc1"})
+
+
+def test_dispatch_show_xyz_missing_arg(srv):
+    bridge = MagicMock()
+    result = srv.dispatch_tool(bridge, "show_xyz_in_viewer", {})
+    assert result.get("isError") is True
+
+
+def test_dispatch_show_xyz_success(srv):
+    bridge = _bridge({"show_xyz": {"success": True}})
+    result = srv.dispatch_tool(
+        bridge,
+        "show_xyz_in_viewer",
+        {"xyz_text": "C 0 0 0", "source_name": "test"},
+    )
+    assert "3D viewer" in result["content"][0]["text"]
+
+
+def test_dispatch_show_xyz_failure(srv):
+    bridge = _bridge({"show_xyz": {"success": False}})
+    result = srv.dispatch_tool(
+        bridge, "show_xyz_in_viewer", {"xyz_text": "bad data"}
+    )
+    assert result.get("isError") is True
+
+
+def test_dispatch_get_selected_atoms_empty(srv):
+    bridge = _bridge({"get_selected_atoms": {"count": 0, "selected_atoms": []}})
+    result = srv.dispatch_tool(bridge, "get_selected_atoms", {})
+    assert "No atoms" in result["content"][0]["text"]
+
+
+def test_dispatch_get_selected_atoms_with_selection(srv):
+    bridge = _bridge({
+        "get_selected_atoms": {
+            "count": 2,
+            "selected_atoms": [
+                {"index": 0, "symbol": "C", "atomic_num": 6},
+                {"index": 3, "symbol": "O", "atomic_num": 8},
+            ],
+        }
+    })
+    result = srv.dispatch_tool(bridge, "get_selected_atoms", {})
+    text = result["content"][0]["text"]
+    assert "2 atom" in text
+    assert "C" in text
+    assert "O" in text
+
+
+def test_dispatch_clear_canvas(srv):
+    bridge = _bridge({"clear_canvas": {"success": True}})
+    result = srv.dispatch_tool(bridge, "clear_canvas", {})
+    assert "cleared" in result["content"][0]["text"].lower()
+    bridge.call.assert_called_with("clear_canvas")
+
+
+def test_dispatch_get_app_info(srv):
+    bridge = _bridge({
+        "get_app_info": {
+            "app": "MoleditPy",
+            "version": "4.0.0",
+            "mcp_plugin_version": "2026.06.30",
+        }
+    })
+    result = srv.dispatch_tool(bridge, "get_app_info", {})
+    text = result["content"][0]["text"]
+    assert "MoleditPy" in text
+    assert "4.0.0" in text
+
+
+def test_dispatch_unknown_tool(srv):
+    bridge = MagicMock()
+    result = srv.dispatch_tool(bridge, "nonexistent_tool_xyz", {})
+    assert result.get("isError") is True
+    assert "Unknown tool" in result["content"][0]["text"]
+
+
+def test_dispatch_bridge_timeout(srv):
+    bridge = MagicMock()
+    bridge.call.side_effect = TimeoutError("timed out")
+    result = srv.dispatch_tool(bridge, "get_current_molecule", {})
+    assert result.get("isError") is True
+    assert "Timed out" in result["content"][0]["text"]
+
+
+def test_dispatch_bridge_exception(srv):
+    bridge = MagicMock()
+    bridge.call.side_effect = RuntimeError("boom")
+    result = srv.dispatch_tool(bridge, "get_current_molecule", {})
+    assert result.get("isError") is True
+    assert "Error" in result["content"][0]["text"]
+
+
+# ---------------------------------------------------------------------------
+# MCPHttpServer
+# ---------------------------------------------------------------------------
+
+
+def test_mcp_http_server_url(srv):
+    bridge = MagicMock()
+    server = srv.MCPHttpServer(
+        bridge, server_name="Test", server_version="1.0", host="127.0.0.1", port=19876
+    )
+    assert server.url == "http://127.0.0.1:19876/mcp"
+    assert not server.is_running
+
+
+def test_mcp_http_server_start_stop(srv):
+    bridge = MagicMock()
+    server = srv.MCPHttpServer(
+        bridge, server_name="Test", server_version="1.0", port=0
+    )
+    server.start()
+    assert server.is_running
+    server.stop()
+    assert not server.is_running
+
+
+def test_mcp_http_server_stop_idempotent(srv):
+    bridge = MagicMock()
+    server = srv.MCPHttpServer(
+        bridge, server_name="Test", server_version="1.0", port=0
+    )
+    server.stop()  # should not raise when not running
+    assert not server.is_running
+
+
+# ---------------------------------------------------------------------------
+# _MCPHandler protocol (via _handle_method)
+# ---------------------------------------------------------------------------
+
+
+def _make_handler(srv_mod: Any) -> Any:
+    """Instantiate _MCPHandler without a real HTTP request."""
+    cls = srv_mod._MCPHandler
+    cls.bridge = MagicMock()
+    cls.session_id = "test-session"
+    cls.server_name = "Test Server"
+    cls.server_version = "1.0"
+    handler = object.__new__(cls)
+    return handler
+
+
+def test_handle_initialize(srv):
+    handler = _make_handler(srv)
+    result = handler._handle_method("initialize", {})
+    assert result["protocolVersion"] == srv._PROTOCOL_VERSION
+    assert result["serverInfo"]["name"] == "Test Server"
+    assert "tools" in result["capabilities"]
+
+
+def test_handle_ping(srv):
+    handler = _make_handler(srv)
+    result = handler._handle_method("ping", {})
+    assert result == {}
+
+
+def test_handle_tools_list(srv):
+    handler = _make_handler(srv)
+    result = handler._handle_method("tools/list", {})
+    assert "tools" in result
+    assert len(result["tools"]) == len(srv._TOOLS)
+
+
+def test_handle_tools_call_dispatches(srv):
+    handler = _make_handler(srv)
+    handler.__class__.bridge = make_bridge(
+        {"get_molecule_info": {"loaded": False}}
+    )
+    result = handler._handle_method(
+        "tools/call",
+        {"name": "get_current_molecule", "arguments": {}},
+    )
+    assert "content" in result
+
+
+def test_handle_unknown_method_raises(srv):
+    handler = _make_handler(srv)
+    with pytest.raises(srv._MethodNotFound):
+        handler._handle_method("unknown/method", {})
