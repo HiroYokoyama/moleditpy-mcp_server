@@ -31,18 +31,11 @@ jobs:
         run: pytest tests/ -v --tb=short --cov=mcp_server --cov-report=term-missing
 
   test-integration:
-    name: Integration (with main app)
+    name: Integration (with moleditpy)
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Clone main app
-        uses: actions/checkout@v4
-        with:
-          repository: HiroYokoyama/python_molecular_editor
-          path: python_molecular_editor
-          fetch-depth: 1
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -50,9 +43,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: |
-          pip install pytest pytest-cov
-          pip install -e python_molecular_editor/moleditpy/ || true
+        run: pip install pytest moleditpy
 
-      - name: Run tests (including integration)
-        run: pytest tests/ -v --tb=short
+      - name: Run integration tests
+        run: pytest tests/test_plugin_integration.py -v --tb=short
