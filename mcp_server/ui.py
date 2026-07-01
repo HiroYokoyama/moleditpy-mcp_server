@@ -27,14 +27,14 @@ if TYPE_CHECKING:
     from mcp_server import MCPServerPlugin
 
 _CLAUDE_DESKTOP_CONFIG = """\
-{
-  "mcpServers": {
-    "moleditpy": {
+{{
+  "mcpServers": {{
+    "moleditpy": {{
       "type": "streamable-http",
       "url": "http://127.0.0.1:{port}/mcp"
-    }
-  }
-}"""
+    }}
+  }}
+}}"""
 
 
 class MCPStatusDialog(QDialog):
