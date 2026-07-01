@@ -43,7 +43,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install system dependencies
-        run: sudo apt-get install -y libegl1 libgl1-mesa-glx
+        run: sudo apt-get install -y libegl1 libgl1
 
       - name: Install dependencies
         run: pip install pytest moleditpy
