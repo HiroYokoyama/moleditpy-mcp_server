@@ -117,8 +117,8 @@ def execute_operation(ctx: Any, operation: str, args: Dict[str, Any]) -> Any:  #
         ctx.enter_3d_viewer_mode()
         return {"success": True}
 
-    if operation == "fit_3d_view":
-        ctx.fit_3d_view()
+    if operation == "fit_2d_view":
+        ctx.fit_2d_view()
         return {"success": True}
 
     if operation == "reset_3d_camera":

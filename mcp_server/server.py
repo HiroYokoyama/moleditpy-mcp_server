@@ -275,8 +275,8 @@ _TOOLS: List[Dict[str, Any]] = [
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
-        "name": "fit_3d_view",
-        "description": "Zoom and re-center the 3D viewport to tightly fit the current molecule.",
+        "name": "fit_2d_view",
+        "description": "Fit all visible items in the 2D editor canvas into the viewport.",
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
@@ -823,9 +823,9 @@ def dispatch_tool(  # noqa: C901
             bridge.call("enter_3d_mode")
             return _tool_ok("Switched to 3D viewer mode.")
 
-        if name == "fit_3d_view":
-            bridge.call("fit_3d_view")
-            return _tool_ok("3D view fitted to molecule.")
+        if name == "fit_2d_view":
+            bridge.call("fit_2d_view")
+            return _tool_ok("2D canvas fitted to molecule.")
 
         if name == "reset_3d_camera":
             bridge.call("reset_3d_camera")

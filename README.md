@@ -242,7 +242,7 @@ To start the server automatically every time MoleditPy launches, open **Plugins 
 | `highlight_bonds` | Override bond colors in the 3D viewer (hex color per bond index) |
 | `push_undo_checkpoint` | Push the current state onto MoleditPy's undo stack |
 | `enter_3d_mode` | Switch the UI to 3D viewer mode |
-| `fit_3d_view` | Zoom and re-center the 3D viewport to fit the molecule |
+| `fit_2d_view` | Fit all visible items in the 2D editor canvas into the viewport |
 | `reset_3d_camera` | Reset and re-center the 3D camera |
 | `refresh_3d_view` | Force a redraw of the 3D scene |
 | `check_chemistry` | Trigger MoleditPy's valence-violation validation pass |

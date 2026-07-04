@@ -594,9 +594,9 @@ def test_enter_3d_mode(srv):
     assert result.get("isError") is not True
 
 
-def test_fit_3d_view(srv):
-    bridge = make_bridge({"fit_3d_view": {"success": True}})
-    result = srv.dispatch_tool(bridge, "fit_3d_view", {})
+def test_fit_2d_view(srv):
+    bridge = make_bridge({"fit_2d_view": {"success": True}})
+    result = srv.dispatch_tool(bridge, "fit_2d_view", {})
     assert result.get("isError") is not True
 
 

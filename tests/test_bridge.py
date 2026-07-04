@@ -384,7 +384,7 @@ def test_execute_highlight_bonds_empty_raises(bridge_mod, ctx):
 
 
 # ---------------------------------------------------------------------------
-# push_undo_checkpoint / enter_3d_mode / fit_3d_view / reset_3d_camera
+# push_undo_checkpoint / enter_3d_mode / fit_2d_view / reset_3d_camera
 # ---------------------------------------------------------------------------
 
 
@@ -400,9 +400,9 @@ def test_execute_enter_3d_mode(bridge_mod, ctx):
     assert result["success"] is True
 
 
-def test_execute_fit_3d_view(bridge_mod, ctx):
-    result = bridge_mod.execute_operation(ctx, "fit_3d_view", {})
-    ctx.fit_3d_view.assert_called_once()
+def test_execute_fit_2d_view(bridge_mod, ctx):
+    result = bridge_mod.execute_operation(ctx, "fit_2d_view", {})
+    ctx.fit_2d_view.assert_called_once()
     assert result["success"] is True
 
 
