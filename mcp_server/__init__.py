@@ -24,7 +24,7 @@ import logging
 from typing import Any, Optional
 
 PLUGIN_NAME = "MCP Server"
-PLUGIN_VERSION = "0.2.1"
+PLUGIN_VERSION = "0.2.2"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Expose MoleditPy via Model Context Protocol (MCP) "
