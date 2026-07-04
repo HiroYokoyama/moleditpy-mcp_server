@@ -1,10 +1,11 @@
-# MoleditPy MCP Server Plugin
+﻿# MoleditPy MCP Server Plugin
 
 Expose [MoleditPy](https://github.com/HiroYokoyama/python_molecular_editor) to AI assistants via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
 
-Once running, any MCP-compatible client — **Claude Desktop**, **Claude Code**, **Cursor**, **Windsurf**, **Zed**, **VS Code (Copilot)**, **OpenAI Codex CLI**, **Google Antigravity**, or any HTTP client — can query and control the molecular editor in real time.
+Once running, any MCP-compatible client 窶・**Claude Desktop**, **Claude Code**, **Cursor**, **Windsurf**, **Zed**, **VS Code (Copilot)**, **OpenAI Codex CLI**, **Google Antigravity**, or any HTTP client 窶・can query and control the molecular editor in real time.
 
 [![Tests](https://github.com/HiroYokoyama/moleditpy-mcp_server/actions/workflows/test.yml/badge.svg)](https://github.com/HiroYokoyama/moleditpy-mcp_server/actions/workflows/test.yml)
+[![Downloads](https://img.shields.io/github/downloads/HiroYokoyama/moleditpy-mcp_server/total)](https://github.com/HiroYokoyama/moleditpy-mcp_server/releases)
 
 ---
 
@@ -14,20 +15,20 @@ Once running, any MCP-compatible client — **Claude Desktop**, **Claude Code**,
 
 Ask an AI to load, modify, and analyze molecules entirely through conversation:
 
-- **Load by name** — "Load caffeine" → PubChem lookup → molecule appears in the editor
-- **Query the current molecule** — get SMILES, formula, MW, atom/bond tables, 3D coordinates
-- **Edit atoms and bonds** — run arbitrary RDKit code via `run_python` with full access to the molecule
-- **3D visualization** — trigger 2D→3D conversion, switch to 3D viewer, highlight specific atoms or bonds in color, fit/reset the camera
-- **Undo-safe editing** — every change can push an undo checkpoint; the user can always revert
+- **Load by name** 窶・"Load caffeine" 竊・PubChem lookup 竊・molecule appears in the editor
+- **Query the current molecule** 窶・get SMILES, formula, MW, atom/bond tables, 3D coordinates
+- **Edit atoms and bonds** 窶・run arbitrary RDKit code via `run_python` with full access to the molecule
+- **3D visualization** 窶・trigger 2D竊・D conversion, switch to 3D viewer, highlight specific atoms or bonds in color, fit/reset the camera
+- **Undo-safe editing** 窶・every change can push an undo checkpoint; the user can always revert
 
 ### DFT / QM input file generation
 
 Use the AI as a smart input file generator:
 
-- **Generate ORCA, Gaussian, NWChem, … inputs** from the current geometry
-- **Write files directly to disk** — the AI calls `write_text_file` into a sandboxed directory you configure
-- **Read files back** — verify what was written, or load a computed result (`.xyz`, `.log`, …)
-- **Organize jobs** — `list_directory`, create subdirectories, delete obsolete files
+- **Generate ORCA, Gaussian, NWChem, 窶ｦ inputs** from the current geometry
+- **Write files directly to disk** 窶・the AI calls `write_text_file` into a sandboxed directory you configure
+- **Read files back** 窶・verify what was written, or load a computed result (`.xyz`, `.log`, 窶ｦ)
+- **Organize jobs** 窶・`list_directory`, create subdirectories, delete obsolete files
 
 Example prompt: *"Generate an ORCA input for B3LYP/def2-TZVP geometry optimization of the current molecule and save it to `opt.inp`."*
 
@@ -35,17 +36,17 @@ Example prompt: *"Generate an ORCA input for B3LYP/def2-TZVP geometry optimizati
 
 The AI can read the MoleditPy source and write new plugins for you:
 
-1. `get_plugin_dev_manual` — fetch the full Plugin Development Manual V4 from the web
-2. `list_app_source_tree` — get a file map of the installed moleditpy package
-3. `get_app_source` — read any source file (e.g. `plugins/plugin_interface.py`) to understand the exact API
-4. `write_text_file` (pointed at the plugin directory) — write the plugin code
-5. `reload_plugins` — activate the new plugin without restarting MoleditPy
+1. `get_plugin_dev_manual` 窶・fetch the full Plugin Development Manual V4 from the web
+2. `list_app_source_tree` 窶・get a file map of the installed moleditpy package
+3. `get_app_source` 窶・read any source file (e.g. `plugins/plugin_interface.py`) to understand the exact API
+4. `write_text_file` (pointed at the plugin directory) 窶・write the plugin code
+5. `reload_plugins` 窶・activate the new plugin without restarting MoleditPy
 
 Example prompt: *"Write a MoleditPy plugin that adds a menu item to export the current molecule as a TURBOMOLE `coord` file."*
 
 ### Scripting and automation
 
-`run_python` lets the AI execute any Python on MoleditPy's Qt main thread with full `PluginContext` access. Use it for one-off operations too complex for the built-in tools — RDKit workflows, batch atom edits, custom property calculations — and get stdout, stderr, and a return value back.
+`run_python` lets the AI execute any Python on MoleditPy's Qt main thread with full `PluginContext` access. Use it for one-off operations too complex for the built-in tools 窶・RDKit workflows, batch atom edits, custom property calculations 窶・and get stdout, stderr, and a return value back.
 
 ---
 
@@ -58,9 +59,9 @@ Example prompt: *"Write a MoleditPy plugin that adds a menu item to export the c
    | Windows | `C:\Users\<You>\.moleditpy\plugins\mcp_server\` |
    | Linux / macOS | `~/.moleditpy/plugins/mcp_server/` |
 
-2. **Restart MoleditPy** (or choose **Plugins → Reload All Plugins**).
+2. **Restart MoleditPy** (or choose **Plugins 竊・Reload All Plugins**).
 
-3. Choose **Plugins → MCP Server → Status & Settings…** to start the server.
+3. Choose **Plugins 竊・MCP Server 竊・Status & Settings窶ｦ** to start the server.
 
 ---
 
@@ -68,7 +69,7 @@ Example prompt: *"Write a MoleditPy plugin that adds a menu item to export the c
 
 ### Starting the server
 
-Open **Plugins → MCP Server → Status & Settings…**, set the port (default **7891**), and click **Start Server**.
+Open **Plugins 竊・MCP Server 竊・Status & Settings窶ｦ**, set the port (default **7891**), and click **Start Server**.
 
 The dialog shows the live server URL and a ready-to-paste configuration snippet.
 
@@ -142,7 +143,7 @@ Add to `~/.codeium/windsurf/mcp_config.json` (Windows: `%USERPROFILE%\.codeium\w
 
 ### Zed
 
-Add to `~/.config/zed/settings.json` (macOS: `Zed → Settings…`):
+Add to `~/.config/zed/settings.json` (macOS: `Zed 竊・Settings窶ｦ`):
 
 ```json
 {
@@ -194,7 +195,7 @@ Add to `~/.gemini/antigravity/mcp_config.json` (Windows: `%USERPROFILE%\.gemini\
 
 ### curl / raw HTTP
 
-You can call the server from any HTTP client. Example — list available tools:
+You can call the server from any HTTP client. Example 窶・list available tools:
 
 ```bash
 curl -s -X POST http://127.0.0.1:7891/mcp \
@@ -218,7 +219,7 @@ curl http://127.0.0.1:7891/health
 
 ### Auto-start
 
-To start the server automatically every time MoleditPy launches, open **Plugins → MCP Server → Status & Settings** and check **Auto-start server on launch**.
+To start the server automatically every time MoleditPy launches, open **Plugins 竊・MCP Server 竊・Status & Settings** and check **Auto-start server on launch**.
 
 ---
 
@@ -237,7 +238,7 @@ To start the server automatically every time MoleditPy launches, open **Plugins 
 | `load_from_mol_block` | Load a molecule from a MOL/SDF block |
 | `load_molecule_by_name` | Look up by common/IUPAC name on PubChem and load (e.g. `"aspirin"`) |
 | `show_xyz_in_viewer` | Display an XYZ block in the 3D viewer |
-| `trigger_3d_conversion` | Run MoleditPy's built-in 2D→3D optimizer (ETKDG/MMFF) |
+| `trigger_3d_conversion` | Run MoleditPy's built-in 2D竊・D optimizer (ETKDG/MMFF) |
 | `highlight_atoms` | Override atom colors in the 3D viewer (hex color per atom index) |
 | `highlight_bonds` | Override bond colors in the 3D viewer (hex color per bond index) |
 | `push_undo_checkpoint` | Push the current state onto MoleditPy's undo stack |
@@ -249,7 +250,7 @@ To start the server automatically every time MoleditPy launches, open **Plugins 
 | `refresh_ui` | Sync info panel, undo/redo state, and title bar |
 | `clear_canvas` | Clear the 2D editor (undo-safe) |
 | `get_app_info` | MoleditPy version and MCP plugin version |
-| `run_python` | Execute arbitrary Python on the Qt main thread with `ctx` access — see below |
+| `run_python` | Execute arbitrary Python on the Qt main thread with `ctx` access 窶・see below |
 
 ### Plugin authoring tools
 
@@ -266,13 +267,13 @@ To start the server automatically every time MoleditPy launches, open **Plugins 
 | Tool | Description |
 |------|-------------|
 | `write_text_file` | Write text to a file; auto-creates parent dirs; `overwrite=false` by default |
-| `read_text_file` | Read a file's UTF-8 text content (≤ 4 MB) |
+| `read_text_file` | Read a file's UTF-8 text content (竕､ 4 MB) |
 | `list_directory` | List files and subdirectories with sizes |
 | `delete_file` | Delete a file; requires explicit `confirm=true` |
 | `get_file_io_config` | Show current base directory and allowed extension list |
 | `set_file_io_config` | Set the sandbox directory and/or update the extension allowlist |
 
-#### `run_python` — execute arbitrary Python
+#### `run_python` 窶・execute arbitrary Python
 
 `run_python` lets an AI run any Python code on the Qt main thread with full access to MoleditPy's `PluginContext` as `ctx`. Use it for complex RDKit operations, custom manipulations, or reading/pushing molecules back into the editor:
 
@@ -287,22 +288,22 @@ ctx.refresh_ui()
 result = mol.GetNumAtoms()
 ```
 
-stdout, stderr, and the value of `result` are returned to the AI. There are no extra sandbox restrictions beyond running inside MoleditPy's process — treat it as a trusted power tool.
+stdout, stderr, and the value of `result` are returned to the AI. There are no extra sandbox restrictions beyond running inside MoleditPy's process 窶・treat it as a trusted power tool.
 
 #### Security model
 
-All file operations are restricted to a **base directory** you configure. Set it in **Plugins → MCP Server → Status & Settings** (File I/O base dir field), or let the LLM set it via `set_file_io_config`:
+All file operations are restricted to a **base directory** you configure. Set it in **Plugins 竊・MCP Server 竊・Status & Settings** (File I/O base dir field), or let the LLM set it via `set_file_io_config`:
 
 ```
 Set the file I/O base directory to /home/you/dft_jobs
 ```
 
 Security guarantees:
-- **Path traversal blocked** — `../../etc/passwd` and absolute paths are rejected; every path is resolved and must stay within the base directory.
-- **Extension allowlist** — only extensions on the allowed list can be written/read/deleted. Defaults cover common DFT/QM formats (`.inp`, `.xyz`, `.gjf`, `.mol`, `.pdb`, `.txt`, `.json`, …). Use `set_file_io_config` to customise.
-- **Overwrite protection** — `write_text_file` refuses to replace existing files unless `overwrite=true` is passed explicitly.
-- **Deletion requires confirmation** — `delete_file` requires `confirm=true` in the same call.
-- **Size limit** — reads and writes are capped at 4 MB.
+- **Path traversal blocked** 窶・`../../etc/passwd` and absolute paths are rejected; every path is resolved and must stay within the base directory.
+- **Extension allowlist** 窶・only extensions on the allowed list can be written/read/deleted. Defaults cover common DFT/QM formats (`.inp`, `.xyz`, `.gjf`, `.mol`, `.pdb`, `.txt`, `.json`, 窶ｦ). Use `set_file_io_config` to customise.
+- **Overwrite protection** 窶・`write_text_file` refuses to replace existing files unless `overwrite=true` is passed explicitly.
+- **Deletion requires confirmation** 窶・`delete_file` requires `confirm=true` in the same call.
+- **Size limit** 窶・reads and writes are capped at 4 MB.
 
 #### Typical DFT workflow example
 
@@ -323,7 +324,7 @@ The LLM will:
 3. Call `get_plugin_dir` to find the plugin directory.
 4. Call `set_file_io_config` to point the sandbox at the plugin directory.
 5. Call `write_text_file` with `path="smiles_copy/__init__.py"` and the generated plugin code.
-6. Call `reload_plugins` to activate it — the new menu item appears immediately.
+6. Call `reload_plugins` to activate it 窶・the new menu item appears immediately.
 
 ---
 
@@ -331,15 +332,15 @@ The LLM will:
 
 ```
 mcp_server/
-├── __init__.py   — Plugin entry point (initialize, MCPServerPlugin)
-├── bridge.py     — Thread-safe Qt signal bridge (server thread → Qt main thread)
-├── server.py     — HTTP server implementing MCP Streamable HTTP transport
-└── ui.py         — Status & Settings dialog
+笏懌楳笏 __init__.py   窶・Plugin entry point (initialize, MCPServerPlugin)
+笏懌楳笏 bridge.py     窶・Thread-safe Qt signal bridge (server thread 竊・Qt main thread)
+笏懌楳笏 server.py     窶・HTTP server implementing MCP Streamable HTTP transport
+笏披楳笏 ui.py         窶・Status & Settings dialog
 ```
 
-**Thread safety** — All PluginContext calls must occur on the Qt main thread. `MCPBridge` achieves this by emitting a `QueuedConnection` signal from the server thread; the main thread executes the operation and signals completion via a `threading.Event`.
+**Thread safety** 窶・All PluginContext calls must occur on the Qt main thread. `MCPBridge` achieves this by emitting a `QueuedConnection` signal from the server thread; the main thread executes the operation and signals completion via a `threading.Event`.
 
-**No extra dependencies** — Uses only Python's built-in `http.server` and `threading`.
+**No extra dependencies** 窶・Uses only Python's built-in `http.server` and `threading`.
 
 ---
 
@@ -356,7 +357,7 @@ pytest tests/ -v
 pytest tests/ --cov=mcp_server --cov-report=term-missing
 ```
 
-Tests run fully headlessly — no GUI, no RDKit, no MoleditPy installation required.
+Tests run fully headlessly 窶・no GUI, no RDKit, no MoleditPy installation required.
 
 ---
 
@@ -364,8 +365,8 @@ Tests run fully headlessly — no GUI, no RDKit, no MoleditPy installation requi
 
 | Requirement | Version |
 |-------------|---------|
-| MoleditPy | ≥ 4.0.0, < 5.0.0 |
+| MoleditPy | 竕･ 4.0.0, < 5.0.0 |
 | Python | 3.11+ |
 | MCP protocol | 2024-11-05 (Streamable HTTP) |
 
-No extra pip dependencies — uses Python's built-in `http.server` and `threading`.
+No extra pip dependencies 窶・uses Python's built-in `http.server` and `threading`.
