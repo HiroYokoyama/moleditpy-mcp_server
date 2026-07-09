@@ -428,6 +428,17 @@ def _apply_reaction_smarts(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
         )
 
     final_smiles = Chem.MolToSmiles(clean_mol)
+    # Atom indices are reassigned by the SMILES round-trip, so pre-apply
+    # atom_index values are stale. Report the new mapping (map = index + 1)
+    # computed from a re-parse of final_smiles — the same string the editor
+    # is about to load — so chained transformations can target atoms
+    # without an extra get_mapped_smiles call.
+    mapped_smiles = None
+    report_mol = Chem.MolFromSmiles(final_smiles)
+    if report_mol is not None:
+        for atom in report_mol.GetAtoms():
+            atom.SetAtomMapNum(atom.GetIdx() + 1)
+        mapped_smiles = Chem.MolToSmiles(report_mol)
     # load_from_smiles ADDS to the canvas; clear the original molecule first
     # so the product replaces it. No intermediate undo checkpoint — a single
     # undo must restore the pre-transformation state, not an empty canvas.
@@ -451,6 +462,7 @@ def _apply_reaction_smarts(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
         "num_products": len(products),
         "selected_product": selected,
         "converted_3d": converted_3d,
+        "mapped_smiles": mapped_smiles,
     }
 
 

@@ -345,6 +345,7 @@ def _configure_reaction(rd, mol, products, final_smiles="CCO", clean_atoms=None)
     rxn.RunReactants.return_value = products
     rd.chem.RemoveHs.side_effect = lambda m, **kw: m
     clean = MagicMock(name="clean_mol")
+    clean.GetAtoms.return_value = []
     clean.GetNumHeavyAtoms.return_value = (
         clean_atoms if clean_atoms is not None else mol.GetNumHeavyAtoms.return_value
     )
@@ -408,6 +409,8 @@ def test_apply_reaction_smarts_success(bridge_mod, ctx):
     # 2D->3D conversion runs by default so chained applies keep a molecule
     assert result["converted_3d"] is True
     ctx.get_main_window.return_value.compute_manager.trigger_conversion.assert_called_once()
+    # fresh atom mapping is reported for chained targeting
+    assert result["mapped_smiles"] == "Clc1ccccc1"
 
 
 def test_apply_reaction_smarts_convert_to_3d_opt_out(bridge_mod, ctx):

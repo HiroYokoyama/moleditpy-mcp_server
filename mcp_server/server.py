@@ -932,12 +932,21 @@ def dispatch_tool(  # noqa: C901
                 if data.get("converted_3d")
                 else "3D conversion skipped."
             )
+            mapped_note = ""
+            if data.get("mapped_smiles"):
+                mapped_note = (
+                    f"\nWARNING: atom indices were reassigned — previous "
+                    f"atom_index values are no longer valid.\n"
+                    f"New mapped SMILES (map number = atom_index + 1):\n"
+                    f"{data['mapped_smiles']}"
+                )
             return _tool_ok(
                 f"Transformation applied.\n"
                 f"Rule: {arguments.get('reaction_smarts')}\n"
                 f"New SMILES: {data['smiles']}\n"
                 f"({data['num_products']} candidate product(s); "
                 f"applied match #{data['selected_product']}) {conv_note}"
+                f"{mapped_note}"
             )
 
         if name == "exit_3d_mode":

@@ -728,6 +728,8 @@ def test_apply_reaction_smarts_dispatch(srv):
             "smiles": "Clc1ccccc1",
             "num_products": 6,
             "selected_product": 2,
+            "converted_3d": True,
+            "mapped_smiles": "[Cl:1][c:2]1[cH:3][cH:4][cH:5][cH:6][cH:7]1",
         }
     })
     result = srv.dispatch_tool(
@@ -740,6 +742,9 @@ def test_apply_reaction_smarts_dispatch(srv):
     assert "Clc1ccccc1" in text
     assert "[c:1][H]>>[c:1][Cl]" in text
     assert "match #2" in text
+    assert "conversion triggered" in text
+    assert "atom indices were reassigned" in text
+    assert "[Cl:1][c:2]1[cH:3][cH:4][cH:5][cH:6][cH:7]1" in text
 
 
 def test_apply_reaction_smarts_dispatch_error(srv):
