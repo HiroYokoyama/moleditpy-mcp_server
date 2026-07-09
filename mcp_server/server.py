@@ -625,19 +625,32 @@ def _fetch_plugin_dev_manual() -> str:
 
 def _fetch_smiles_by_name(name: str) -> str:
     """
-    Resolve *name* to an IsomericSMILES string via the PubChem REST API.
+    Resolve *name* to an (isomeric) SMILES string via the PubChem REST API.
+
+    PubChem's 2025 PUG-REST update renamed the ``IsomericSMILES`` property
+    to ``SMILES`` (both in the request and the response JSON), so we request
+    ``SMILES`` and accept either key in the response.
 
     Raises ``ValueError`` if the compound is not found or the request fails.
     """
     url = (
         "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/"
         + urllib.parse.quote(name)
-        + "/property/IsomericSMILES/JSON"
+        + "/property/SMILES/JSON"
     )
     try:
         with urllib.request.urlopen(url, timeout=10) as resp:
             data = json.loads(resp.read().decode())
-        return data["PropertyTable"]["Properties"][0]["IsomericSMILES"]
+        props = data["PropertyTable"]["Properties"][0]
+        smiles = props.get("SMILES") or props.get("IsomericSMILES")
+        if not smiles:
+            raise ValueError(
+                f"PubChem returned no SMILES for {name!r} "
+                f"(available properties: {sorted(props)})"
+            )
+        return smiles
+    except ValueError:
+        raise
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
             raise ValueError(

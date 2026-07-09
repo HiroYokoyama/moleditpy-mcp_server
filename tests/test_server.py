@@ -570,6 +570,77 @@ def test_load_molecule_by_name_not_found(srv):
     assert result.get("isError") is True
 
 
+def _mock_urlopen_json(payload):
+    """Return a context-manager mock mimicking urllib.request.urlopen."""
+    resp = MagicMock()
+    resp.read.return_value = json.dumps(payload).encode()
+    cm = MagicMock()
+    cm.__enter__.return_value = resp
+    cm.__exit__.return_value = False
+    return MagicMock(return_value=cm)
+
+
+def test_fetch_smiles_new_pubchem_key(srv):
+    """PubChem's 2025 API returns 'SMILES' instead of 'IsomericSMILES'."""
+    payload = {"PropertyTable": {"Properties": [
+        {"CID": 2244, "SMILES": "CC(=O)OC1=CC=CC=C1C(=O)O"}
+    ]}}
+    with patch.object(srv.urllib.request, "urlopen", _mock_urlopen_json(payload)):
+        assert srv._fetch_smiles_by_name("aspirin") == "CC(=O)OC1=CC=CC=C1C(=O)O"
+
+
+def test_fetch_smiles_legacy_pubchem_key(srv):
+    """Older responses with 'IsomericSMILES' are still accepted."""
+    payload = {"PropertyTable": {"Properties": [
+        {"CID": 2244, "IsomericSMILES": "CC(=O)OC1=CC=CC=C1C(=O)O"}
+    ]}}
+    with patch.object(srv.urllib.request, "urlopen", _mock_urlopen_json(payload)):
+        assert srv._fetch_smiles_by_name("aspirin") == "CC(=O)OC1=CC=CC=C1C(=O)O"
+
+
+def test_fetch_smiles_requests_smiles_property(srv):
+    """The request URL must use the non-deprecated 'SMILES' property name."""
+    payload = {"PropertyTable": {"Properties": [{"CID": 1, "SMILES": "C"}]}}
+    urlopen = _mock_urlopen_json(payload)
+    with patch.object(srv.urllib.request, "urlopen", urlopen):
+        srv._fetch_smiles_by_name("methane")
+    url = urlopen.call_args[0][0]
+    assert "/property/SMILES/JSON" in url
+    assert "IsomericSMILES" not in url
+
+
+def test_fetch_smiles_no_smiles_key(srv):
+    """A response missing any SMILES key raises a descriptive ValueError."""
+    payload = {"PropertyTable": {"Properties": [{"CID": 2244}]}}
+    with patch.object(srv.urllib.request, "urlopen", _mock_urlopen_json(payload)):
+        with pytest.raises(ValueError, match="no SMILES"):
+            srv._fetch_smiles_by_name("aspirin")
+
+
+def test_fetch_smiles_404_not_found(srv):
+    import urllib.error
+
+    err = urllib.error.HTTPError("url", 404, "Not Found", {}, None)
+    with patch.object(srv.urllib.request, "urlopen", MagicMock(side_effect=err)):
+        with pytest.raises(ValueError, match="not found on PubChem"):
+            srv._fetch_smiles_by_name("zzznonsense")
+
+
+def test_fetch_smiles_http_error(srv):
+    import urllib.error
+
+    err = urllib.error.HTTPError("url", 503, "Busy", {}, None)
+    with patch.object(srv.urllib.request, "urlopen", MagicMock(side_effect=err)):
+        with pytest.raises(ValueError, match="HTTP 503"):
+            srv._fetch_smiles_by_name("aspirin")
+
+
+def test_fetch_smiles_network_error(srv):
+    with patch.object(srv.urllib.request, "urlopen", MagicMock(side_effect=OSError("boom"))):
+        with pytest.raises(ValueError, match="PubChem lookup error"):
+            srv._fetch_smiles_by_name("aspirin")
+
+
 def test_load_molecule_by_name_empty(srv):
     bridge = make_bridge({})
     result = srv.dispatch_tool(bridge, "load_molecule_by_name", {"name": ""})
