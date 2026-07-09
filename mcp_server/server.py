@@ -1241,6 +1241,10 @@ class MCPHttpServer:
         """Stop the HTTP server."""
         if self._httpd is not None:
             self._httpd.shutdown()
+            # shutdown() only stops the serve_forever() loop; the listening
+            # socket itself must be closed explicitly or its file descriptor
+            # leaks (e.g. across repeated start/stop cycles in the UI).
+            self._httpd.server_close()
             self._httpd = None
             logger.info("MCP server stopped")
 

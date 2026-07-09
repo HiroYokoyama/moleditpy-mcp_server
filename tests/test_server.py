@@ -276,6 +276,29 @@ def test_mcp_http_server_stop_idempotent(srv):
     assert not server.is_running
 
 
+def test_mcp_http_server_stop_closes_socket(srv):
+    """stop() must release the listening socket, not just stop serve_forever().
+
+    Regression test: stop() previously called shutdown() but never
+    server_close(), leaking the socket file descriptor. On a fixed port,
+    a leaked socket makes an immediate restart on the same port flaky/fail
+    even with allow_reuse_address; closing it lets start/stop cycle cleanly.
+    """
+    bridge = MagicMock()
+    server = srv.MCPHttpServer(
+        bridge, server_name="Test", server_version="1.0", port=0
+    )
+    server.start()
+    httpd = server._httpd  # noqa: SLF001
+    assert httpd is not None
+    sock = httpd.socket
+    assert sock.fileno() != -1
+    server.stop()
+    # A closed socket's fileno() reliably reports -1 (cross-platform, unlike
+    # os.fstat() which doesn't work on Windows socket handles).
+    assert sock.fileno() == -1
+
+
 # ---------------------------------------------------------------------------
 # _MCPHandler protocol (via _handle_method)
 # ---------------------------------------------------------------------------
