@@ -345,8 +345,8 @@ def _configure_reaction(rd, mol, products, final_smiles="CCO", clean_atoms=None)
     rxn.RunReactants.return_value = products
     rd.chem.RemoveHs.side_effect = lambda m, **kw: m
     clean = MagicMock(name="clean_mol")
-    clean.GetNumAtoms.return_value = (
-        clean_atoms if clean_atoms is not None else mol.GetNumAtoms.return_value
+    clean.GetNumHeavyAtoms.return_value = (
+        clean_atoms if clean_atoms is not None else mol.GetNumHeavyAtoms.return_value
     )
     rd.chem.MolFromSmiles.return_value = clean
     rd.chem.MolToSmiles.return_value = final_smiles
@@ -391,7 +391,7 @@ def test_apply_reaction_smarts_no_match_raises(bridge_mod, ctx):
 
 def test_apply_reaction_smarts_success(bridge_mod, ctx):
     mol = MagicMock()
-    mol.GetNumAtoms.return_value = 6
+    mol.GetNumHeavyAtoms.return_value = 6
     ctx.current_molecule = mol
     with _RdkitPatch() as rd:
         _configure_reaction(rd, mol, ((_make_product(7),),), final_smiles="Clc1ccccc1")
@@ -408,7 +408,7 @@ def test_apply_reaction_smarts_success(bridge_mod, ctx):
 
 def test_apply_reaction_smarts_invalid_product_raises(bridge_mod, ctx):
     mol = MagicMock()
-    mol.GetNumAtoms.return_value = 6
+    mol.GetNumHeavyAtoms.return_value = 6
     ctx.current_molecule = mol
     with _RdkitPatch() as rd:
         _configure_reaction(rd, mol, ((_make_product(7),),))
@@ -422,7 +422,7 @@ def test_apply_reaction_smarts_invalid_product_raises(bridge_mod, ctx):
 
 def test_apply_reaction_smarts_atom_loss_guard(bridge_mod, ctx):
     mol = MagicMock()
-    mol.GetNumAtoms.return_value = 20
+    mol.GetNumHeavyAtoms.return_value = 20
     ctx.current_molecule = mol
     with _RdkitPatch() as rd:
         _configure_reaction(rd, mol, ((_make_product(3),),), clean_atoms=3)
@@ -433,9 +433,28 @@ def test_apply_reaction_smarts_atom_loss_guard(bridge_mod, ctx):
     ctx.load_from_smiles.assert_not_called()
 
 
+def test_apply_reaction_smarts_guard_ignores_explicit_hydrogens(bridge_mod, ctx):
+    """Regression: editor mol with explicit Hs (benzene = 12 atoms, 6 heavy)
+    transformed to chlorobenzene (7 heavy) must NOT trip the atom-loss guard —
+    comparing 12 total against 7 heavy previously aborted valid edits."""
+    mol = MagicMock()
+    mol.GetNumAtoms.return_value = 12
+    mol.GetNumHeavyAtoms.return_value = 6
+    ctx.current_molecule = mol
+    with _RdkitPatch() as rd:
+        _configure_reaction(
+            rd, mol, ((_make_product(7),),), final_smiles="Clc1ccccc1", clean_atoms=7
+        )
+        result = bridge_mod.execute_operation(
+            ctx, "apply_reaction_smarts", {"reaction_smarts": "[c:1][H]>>[c:1][Cl]"}
+        )
+    assert result["success"] is True
+    ctx.load_from_smiles.assert_called_once_with("Clc1ccccc1")
+
+
 def test_apply_reaction_smarts_anchor_selects_matching_site(bridge_mod, ctx):
     mol = MagicMock()
-    mol.GetNumAtoms.return_value = 6
+    mol.GetNumHeavyAtoms.return_value = 6
     ctx.current_molecule = mol
     products = ((_make_product(7),), (_make_product(7),))
     with _RdkitPatch() as rd:
@@ -452,7 +471,7 @@ def test_apply_reaction_smarts_anchor_selects_matching_site(bridge_mod, ctx):
 
 def test_apply_reaction_smarts_anchor_not_found_falls_back(bridge_mod, ctx):
     mol = MagicMock()
-    mol.GetNumAtoms.return_value = 6
+    mol.GetNumHeavyAtoms.return_value = 6
     ctx.current_molecule = mol
     products = ((_make_product(7),), (_make_product(7),))
     with _RdkitPatch() as rd:

@@ -416,8 +416,11 @@ def _apply_reaction_smarts(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
             "Refine the reaction SMARTS."
         )
 
-    orig_count = mol.GetNumAtoms()
-    new_count = clean_mol.GetNumAtoms()
+    # Compare heavy atoms on both sides: the editor molecule may carry
+    # explicit hydrogens (e.g. after 3D conversion) while clean_mol is
+    # H-stripped, and mixing the two counts falsely trips the guard.
+    orig_count = mol.GetNumHeavyAtoms()
+    new_count = clean_mol.GetNumHeavyAtoms()
     if orig_count > 5 and new_count < orig_count * 0.7:
         raise ValueError(
             f"Safety guard: transformation caused massive atom loss "
