@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from PyQt6.QtCore import Qt
@@ -176,7 +177,27 @@ class MCPStatusDialog(QDialog):
 
     def _on_base_dir_changed(self) -> None:
         text = self._base_dir_edit.text().strip()
-        self._plugin.context.set_setting("file_io_base_dir", text or None)
+        if not text:
+            self._plugin.context.set_setting("file_io_base_dir", None)
+            return
+        path = Path(text).expanduser()
+        if not path.is_dir():
+            # Keep behavior consistent with the set_file_io_config MCP tool,
+            # which rejects a base_dir that doesn't exist. Without this check
+            # a typo here would silently sandbox the file I/O tools to a
+            # directory that never resolves, so every write/read/list call
+            # would fail with a confusing error instead of failing here.
+            self._plugin.context.show_status_message(
+                f"'{text}' is not an existing directory — "
+                "File I/O base directory was not changed.",
+                5000,
+            )
+            saved = self._plugin.context.get_setting("file_io_base_dir", None)
+            self._base_dir_edit.setText(saved or "")
+            return
+        resolved = str(path.resolve())
+        self._base_dir_edit.setText(resolved)
+        self._plugin.context.set_setting("file_io_base_dir", resolved)
 
     def _browse_base_dir(self) -> None:
         directory = QFileDialog.getExistingDirectory(
