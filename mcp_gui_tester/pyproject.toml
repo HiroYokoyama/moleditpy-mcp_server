@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcp-gui-tester"
+version = "0.1.0"
+description = "Lightweight PyQt6 GUI tester for MCP servers over Streamable HTTP: list tools, fill parameters from each inputSchema, call tools, and inspect results."
+readme = "README.md"
+license = { text = "GPL-3.0-only" }
+authors = [{ name = "HiroYokoyama" }]
+requires-python = ">=3.9"
+dependencies = ["PyQt6"]
+keywords = [
+    "mcp",
+    "model-context-protocol",
+    "gui",
+    "tester",
+    "json-rpc",
+    "developer-tools",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Testing",
+]
+
+[project.scripts]
+mcp-gui-tester = "mcp_gui_tester.app:main"
+
+[project.urls]
+Homepage = "https://github.com/HiroYokoyama/moleditpy-mcp_server"
+Source = "https://github.com/HiroYokoyama/moleditpy-mcp_server/tree/main/mcp_gui_tester"
+Issues = "https://github.com/HiroYokoyama/moleditpy-mcp_server/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]

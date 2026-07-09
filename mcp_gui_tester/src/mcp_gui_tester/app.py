@@ -11,7 +11,8 @@ the results. Host, port, and endpoint path are all editable, so it can be
 pointed at any MCP HTTP server.
 
 Usage:
-    python tools/mcp_tester.py [--url http://127.0.0.1:7891/mcp]
+    mcp-gui-tester [--url http://127.0.0.1:7891/mcp]
+    python -m mcp_gui_tester [--url ...]
 
 Requires PyQt6 only (uses urllib for HTTP).
 """
@@ -518,7 +519,10 @@ class MCPTesterWindow(QMainWindow):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="GUI tester for the MoleditPy MCP server")
+    parser = argparse.ArgumentParser(
+        prog="mcp-gui-tester",
+        description="GUI tester for MCP servers over Streamable HTTP",
+    )
     parser.add_argument("--url", default=DEFAULT_URL, help=f"MCP endpoint (default {DEFAULT_URL})")
     args = parser.parse_args()
     app = QApplication(sys.argv)

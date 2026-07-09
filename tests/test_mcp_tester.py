@@ -1,5 +1,6 @@
 """
-Tests for tools/mcp_tester.py — the standalone MCP server tester GUI.
+Tests for mcp_gui_tester (mcp_gui_tester/src/mcp_gui_tester/app.py) —
+the standalone MCP server tester GUI.
 
 Three tiers:
 1. Pure-function tests (_split_url, parse_json_param) — no Qt, no network.
@@ -21,7 +22,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-TESTER_PATH = ROOT / "tools" / "mcp_tester.py"
+TESTER_PATH = ROOT / "mcp_gui_tester" / "src" / "mcp_gui_tester" / "app.py"
 
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
