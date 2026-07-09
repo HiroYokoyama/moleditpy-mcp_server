@@ -275,6 +275,15 @@ _TOOLS: List[Dict[str, Any]] = [
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
+        "name": "exit_3d_mode",
+        "description": (
+            "Switch the MoleditPy UI back to 2D editing mode. "
+            "Restores the 2D drawing canvas and re-enables the editing tools "
+            "(counterpart of enter_3d_mode)."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "fit_2d_view",
         "description": "Fit all visible items in the 2D editor canvas into the viewport.",
         "inputSchema": {"type": "object", "properties": {}},
@@ -835,6 +844,10 @@ def dispatch_tool(  # noqa: C901
         if name == "enter_3d_mode":
             bridge.call("enter_3d_mode")
             return _tool_ok("Switched to 3D viewer mode.")
+
+        if name == "exit_3d_mode":
+            bridge.call("exit_3d_mode")
+            return _tool_ok("Switched back to 2D editing mode.")
 
         if name == "fit_2d_view":
             bridge.call("fit_2d_view")

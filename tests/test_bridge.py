@@ -400,6 +400,37 @@ def test_execute_enter_3d_mode(bridge_mod, ctx):
     assert result["success"] is True
 
 
+def test_execute_exit_3d_mode_via_context(bridge_mod, ctx):
+    """Uses ctx.exit_3d_viewer_mode when the context provides it."""
+    result = bridge_mod.execute_operation(ctx, "exit_3d_mode", {})
+    ctx.exit_3d_viewer_mode.assert_called_once()
+    assert result["success"] is True
+
+
+def test_execute_exit_3d_mode_ui_manager_fallback(bridge_mod, ctx):
+    """Falls back to mw.ui_manager.restore_ui_for_editing on older contexts."""
+    del ctx.exit_3d_viewer_mode
+    mw = ctx.get_main_window.return_value
+    result = bridge_mod.execute_operation(ctx, "exit_3d_mode", {})
+    mw.ui_manager.restore_ui_for_editing.assert_called_once()
+    assert result["success"] is True
+
+
+def test_execute_exit_3d_mode_no_main_window(bridge_mod, ctx):
+    del ctx.exit_3d_viewer_mode
+    ctx.get_main_window.return_value = None
+    with pytest.raises(ValueError, match="not available"):
+        bridge_mod.execute_operation(ctx, "exit_3d_mode", {})
+
+
+def test_execute_exit_3d_mode_unsupported_app(bridge_mod, ctx):
+    del ctx.exit_3d_viewer_mode
+    mw = ctx.get_main_window.return_value
+    del mw.ui_manager.restore_ui_for_editing
+    with pytest.raises(ValueError, match="does not support"):
+        bridge_mod.execute_operation(ctx, "exit_3d_mode", {})
+
+
 def test_execute_fit_2d_view(bridge_mod, ctx):
     result = bridge_mod.execute_operation(ctx, "fit_2d_view", {})
     ctx.fit_2d_view.assert_called_once()

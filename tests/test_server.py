@@ -659,6 +659,18 @@ def test_push_undo_checkpoint(srv):
     assert "checkpoint" in result["content"][0]["text"].lower()
 
 
+def test_exit_3d_mode_tool_defined(srv):
+    names = {t["name"] for t in srv._TOOLS}
+    assert "exit_3d_mode" in names
+
+
+def test_exit_3d_mode_dispatch(srv):
+    bridge = make_bridge({"exit_3d_mode": {"success": True}})
+    result = srv.dispatch_tool(bridge, "exit_3d_mode", {})
+    assert result.get("isError") is not True
+    assert "2D editing" in result["content"][0]["text"]
+
+
 def test_enter_3d_mode(srv):
     bridge = make_bridge({"enter_3d_mode": {"success": True}})
     result = srv.dispatch_tool(bridge, "enter_3d_mode", {})

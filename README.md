@@ -256,6 +256,7 @@ To start the server automatically every time MoleditPy launches, open **Plugins 
 | `highlight_bonds` | Override bond colors in the 3D viewer (hex color per bond index) |
 | `push_undo_checkpoint` | Push the current state onto MoleditPy's undo stack |
 | `enter_3d_mode` | Switch the UI to 3D viewer mode |
+| `exit_3d_mode` | Switch the UI back to 2D editing mode |
 | `fit_2d_view` | Fit all visible items in the 2D editor canvas into the viewport |
 | `reset_3d_camera` | Reset and re-center the 3D camera |
 | `refresh_3d_view` | Force a redraw of the 3D scene |

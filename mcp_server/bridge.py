@@ -117,6 +117,9 @@ def execute_operation(ctx: Any, operation: str, args: Dict[str, Any]) -> Any:  #
         ctx.enter_3d_viewer_mode()
         return {"success": True}
 
+    if operation == "exit_3d_mode":
+        return _exit_3d_mode(ctx)
+
     if operation == "fit_2d_view":
         ctx.fit_2d_view()
         return {"success": True}
@@ -279,6 +282,21 @@ def _load_mol_block(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     ctx.current_molecule = mol
     ctx.push_undo_checkpoint()
     ctx.refresh_ui()
+    return {"success": True}
+
+
+def _exit_3d_mode(ctx: Any) -> Dict[str, Any]:
+    """Switch the UI back to 2D editing mode (counterpart of enter_3d_mode)."""
+    if hasattr(ctx, "exit_3d_viewer_mode"):
+        ctx.exit_3d_viewer_mode()
+        return {"success": True}
+    mw = ctx.get_main_window()
+    if mw is None or not hasattr(mw, "ui_manager"):
+        raise ValueError("Main window UI manager is not available")
+    fn = getattr(mw.ui_manager, "restore_ui_for_editing", None)
+    if fn is None:
+        raise ValueError("This MoleditPy version does not support exiting 3D viewer mode")
+    fn()
     return {"success": True}
 
 
