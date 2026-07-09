@@ -428,6 +428,10 @@ def _apply_reaction_smarts(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
         )
 
     final_smiles = Chem.MolToSmiles(clean_mol)
+    # load_from_smiles ADDS to the canvas; clear the original molecule first
+    # so the product replaces it. No intermediate undo checkpoint — a single
+    # undo must restore the pre-transformation state, not an empty canvas.
+    ctx.clear_canvas(push_to_undo=False)
     ctx.load_from_smiles(final_smiles)
     ctx.push_undo_checkpoint()
     ctx.refresh_ui()

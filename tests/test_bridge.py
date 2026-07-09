@@ -401,6 +401,7 @@ def test_apply_reaction_smarts_success(bridge_mod, ctx):
     assert result["success"] is True
     assert result["smiles"] == "Clc1ccccc1"
     assert result["num_products"] == 1
+    ctx.clear_canvas.assert_called_once_with(push_to_undo=False)
     ctx.load_from_smiles.assert_called_once_with("Clc1ccccc1")
     ctx.push_undo_checkpoint.assert_called_once()
     ctx.refresh_ui.assert_called_once()
@@ -417,6 +418,7 @@ def test_apply_reaction_smarts_invalid_product_raises(bridge_mod, ctx):
             bridge_mod.execute_operation(
                 ctx, "apply_reaction_smarts", {"reaction_smarts": "[c:1][H]>>[c:1][Cl]"}
             )
+    ctx.clear_canvas.assert_not_called()
     ctx.load_from_smiles.assert_not_called()
 
 
@@ -430,6 +432,7 @@ def test_apply_reaction_smarts_atom_loss_guard(bridge_mod, ctx):
             bridge_mod.execute_operation(
                 ctx, "apply_reaction_smarts", {"reaction_smarts": "[c:1][H]>>[c:1][Cl]"}
             )
+    ctx.clear_canvas.assert_not_called()
     ctx.load_from_smiles.assert_not_called()
 
 
