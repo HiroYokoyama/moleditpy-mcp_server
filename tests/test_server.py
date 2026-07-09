@@ -682,6 +682,39 @@ def test_push_undo_checkpoint(srv):
     assert "checkpoint" in result["content"][0]["text"].lower()
 
 
+def test_get_mapped_smiles_tool_defined(srv):
+    names = {t["name"] for t in srv._TOOLS}
+    assert "get_mapped_smiles" in names
+
+
+def test_get_mapped_smiles_dispatch(srv):
+    bridge = make_bridge({
+        "get_mapped_smiles": {
+            "loaded": True,
+            "mapped_smiles": "[CH3:1][OH:2]",
+            "atoms": [
+                {"index": 0, "map_num": 1, "symbol": "C"},
+                {"index": 1, "map_num": 2, "symbol": "O"},
+            ],
+        }
+    })
+    result = srv.dispatch_tool(bridge, "get_mapped_smiles", {})
+    assert result.get("isError") is not True
+    text = result["content"][0]["text"]
+    assert "[CH3:1][OH:2]" in text
+    assert "atom_index 0: C (shown as :1)" in text
+    assert "atom_index 1: O (shown as :2)" in text
+
+
+def test_get_mapped_smiles_dispatch_no_molecule(srv):
+    bridge = make_bridge({
+        "get_mapped_smiles": {"loaded": False, "mapped_smiles": None, "atoms": []}
+    })
+    result = srv.dispatch_tool(bridge, "get_mapped_smiles", {})
+    assert result.get("isError") is not True
+    assert "No molecule" in result["content"][0]["text"]
+
+
 def test_apply_reaction_smarts_tool_defined(srv):
     tool = next(t for t in srv._TOOLS if t["name"] == "apply_reaction_smarts")
     assert tool["inputSchema"]["required"] == ["reaction_smarts"]

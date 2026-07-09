@@ -251,6 +251,7 @@ To start the server automatically every time MoleditPy launches, open **Plugins 
 | `load_from_mol_block` | Load a molecule from a MOL/SDF block |
 | `load_molecule_by_name` | Look up by common/IUPAC name on PubChem and load (e.g. `"aspirin"`) |
 | `show_xyz_in_viewer` | Display an XYZ block in the 3D viewer |
+| `get_mapped_smiles` | SMILES with atom indices embedded as map numbers + legend (find atom_index targets) |
 | `apply_reaction_smarts` | Modify the 2D molecule with a Reaction SMARTS transformation (optional anchor atom) |
 | `trigger_3d_conversion` | Run MoleditPy's built-in 2D→3D optimizer (ETKDG/MMFF) |
 | `highlight_atoms` | Override atom colors in the 3D viewer (hex color per atom index) |

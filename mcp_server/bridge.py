@@ -89,6 +89,9 @@ def execute_operation(ctx: Any, operation: str, args: Dict[str, Any]) -> Any:  #
     if operation == "apply_reaction_smarts":
         return _apply_reaction_smarts(ctx, args)
 
+    if operation == "get_mapped_smiles":
+        return _get_mapped_smiles(ctx)
+
     if operation == "trigger_3d_conversion":
         return _trigger_3d_conversion(ctx)
 
@@ -290,6 +293,30 @@ def _load_mol_block(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     ctx.push_undo_checkpoint()
     ctx.refresh_ui()
     return {"success": True}
+
+
+def _get_mapped_smiles(ctx: Any) -> Dict[str, Any]:
+    """
+    Return the current molecule's SMILES with every atom's RDKit index
+    embedded as an atom map number (map number = index + 1, because RDKit
+    reserves map number 0 for "unmapped"). Lets an AI client identify which
+    atom_index to target in apply_reaction_smarts / highlight_atoms.
+    """
+    from rdkit import Chem  # pylint: disable=import-outside-toplevel
+    mol = ctx.current_molecule
+    if mol is None:
+        return {"loaded": False, "mapped_smiles": None, "atoms": []}
+    tagged = Chem.Mol(mol)
+    atoms = []
+    for atom in tagged.GetAtoms():
+        idx = atom.GetIdx()
+        atom.SetAtomMapNum(idx + 1)
+        atoms.append({"index": idx, "map_num": idx + 1, "symbol": atom.GetSymbol()})
+    return {
+        "loaded": True,
+        "mapped_smiles": Chem.MolToSmiles(tagged),
+        "atoms": atoms,
+    }
 
 
 def _select_product_by_anchor(

@@ -154,6 +154,18 @@ _TOOLS: List[Dict[str, Any]] = [
         },
     },
     {
+        "name": "get_mapped_smiles",
+        "description": (
+            "Get the current molecule's SMILES with every atom's RDKit index "
+            "embedded as an atom map number, plus an index legend. "
+            "IMPORTANT: map number = atom_index + 1 (RDKit reserves map 0 for "
+            "'unmapped'), so an atom shown as [c:5] has atom_index 4. "
+            "Call this BEFORE apply_reaction_smarts or highlight_atoms to find "
+            "out which atom_index refers to which atom."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "apply_reaction_smarts",
         "description": (
             "Modify the current 2D molecule by applying a Reaction SMARTS "
@@ -879,6 +891,22 @@ def dispatch_tool(  # noqa: C901
         if name == "enter_3d_mode":
             bridge.call("enter_3d_mode")
             return _tool_ok("Switched to 3D viewer mode.")
+
+        if name == "get_mapped_smiles":
+            data = bridge.call("get_mapped_smiles")
+            if not data["loaded"]:
+                return _tool_ok("No molecule is currently loaded in MoleditPy.")
+            legend = "\n".join(
+                f"  atom_index {a['index']}: {a['symbol']} (shown as :{a['map_num']})"
+                for a in data["atoms"]
+            )
+            return _tool_ok(
+                f"Mapped SMILES (atom map number = atom_index + 1):\n"
+                f"{data['mapped_smiles']}\n\n"
+                f"Atom legend:\n{legend}\n\n"
+                f"Use the 0-based atom_index values with apply_reaction_smarts, "
+                f"highlight_atoms, and get_atom_properties."
+            )
 
         if name == "apply_reaction_smarts":
             data = bridge.call(

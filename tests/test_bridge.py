@@ -467,6 +467,45 @@ def test_apply_reaction_smarts_anchor_not_found_falls_back(bridge_mod, ctx):
 
 
 # ---------------------------------------------------------------------------
+# get_mapped_smiles
+# ---------------------------------------------------------------------------
+
+
+def test_get_mapped_smiles_no_molecule(bridge_mod, ctx):
+    ctx.current_molecule = None
+    with _RdkitPatch():
+        result = bridge_mod.execute_operation(ctx, "get_mapped_smiles", {})
+    assert result["loaded"] is False
+    assert result["mapped_smiles"] is None
+    assert result["atoms"] == []
+
+
+def test_get_mapped_smiles_maps_index_plus_one(bridge_mod, ctx):
+    mol = MagicMock()
+    ctx.current_molecule = mol
+    atom0 = MagicMock()
+    atom0.GetIdx.return_value = 0
+    atom0.GetSymbol.return_value = "C"
+    atom1 = MagicMock()
+    atom1.GetIdx.return_value = 1
+    atom1.GetSymbol.return_value = "O"
+    with _RdkitPatch() as rd:
+        tagged = rd.chem.Mol.return_value
+        tagged.GetAtoms.return_value = [atom0, atom1]
+        rd.chem.MolToSmiles.return_value = "[CH3:1][OH:2]"
+        result = bridge_mod.execute_operation(ctx, "get_mapped_smiles", {})
+    rd.chem.Mol.assert_called_once_with(mol)  # works on a copy, editor mol untouched
+    atom0.SetAtomMapNum.assert_called_once_with(1)
+    atom1.SetAtomMapNum.assert_called_once_with(2)
+    assert result["loaded"] is True
+    assert result["mapped_smiles"] == "[CH3:1][OH:2]"
+    assert result["atoms"] == [
+        {"index": 0, "map_num": 1, "symbol": "C"},
+        {"index": 1, "map_num": 2, "symbol": "O"},
+    ]
+
+
+# ---------------------------------------------------------------------------
 # trigger_3d_conversion
 # ---------------------------------------------------------------------------
 
