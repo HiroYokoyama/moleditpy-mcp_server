@@ -296,6 +296,177 @@ def test_execute_load_mol_block_parse_failure(bridge_mod, ctx):
 
 
 # ---------------------------------------------------------------------------
+# apply_reaction_smarts
+# ---------------------------------------------------------------------------
+
+
+class _RdkitPatch:
+    """Install configured rdkit/rdkit.Chem/rdkit.Chem.AllChem mocks in sys.modules."""
+
+    def __init__(self):
+        self.chem = MagicMock(name="Chem")
+        self.allchem = MagicMock(name="AllChem")
+        self.chem.AllChem = self.allchem
+        rdkit = MagicMock(name="rdkit")
+        rdkit.Chem = self.chem
+        self._modules = {
+            "rdkit": rdkit,
+            "rdkit.Chem": self.chem,
+            "rdkit.Chem.AllChem": self.allchem,
+        }
+        self._saved = {}
+
+    def __enter__(self):
+        self._saved = {k: sys.modules.get(k) for k in self._modules}
+        sys.modules.update(self._modules)
+        return self
+
+    def __exit__(self, *exc):
+        for k, v in self._saved.items():
+            if v is None:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = v
+        return False
+
+
+def _make_product(num_atoms: int) -> MagicMock:
+    prod = MagicMock()
+    prod.GetNumAtoms.return_value = num_atoms
+    prod.GetAtoms.return_value = []
+    return prod
+
+
+def _configure_reaction(rd, mol, products, final_smiles="CCO", clean_atoms=None):
+    """Wire a fake successful reaction pipeline through the rdkit mocks."""
+    mol_h = MagicMock(name="mol_with_h")
+    rd.chem.AddHs.return_value = mol_h
+    rxn = rd.allchem.ReactionFromSmarts.return_value
+    rxn.RunReactants.return_value = products
+    rd.chem.RemoveHs.side_effect = lambda m, **kw: m
+    clean = MagicMock(name="clean_mol")
+    clean.GetNumAtoms.return_value = (
+        clean_atoms if clean_atoms is not None else mol.GetNumAtoms.return_value
+    )
+    rd.chem.MolFromSmiles.return_value = clean
+    rd.chem.MolToSmiles.return_value = final_smiles
+    return mol_h, rxn
+
+
+def test_apply_reaction_smarts_empty_raises(bridge_mod, ctx):
+    with _RdkitPatch():
+        with pytest.raises(ValueError, match="required"):
+            bridge_mod.execute_operation(ctx, "apply_reaction_smarts", {"reaction_smarts": " "})
+
+
+def test_apply_reaction_smarts_no_molecule_raises(bridge_mod, ctx):
+    ctx.current_molecule = None
+    with _RdkitPatch():
+        with pytest.raises(ValueError, match="No molecule"):
+            bridge_mod.execute_operation(
+                ctx, "apply_reaction_smarts", {"reaction_smarts": "[c:1][H]>>[c:1][Cl]"}
+            )
+
+
+def test_apply_reaction_smarts_invalid_smarts_raises(bridge_mod, ctx):
+    ctx.current_molecule = MagicMock()
+    with _RdkitPatch() as rd:
+        rd.allchem.ReactionFromSmarts.side_effect = RuntimeError("bad smarts")
+        with pytest.raises(ValueError, match="Invalid reaction SMARTS"):
+            bridge_mod.execute_operation(
+                ctx, "apply_reaction_smarts", {"reaction_smarts": "garbage"}
+            )
+
+
+def test_apply_reaction_smarts_no_match_raises(bridge_mod, ctx):
+    ctx.current_molecule = MagicMock()
+    with _RdkitPatch() as rd:
+        rxn = rd.allchem.ReactionFromSmarts.return_value
+        rxn.RunReactants.return_value = ()
+        with pytest.raises(ValueError, match="did not match"):
+            bridge_mod.execute_operation(
+                ctx, "apply_reaction_smarts", {"reaction_smarts": "[N:1][H]>>[N:1]C"}
+            )
+
+
+def test_apply_reaction_smarts_success(bridge_mod, ctx):
+    mol = MagicMock()
+    mol.GetNumAtoms.return_value = 6
+    ctx.current_molecule = mol
+    with _RdkitPatch() as rd:
+        _configure_reaction(rd, mol, ((_make_product(7),),), final_smiles="Clc1ccccc1")
+        result = bridge_mod.execute_operation(
+            ctx, "apply_reaction_smarts", {"reaction_smarts": "[c:1][H]>>[c:1][Cl]"}
+        )
+    assert result["success"] is True
+    assert result["smiles"] == "Clc1ccccc1"
+    assert result["num_products"] == 1
+    ctx.load_from_smiles.assert_called_once_with("Clc1ccccc1")
+    ctx.push_undo_checkpoint.assert_called_once()
+    ctx.refresh_ui.assert_called_once()
+
+
+def test_apply_reaction_smarts_invalid_product_raises(bridge_mod, ctx):
+    mol = MagicMock()
+    mol.GetNumAtoms.return_value = 6
+    ctx.current_molecule = mol
+    with _RdkitPatch() as rd:
+        _configure_reaction(rd, mol, ((_make_product(7),),))
+        rd.chem.MolFromSmiles.return_value = None
+        with pytest.raises(ValueError, match="invalid molecule"):
+            bridge_mod.execute_operation(
+                ctx, "apply_reaction_smarts", {"reaction_smarts": "[c:1][H]>>[c:1][Cl]"}
+            )
+    ctx.load_from_smiles.assert_not_called()
+
+
+def test_apply_reaction_smarts_atom_loss_guard(bridge_mod, ctx):
+    mol = MagicMock()
+    mol.GetNumAtoms.return_value = 20
+    ctx.current_molecule = mol
+    with _RdkitPatch() as rd:
+        _configure_reaction(rd, mol, ((_make_product(3),),), clean_atoms=3)
+        with pytest.raises(ValueError, match="atom loss"):
+            bridge_mod.execute_operation(
+                ctx, "apply_reaction_smarts", {"reaction_smarts": "[c:1][H]>>[c:1][Cl]"}
+            )
+    ctx.load_from_smiles.assert_not_called()
+
+
+def test_apply_reaction_smarts_anchor_selects_matching_site(bridge_mod, ctx):
+    mol = MagicMock()
+    mol.GetNumAtoms.return_value = 6
+    ctx.current_molecule = mol
+    products = ((_make_product(7),), (_make_product(7),))
+    with _RdkitPatch() as rd:
+        mol_h, rxn = _configure_reaction(rd, mol, products)
+        mol_h.GetSubstructMatches.return_value = ((0, 1), (4, 5))
+        result = bridge_mod.execute_operation(
+            ctx,
+            "apply_reaction_smarts",
+            {"reaction_smarts": "[c:1][H]>>[c:1][Cl]", "atom_index": 4},
+        )
+    assert result["selected_product"] == 1
+    assert result["num_products"] == 2
+
+
+def test_apply_reaction_smarts_anchor_not_found_falls_back(bridge_mod, ctx):
+    mol = MagicMock()
+    mol.GetNumAtoms.return_value = 6
+    ctx.current_molecule = mol
+    products = ((_make_product(7),), (_make_product(7),))
+    with _RdkitPatch() as rd:
+        mol_h, _ = _configure_reaction(rd, mol, products)
+        mol_h.GetSubstructMatches.return_value = ((0, 1), (4, 5))
+        result = bridge_mod.execute_operation(
+            ctx,
+            "apply_reaction_smarts",
+            {"reaction_smarts": "[c:1][H]>>[c:1][Cl]", "atom_index": 99},
+        )
+    assert result["selected_product"] == 0
+
+
+# ---------------------------------------------------------------------------
 # trigger_3d_conversion
 # ---------------------------------------------------------------------------
 

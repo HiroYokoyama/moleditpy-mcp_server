@@ -86,6 +86,9 @@ def execute_operation(ctx: Any, operation: str, args: Dict[str, Any]) -> Any:  #
     if operation == "load_mol_block":
         return _load_mol_block(ctx, args)
 
+    if operation == "apply_reaction_smarts":
+        return _apply_reaction_smarts(ctx, args)
+
     if operation == "trigger_3d_conversion":
         return _trigger_3d_conversion(ctx)
 
@@ -287,6 +290,123 @@ def _load_mol_block(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     ctx.push_undo_checkpoint()
     ctx.refresh_ui()
     return {"success": True}
+
+
+def _select_product_by_anchor(
+    rxn: Any, reactant: Any, products: Any, atom_index: Any
+) -> int:
+    """
+    Pick the RunReactants product whose match contains *atom_index*.
+
+    RunReactants enumerates products in the same order as
+    GetSubstructMatches(uniquify=False) enumerates matches, so the match
+    index maps onto the product index. Among matches containing the anchor
+    atom, the product retaining the most atoms is preferred (same heuristic
+    as the Chat with Molecule plugin). Falls back to the first product.
+    """
+    if atom_index is None:
+        return 0
+    try:
+        target = int(atom_index)
+        matches = reactant.GetSubstructMatches(rxn.GetReactants()[0], uniquify=False)
+        candidates = []
+        for i, match in enumerate(matches):
+            if i >= len(products):
+                break
+            if target in match:
+                candidates.append((i, products[i][0].GetNumAtoms()))
+        if candidates:
+            candidates.sort(key=lambda item: item[1], reverse=True)
+            return candidates[0][0]
+        logger.warning(
+            "Anchor atom %s not found in any reaction match; using first match", target
+        )
+    except Exception:  # pylint: disable=broad-except
+        logger.exception("Anchor atom filtering failed; using first match")
+    return 0
+
+
+def _apply_reaction_smarts(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Apply a Reaction SMARTS transformation to the current molecule and load
+    the product into the 2D editor.
+
+    Adapted from the Chat with Molecule plugin's apply_transformation flow:
+    run the reaction with explicit hydrogens (retry implicit), optionally
+    anchor the match site to *atom_index*, guard against destructive
+    products, then sanitize and round-trip through SMILES.
+    """
+    from rdkit import Chem  # pylint: disable=import-outside-toplevel
+    from rdkit.Chem import AllChem  # pylint: disable=import-outside-toplevel
+
+    reaction_smarts = (args.get("reaction_smarts") or "").strip()
+    if not reaction_smarts:
+        raise ValueError("'reaction_smarts' argument is required")
+
+    mol = ctx.current_molecule
+    if mol is None:
+        raise ValueError("No molecule loaded")
+
+    try:
+        rxn = AllChem.ReactionFromSmarts(reaction_smarts)
+    except Exception as exc:
+        raise ValueError(f"Invalid reaction SMARTS: {exc}") from exc
+
+    reactant = Chem.AddHs(mol)
+    products = rxn.RunReactants((reactant,))
+    if not products:
+        reactant = mol
+        products = rxn.RunReactants((reactant,))
+    if not products:
+        raise ValueError(
+            "The reaction pattern did not match the current molecule. "
+            "Check the SMARTS (explicit [H] atoms are available for matching)."
+        )
+
+    selected = _select_product_by_anchor(rxn, reactant, products, args.get("atom_index"))
+    new_mol = products[selected][0]
+
+    try:
+        new_mol.UpdatePropertyCache(strict=False)
+        Chem.SanitizeMol(new_mol)
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning("Product sanitization warning: %s", exc)
+    try:
+        new_mol = Chem.RemoveHs(
+            new_mol, implicitOnly=False, updateExplicitCount=True, sanitize=True
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning("RemoveHs failed on product: %s", exc)
+
+    # Template atom maps leak into the product; strip them before export.
+    for atom in new_mol.GetAtoms():
+        atom.SetAtomMapNum(0)
+
+    clean_mol = Chem.MolFromSmiles(Chem.MolToSmiles(new_mol))
+    if clean_mol is None:
+        raise ValueError(
+            "Transformation produced an invalid molecule (failed sanitization). "
+            "Refine the reaction SMARTS."
+        )
+
+    orig_count = mol.GetNumAtoms()
+    new_count = clean_mol.GetNumAtoms()
+    if orig_count > 5 and new_count < orig_count * 0.7:
+        raise ValueError(
+            f"Safety guard: transformation caused massive atom loss "
+            f"({orig_count} -> {new_count} heavy atoms). Aborted."
+        )
+
+    final_smiles = Chem.MolToSmiles(clean_mol)
+    ctx.load_from_smiles(final_smiles)
+    ctx.push_undo_checkpoint()
+    ctx.refresh_ui()
+    return {
+        "success": True,
+        "smiles": final_smiles,
+        "num_products": len(products),
+        "selected_product": selected,
+    }
 
 
 def _exit_3d_mode(ctx: Any) -> Dict[str, Any]:

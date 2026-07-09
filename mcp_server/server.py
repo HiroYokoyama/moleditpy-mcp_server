@@ -154,6 +154,41 @@ _TOOLS: List[Dict[str, Any]] = [
         },
     },
     {
+        "name": "apply_reaction_smarts",
+        "description": (
+            "Modify the current 2D molecule by applying a Reaction SMARTS "
+            "transformation (RDKit RunReactants) and load the product into the editor. "
+            "Include atom map numbers for EVERY atom that persists from reactant to "
+            "product, e.g. '[c:1][H]>>[c:1][Cl]' for an aromatic chlorination or "
+            "'[C:1][H]>>[C:1]O' to add a hydroxyl. Explicit hydrogens are added "
+            "before matching, so [H] can be consumed in the pattern. "
+            "If the pattern matches several sites, pass atom_index to anchor the "
+            "transformation to the intended site. An undo checkpoint is pushed "
+            "automatically."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "reaction_smarts": {
+                    "type": "string",
+                    "description": (
+                        "Reaction SMARTS 'reactant>>product' with atom map numbers "
+                        "on all persisting atoms, e.g. '[c:1][H]>>[c:1][Br]'."
+                    ),
+                },
+                "atom_index": {
+                    "type": "integer",
+                    "description": (
+                        "Optional 0-based RDKit atom index that the matched site "
+                        "must contain; disambiguates when the pattern matches "
+                        "multiple sites."
+                    ),
+                },
+            },
+            "required": ["reaction_smarts"],
+        },
+    },
+    {
         "name": "trigger_3d_conversion",
         "description": (
             "Trigger MoleditPy's 2D-to-3D coordinate generation on the current molecule. "
@@ -844,6 +879,22 @@ def dispatch_tool(  # noqa: C901
         if name == "enter_3d_mode":
             bridge.call("enter_3d_mode")
             return _tool_ok("Switched to 3D viewer mode.")
+
+        if name == "apply_reaction_smarts":
+            data = bridge.call(
+                "apply_reaction_smarts",
+                {
+                    "reaction_smarts": arguments.get("reaction_smarts", ""),
+                    "atom_index": arguments.get("atom_index"),
+                },
+            )
+            return _tool_ok(
+                f"Transformation applied.\n"
+                f"Rule: {arguments.get('reaction_smarts')}\n"
+                f"New SMILES: {data['smiles']}\n"
+                f"({data['num_products']} candidate product(s); "
+                f"applied match #{data['selected_product']})"
+            )
 
         if name == "exit_3d_mode":
             bridge.call("exit_3d_mode")

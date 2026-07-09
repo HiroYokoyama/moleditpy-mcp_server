@@ -682,6 +682,43 @@ def test_push_undo_checkpoint(srv):
     assert "checkpoint" in result["content"][0]["text"].lower()
 
 
+def test_apply_reaction_smarts_tool_defined(srv):
+    tool = next(t for t in srv._TOOLS if t["name"] == "apply_reaction_smarts")
+    assert tool["inputSchema"]["required"] == ["reaction_smarts"]
+    assert "atom_index" in tool["inputSchema"]["properties"]
+
+
+def test_apply_reaction_smarts_dispatch(srv):
+    bridge = make_bridge({
+        "apply_reaction_smarts": {
+            "success": True,
+            "smiles": "Clc1ccccc1",
+            "num_products": 6,
+            "selected_product": 2,
+        }
+    })
+    result = srv.dispatch_tool(
+        bridge,
+        "apply_reaction_smarts",
+        {"reaction_smarts": "[c:1][H]>>[c:1][Cl]", "atom_index": 2},
+    )
+    assert result.get("isError") is not True
+    text = result["content"][0]["text"]
+    assert "Clc1ccccc1" in text
+    assert "[c:1][H]>>[c:1][Cl]" in text
+    assert "match #2" in text
+
+
+def test_apply_reaction_smarts_dispatch_error(srv):
+    bridge = make_bridge({})
+    bridge.call = MagicMock(side_effect=ValueError("pattern did not match"))
+    result = srv.dispatch_tool(
+        bridge, "apply_reaction_smarts", {"reaction_smarts": "[X:1]>>[Y:1]"}
+    )
+    assert result.get("isError") is True
+    assert "did not match" in result["content"][0]["text"]
+
+
 def test_exit_3d_mode_tool_defined(srv):
     names = {t["name"] for t in srv._TOOLS}
     assert "exit_3d_mode" in names
