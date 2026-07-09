@@ -434,12 +434,23 @@ def _apply_reaction_smarts(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     ctx.clear_canvas(push_to_undo=False)
     ctx.load_from_smiles(final_smiles)
     ctx.push_undo_checkpoint()
+    # ctx.current_molecule reads the 3D manager's molecule, which only the
+    # 2D->3D pipeline populates. Without converting, the next
+    # apply_reaction_smarts would see no molecule, breaking chained edits.
+    converted_3d = False
+    if args.get("convert_to_3d", True):
+        try:
+            _trigger_3d_conversion(ctx)
+            converted_3d = True
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning("Post-transformation 3D conversion failed: %s", exc)
     ctx.refresh_ui()
     return {
         "success": True,
         "smiles": final_smiles,
         "num_products": len(products),
         "selected_product": selected,
+        "converted_3d": converted_3d,
     }
 
 

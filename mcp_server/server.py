@@ -196,6 +196,16 @@ _TOOLS: List[Dict[str, Any]] = [
                         "multiple sites."
                     ),
                 },
+                "convert_to_3d": {
+                    "type": "boolean",
+                    "description": (
+                        "Run the 2D->3D conversion on the product (default true). "
+                        "Keep it enabled when chaining several transformations — "
+                        "the active molecule is only updated by the 3D pipeline, "
+                        "so without it the next apply_reaction_smarts sees no "
+                        "molecule."
+                    ),
+                },
             },
             "required": ["reaction_smarts"],
         },
@@ -914,14 +924,20 @@ def dispatch_tool(  # noqa: C901
                 {
                     "reaction_smarts": arguments.get("reaction_smarts", ""),
                     "atom_index": arguments.get("atom_index"),
+                    "convert_to_3d": arguments.get("convert_to_3d", True),
                 },
+            )
+            conv_note = (
+                "2D->3D conversion triggered."
+                if data.get("converted_3d")
+                else "3D conversion skipped."
             )
             return _tool_ok(
                 f"Transformation applied.\n"
                 f"Rule: {arguments.get('reaction_smarts')}\n"
                 f"New SMILES: {data['smiles']}\n"
                 f"({data['num_products']} candidate product(s); "
-                f"applied match #{data['selected_product']})"
+                f"applied match #{data['selected_product']}) {conv_note}"
             )
 
         if name == "exit_3d_mode":

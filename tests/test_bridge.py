@@ -405,6 +405,25 @@ def test_apply_reaction_smarts_success(bridge_mod, ctx):
     ctx.load_from_smiles.assert_called_once_with("Clc1ccccc1")
     ctx.push_undo_checkpoint.assert_called_once()
     ctx.refresh_ui.assert_called_once()
+    # 2D->3D conversion runs by default so chained applies keep a molecule
+    assert result["converted_3d"] is True
+    ctx.get_main_window.return_value.compute_manager.trigger_conversion.assert_called_once()
+
+
+def test_apply_reaction_smarts_convert_to_3d_opt_out(bridge_mod, ctx):
+    mol = MagicMock()
+    mol.GetNumHeavyAtoms.return_value = 6
+    ctx.current_molecule = mol
+    with _RdkitPatch() as rd:
+        _configure_reaction(rd, mol, ((_make_product(7),),), final_smiles="Clc1ccccc1")
+        result = bridge_mod.execute_operation(
+            ctx,
+            "apply_reaction_smarts",
+            {"reaction_smarts": "[c:1][H]>>[c:1][Cl]", "convert_to_3d": False},
+        )
+    assert result["converted_3d"] is False
+    ctx.get_main_window.return_value.compute_manager.trigger_conversion.assert_not_called()
+    ctx.load_from_smiles.assert_called_once_with("Clc1ccccc1")
 
 
 def test_apply_reaction_smarts_invalid_product_raises(bridge_mod, ctx):
