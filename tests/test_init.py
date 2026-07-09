@@ -217,6 +217,31 @@ def test_stop_when_not_running_is_safe(pkg, ctx):
     plugin.stop()  # should not raise
 
 
+def test_start_reports_failure_on_unexpected_exception(pkg, ctx):
+    """start() must never propagate an unexpected (non-OSError) exception.
+
+    Regression test: start() previously only caught OSError, so any other
+    failure (e.g. a broken PluginContext, an import error surfaced as
+    RuntimeError/AttributeError) would crash the caller — the "Start
+    Server" menu action — instead of being reported via show_status_message
+    like every other startup failure.
+    """
+    ctx.get_setting.return_value = 0
+    with _mock_server_modules():
+        sys.modules["mcp_server.bridge"].MCPBridge = MagicMock(
+            side_effect=RuntimeError("boom")
+        )
+        plugin = pkg.MCPServerPlugin(ctx)
+        result = plugin.start(port=0)
+        assert result is False
+        assert plugin._bridge is None
+        assert plugin._server is None
+        assert not plugin.is_running
+        ctx.show_status_message.assert_called_once()
+        message = ctx.show_status_message.call_args[0][0]
+        assert "boom" in message
+
+
 def test_show_status_opens_dialog(pkg, ctx):
     ctx.get_window.return_value = None
     with mock_optional_imports():

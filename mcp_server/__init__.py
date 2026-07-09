@@ -80,11 +80,15 @@ class MCPServerPlugin:
                 f"MCP Server started at {self._server.url}", 5000
             )
             return True
-        except OSError as exc:
+        except Exception as exc:  # pylint: disable=broad-except
+            # Broad on purpose: start() must never let an unexpected error
+            # (import failure, missing PluginContext attribute, socket error,
+            # etc.) escape into the menu-action callback and crash the app —
+            # it always reports failure via the status bar instead.
             self.context.show_status_message(
                 f"MCP Server failed to start: {exc}", 6000
             )
-            logger.error("MCP Server start failed: %s", exc)
+            logger.exception("MCP Server start failed")
             self._bridge = None
             self._server = None
             return False
