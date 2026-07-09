@@ -94,6 +94,8 @@ def execute_operation(ctx: Any, operation: str, args: Dict[str, Any]) -> Any:  #
         if not atom_colors:
             raise ValueError("'atom_colors' argument is required")
         ctrl = ctx.get_3d_controller()
+        if ctrl is None:
+            raise ValueError("3D controller is not available (is the 3D viewer active?)")
         for idx_str, color in atom_colors.items():
             ctrl.set_atom_color(int(idx_str), color)
         ctx.refresh_3d_view()
@@ -104,6 +106,8 @@ def execute_operation(ctx: Any, operation: str, args: Dict[str, Any]) -> Any:  #
         if not bond_colors:
             raise ValueError("'bond_colors' argument is required")
         ctrl = ctx.get_3d_controller()
+        if ctrl is None:
+            raise ValueError("3D controller is not available (is the 3D viewer active?)")
         for idx_str, color in bond_colors.items():
             ctrl.set_bond_color(int(idx_str), color)
         ctx.refresh_3d_view()

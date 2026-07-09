@@ -364,6 +364,14 @@ def test_execute_highlight_atoms_empty_raises(bridge_mod, ctx):
         bridge_mod.execute_operation(ctx, "highlight_atoms", {"atom_colors": {}})
 
 
+def test_execute_highlight_atoms_no_controller_raises(bridge_mod, ctx):
+    ctx.get_3d_controller.return_value = None
+    with pytest.raises(ValueError, match="3D controller is not available"):
+        bridge_mod.execute_operation(
+            ctx, "highlight_atoms", {"atom_colors": {"0": "#FF0000"}}
+        )
+
+
 # ---------------------------------------------------------------------------
 # highlight_bonds
 # ---------------------------------------------------------------------------
@@ -381,6 +389,14 @@ def test_execute_highlight_bonds_ok(bridge_mod, ctx):
 def test_execute_highlight_bonds_empty_raises(bridge_mod, ctx):
     with pytest.raises(ValueError, match="required"):
         bridge_mod.execute_operation(ctx, "highlight_bonds", {"bond_colors": {}})
+
+
+def test_execute_highlight_bonds_no_controller_raises(bridge_mod, ctx):
+    ctx.get_3d_controller.return_value = None
+    with pytest.raises(ValueError, match="3D controller is not available"):
+        bridge_mod.execute_operation(
+            ctx, "highlight_bonds", {"bond_colors": {"0": "#FF0000"}}
+        )
 
 
 # ---------------------------------------------------------------------------
