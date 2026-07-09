@@ -218,6 +218,17 @@ Health check:
 curl http://127.0.0.1:7891/health
 ```
 
+### GUI tester
+
+A standalone PyQt6 test client is included for interactive debugging. It connects to any MCP server speaking the Streamable HTTP transport, lists the available tools, generates a parameter input form from each tool's `inputSchema` (with required/optional handling, JSON editors for array/object parameters, and enum dropdowns), and shows both the formatted result and the raw JSON-RPC response:
+
+```bash
+python tools/mcp_tester.py                 # defaults to http://127.0.0.1:7891/mcp
+python tools/mcp_tester.py --url http://localhost:9000/mcp
+```
+
+Host, port, and endpoint path are editable in the GUI, so it can be pointed at other MCP HTTP servers too.
+
 ### Auto-start
 
 To start the server automatically every time MoleditPy launches, open **Plugins → MCP Server → Status & Settings** and check **Auto-start server on launch**.

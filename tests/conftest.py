@@ -11,10 +11,16 @@ import contextlib
 import importlib.abc
 import importlib.machinery
 import importlib.util
+import os
 import sys
 from pathlib import Path
 from typing import Generator
 from unittest.mock import MagicMock
+
+# If pytest-qt is installed alongside PySide6, its binding auto-detection
+# loads PySide6's Qt DLLs first, which breaks any later real-PyQt6 import
+# on Windows (DLL "specified procedure not found"). Pin the binding.
+os.environ.setdefault("PYTEST_QT_API", "pyqt6")
 
 ROOT = Path(__file__).resolve().parents[1]
 PKG_DIR = ROOT / "mcp_server"
