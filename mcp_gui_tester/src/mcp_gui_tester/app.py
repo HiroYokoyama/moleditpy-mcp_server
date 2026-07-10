@@ -63,10 +63,6 @@ REQUEST_TIMEOUT = 60.0  # generous: run_python may take up to 30 s server-side
 # Property names that get a multi-line editor instead of a single line
 _MULTILINE_HINTS = {"code", "content", "mol_block", "xyz_text"}
 
-# Per-tool argument history is persisted here; tests may override this
-# module attribute (or pass an explicit path to ArgumentHistory) to point
-# it at a tmp_path instead.
-HISTORY_PATH = Path.home() / ".mcp_gui_tester_history.json"
 _HISTORY_MAX_TOOLS = 50
 
 
@@ -119,17 +115,23 @@ def _looks_like_json(text: str) -> bool:
 class ArgumentHistory:
     """Remembers the last-sent arguments for each tool, most-recent last.
 
-    Persisted to a JSON file (capped at ``max_tools`` entries); a corrupt or
-    unreadable history file is ignored silently rather than raised.
+    In-memory only by default (session-scoped); pass *path* to persist to a
+    JSON file (capped at ``max_tools`` entries). A corrupt or unreadable
+    history file is ignored silently rather than raised.
     """
 
     def __init__(self, path: Optional[Path] = None, max_tools: int = _HISTORY_MAX_TOOLS) -> None:
-        self.path = path if path is not None else HISTORY_PATH
+        # path=None (the default) keeps history in memory only for the
+        # current session — nothing is written to disk. Pass a path to
+        # opt in to persistence (used by the tests).
+        self.path = path
         self.max_tools = max_tools
         self.data: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
         self._load()
 
     def _load(self) -> None:
+        if self.path is None:
+            return
         try:
             with open(self.path, "r", encoding="utf-8") as fh:
                 raw = json.load(fh)
@@ -151,6 +153,8 @@ class ArgumentHistory:
         self._save()
 
     def _save(self) -> None:
+        if self.path is None:
+            return
         try:
             with open(self.path, "w", encoding="utf-8") as fh:
                 json.dump(self.data, fh, indent=2)

@@ -226,7 +226,6 @@ class TestTesterGUI:
         cls.mod = _load_tester()
         # Never touch the real user's home directory during tests.
         cls._history_tmpdir = tempfile.mkdtemp(prefix="mcp_gui_tester_history_")
-        cls.mod.HISTORY_PATH = Path(cls._history_tmpdir) / "history.json"
         cls.app = QApplication.instance() or QApplication([])
         cls.port = _free_port()
         cls.server = MCPHttpServer(_StubBridge(), "Stub MCP", "0.0", port=cls.port)

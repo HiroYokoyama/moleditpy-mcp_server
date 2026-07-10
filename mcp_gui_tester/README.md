@@ -59,10 +59,9 @@ python -m mcp_gui_tester                        # equivalent
   - optional parameters carry a **send** checkbox and are omitted unless
     checked; required parameters are marked with `*`
 - **Per-tool argument memory** — the last arguments sent to each tool are
-  remembered (in-memory and persisted to `~/.mcp_gui_tester_history.json`,
-  capped at the last 50 tools) and used to prefill the form next time you
-  select that tool; **Reset form** clears the prefill back to schema
-  defaults. A corrupt or unreadable history file is ignored silently.
+  remembered for the current session (in memory only — nothing is written
+  to disk) and used to prefill the form next time you select that tool;
+  **Reset form** clears the prefill back to schema defaults.
 - **Custom headers** — an optional JSON object of extra HTTP headers (e.g.
   bearer tokens) sent with every request on the connection; invalid JSON is
   rejected with a clear error instead of crashing
