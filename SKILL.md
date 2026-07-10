@@ -18,6 +18,32 @@ MoleditPy exposes its editor over a local MCP HTTP server (default port
 calls run on the app's Qt main thread and act on the molecule the user
 currently sees.
 
+## What MoleditPy is
+
+MoleditPy is a desktop molecular editor (PyQt6 + RDKit + PyVista) for
+preparing quantum-chemistry / DFT calculations. Its core workflow:
+
+1. **2D editing** — the user draws or loads a molecule on a 2D canvas
+   (the primary editing surface; bonds, charges, and stereochemistry are
+   edited here). Loading tools (`load_molecule_from_smiles`,
+   `load_molecule_by_name`, `load_from_mol_block`) target this canvas.
+2. **2D → 3D conversion** — `trigger_3d_conversion` builds a 3D
+   structure (RDKit ETKDG embedding + force-field optimization) and
+   switches to the 3D viewer. Only after this do 3D coordinates exist.
+3. **3D viewing/analysis** — a PyVista-based viewer shows the conformer;
+   plugins (and these MCP tools) read coordinates, color atoms/bonds,
+   and export geometry from here.
+4. **Input generation & plugins** — the geometry feeds input generators
+   for Gaussian, ORCA, GAMESS, xTB, etc.; a large official plugin
+   ecosystem covers analysis, import/export, and visualization.
+
+The 2D canvas and the 3D viewer hold SEPARATE representations. Most
+coordinate-reading MCP tools (including `current molecule` state) see
+the **3D side** — so with a freshly drawn 2D molecule, coordinate tools
+report "no 3D data" until `trigger_3d_conversion` runs. Editing tools
+(`apply_reaction_smarts`, SMILES loading) act on the **2D side** and
+require re-conversion for the 3D geometry to reflect the change.
+
 ## Core rules
 
 1. **Never retype coordinates.** To create any file that contains the
