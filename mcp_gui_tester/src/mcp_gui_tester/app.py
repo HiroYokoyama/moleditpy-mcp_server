@@ -553,15 +553,18 @@ class MCPTesterWindow(QMainWindow):
         self.result_extra = QWidget()
         self.result_extra_lay = QVBoxLayout(self.result_extra)
         self.result_extra_lay.setContentsMargins(0, 0, 0, 0)
-        result_extra_scroll = QScrollArea()
-        result_extra_scroll.setWidgetResizable(True)
-        result_extra_scroll.setWidget(self.result_extra)
+        self.result_extra_scroll = QScrollArea()
+        self.result_extra_scroll.setWidgetResizable(True)
+        self.result_extra_scroll.setWidget(self.result_extra)
+        # Hidden until a call actually returns image/resource content, so
+        # the empty pane doesn't waste half the Result tab.
+        self.result_extra_scroll.setVisible(False)
 
         result_page = QWidget()
         result_page_lay = QVBoxLayout(result_page)
         result_page_lay.setContentsMargins(0, 0, 0, 0)
         result_page_lay.addWidget(self.result_text, stretch=1)
-        result_page_lay.addWidget(result_extra_scroll, stretch=1)
+        result_page_lay.addWidget(self.result_extra_scroll, stretch=1)
 
         self.raw_text = QPlainTextEdit()
         self.raw_text.setReadOnly(True)
@@ -803,6 +806,7 @@ class MCPTesterWindow(QMainWindow):
 
     def _render_content_extras(self, content: List[Dict[str, Any]]) -> None:
         self._clear_result_extras()
+        added = 0
         for block in content:
             block_type = block.get("type")
             if block_type == "text":
@@ -812,7 +816,9 @@ class MCPTesterWindow(QMainWindow):
             else:
                 widget = self._make_json_widget(block)
             self.result_extra_lay.addWidget(widget)
+            added += 1
         self.result_extra_lay.addStretch(1)
+        self.result_extra_scroll.setVisible(added > 0)
 
     def _make_image_widget(self, block: Dict[str, Any]) -> QWidget:
         data = block.get("data")
