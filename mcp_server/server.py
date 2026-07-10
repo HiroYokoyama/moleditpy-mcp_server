@@ -126,8 +126,9 @@ _TOOLS: List[Dict[str, Any]] = [
                         {"type": "array", "items": {"type": "string"}},
                     ],
                     "description": (
-                        "The MOL or SDF block text. PREFER an array of lines "
-                        "(joined with newlines) to avoid newline-escaping issues."
+                        "The MOL or SDF block text (multi-line string). "
+                        "An array of lines is also accepted if your client "
+                        "escapes newlines."
                     ),
                 }
             },
@@ -151,8 +152,9 @@ _TOOLS: List[Dict[str, Any]] = [
                     ],
                     "description": (
                         "XYZ coordinate data. One atom per line: 'Element X Y Z'. "
-                        "Standard XYZ file headers are accepted. PREFER an array "
-                        "of lines to avoid newline-escaping issues."
+                        "Standard XYZ file headers are accepted. Multi-line "
+                        "string, or an array of lines if your client escapes "
+                        "newlines."
                     ),
                 },
                 "source_name": {
@@ -325,9 +327,9 @@ _TOOLS: List[Dict[str, Any]] = [
                         {"type": "array", "items": {"type": "string"}},
                     ],
                     "description": (
-                        "Python source code to execute (may be multi-line). "
-                        "PREFER an array of lines (joined with newlines) to "
-                        "avoid newline-escaping issues."
+                        "Python source code to execute (normal multi-line "
+                        "string). An array of lines is also accepted if your "
+                        "client escapes newlines."
                     ),
                 }
             },
@@ -585,9 +587,10 @@ _TOOLS: List[Dict[str, Any]] = [
                         {"type": "array", "items": {"type": "string"}},
                     ],
                     "description": (
-                        "Text content to write (UTF-8). PREFER an array of "
-                        "lines (joined with newlines) for multi-line content "
-                        "to avoid newline-escaping issues."
+                        "Text content to write (UTF-8) as a normal "
+                        "multi-line string. An array of lines (joined with "
+                        "newlines) is also accepted if your client escapes "
+                        "newlines."
                     ),
                 },
                 "overwrite": {
@@ -628,9 +631,10 @@ _TOOLS: List[Dict[str, Any]] = [
                     "description": (
                         "Text placed before the coordinate block "
                         "(e.g. route section, charge and multiplicity). "
-                        "PREFER an array of lines (joined with newlines) — "
-                        "it avoids newline-escaping issues. "
-                        "A trailing newline is added if missing."
+                        "Use a normal multi-line string (real newlines). "
+                        "An array of lines is also accepted if your client "
+                        "escapes newlines. A trailing newline is added if "
+                        "missing."
                     ),
                 },
                 "footer": {
@@ -640,7 +644,8 @@ _TOOLS: List[Dict[str, Any]] = [
                     ],
                     "description": (
                         "Text placed after the coordinate block. "
-                        "PREFER an array of lines, as with header."
+                        "Multi-line string, or an array of lines, as with "
+                        "header."
                     ),
                 },
                 "element_style": {

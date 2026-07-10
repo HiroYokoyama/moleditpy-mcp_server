@@ -100,10 +100,10 @@ https://hiroyokoyama.github.io/moleditpy-plugins/explorer/
    `set_file_io_config`.
 4. `write_file_with_xyz_block` with:
    - `path`: e.g. `"opt/job.inp"` (parents auto-created)
-   - `header`: keywords + charge/multiplicity — pass an ARRAY of lines
-     (e.g. ORCA: `["! B3LYP def2-TZVP Opt", "* xyz 0 1"]`); this avoids
-     newline-escaping problems entirely
-   - `footer`: closing section if the format needs one (ORCA: `["*"]`)
+   - `header`: keywords + charge/multiplicity as a normal multi-line
+     string (e.g. ORCA: `"! B3LYP def2-TZVP Opt\n* xyz 0 1"`); an array
+     of lines also works if your transport escapes newlines
+   - `footer`: closing section if the format needs one (ORCA: `"*"`)
    - options if the format demands them: `element_style`
      (`symbol` default → `C x y z`; `atomic_number` → `6 x y z`;
      `symbol_and_number` → `C 6.0 x y z` for GAMESS `$DATA`),
