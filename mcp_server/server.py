@@ -82,9 +82,13 @@ _TOOLS: List[Dict[str, Any]] = [
     {
         "name": "get_selected_atoms",
         "description": (
-            "Get the atoms currently selected by the user "
-            "in the MoleditPy 2D or 3D view. "
-            "Returns atom indices and element symbols."
+            "Get the atoms currently selected by the user in the MoleditPy "
+            "2D editor. Returns RDKit atom indices and element symbols. "
+            "NOTE: only the 2D canvas selection is captured — the 3D viewer "
+            "uses custom picking that is not exposed; ask the user to select "
+            "atoms in the 2D editor. An empty result can also mean the "
+            "molecule has not been converted to 3D yet (the index mapping "
+            "needs it): run trigger_3d_conversion first."
         ),
         "inputSchema": {"type": "object", "properties": {}},
     },
@@ -233,11 +237,12 @@ _TOOLS: List[Dict[str, Any]] = [
     # Visual / 3D
     # ------------------------------------------------------------------
     {
-        "name": "highlight_atoms",
+        "name": "set_cpk_color_override",
         "description": (
-            "Override the display color of specific atoms in the 3D viewer. "
+            "Override the CPK display color of specific atoms in the 3D viewer. "
             "Useful for visually emphasizing active sites, selected atoms, or "
-            "computed results. Colors persist until the next full redraw."
+            "computed results. Overrides PERSIST across redraws until cleared "
+            "with reset_cpk_color_override. (Formerly named highlight_atoms.)"
         ),
         "inputSchema": {
             "type": "object",
@@ -252,6 +257,25 @@ _TOOLS: List[Dict[str, Any]] = [
                 }
             },
             "required": ["atom_colors"],
+        },
+    },
+    {
+        "name": "reset_cpk_color_override",
+        "description": (
+            "Clear CPK color overrides set via set_cpk_color_override / "
+            "highlight_bonds and restore default element colors. "
+            "scope: 'atoms', 'bonds', or 'all' (default 'all'). "
+            "Redraws the 3D scene once."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "scope": {
+                    "type": "string",
+                    "enum": ["atoms", "bonds", "all"],
+                    "description": "Which overrides to clear (default 'all').",
+                },
+            },
         },
     },
     # ------------------------------------------------------------------
@@ -1062,13 +1086,25 @@ def dispatch_tool(  # noqa: C901
                 "Use get_molecule_xyz to retrieve the generated coordinates."
             )
 
-        if name == "highlight_atoms":
+        # "highlight_atoms" kept as a hidden alias for pre-1.4.0 clients.
+        if name in ("set_cpk_color_override", "highlight_atoms"):
             atom_colors = arguments.get("atom_colors")
             if not atom_colors:
                 return _tool_err("'atom_colors' argument is required.")
             bridge.call("highlight_atoms", {"atom_colors": atom_colors})
             return _tool_ok(
-                f"Highlighted {len(atom_colors)} atom(s) in the 3D viewer."
+                f"CPK color override set for {len(atom_colors)} atom(s); "
+                "persists across redraws until reset_cpk_color_override."
+            )
+
+        if name == "reset_cpk_color_override":
+            data = bridge.call(
+                "reset_cpk_color_override",
+                {"scope": arguments.get("scope", "all")},
+            )
+            return _tool_ok(
+                f"CPK color overrides cleared: {data['cleared_atoms']} atom(s), "
+                f"{data['cleared_bonds']} bond(s)."
             )
 
         if name == "clear_canvas":

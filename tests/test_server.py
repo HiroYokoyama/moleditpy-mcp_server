@@ -1176,3 +1176,40 @@ def test_load_mol_block_as_line_array(srv):
     srv.dispatch_tool(bridge, "load_from_mol_block", {"mol_block": ["line1", "M  END"]})
     args = bridge.call.call_args[0][1]
     assert args["mol_block"] == "line1\nM  END"
+
+
+# ---------------------------------------------------------------------------
+# set_cpk_color_override / reset_cpk_color_override
+# ---------------------------------------------------------------------------
+
+
+def test_set_cpk_color_override_dispatch(srv):
+    bridge = make_bridge({"highlight_atoms": {"success": True}})
+    result = srv.dispatch_tool(bridge, "set_cpk_color_override", {
+        "atom_colors": {"0": "#FF0000"},
+    })
+    assert result.get("isError") is not True
+    assert "persists across redraws" in result["content"][0]["text"]
+
+
+def test_highlight_atoms_legacy_alias_still_dispatches(srv):
+    bridge = make_bridge({"highlight_atoms": {"success": True}})
+    result = srv.dispatch_tool(bridge, "highlight_atoms", {
+        "atom_colors": {"0": "#FF0000"},
+    })
+    assert result.get("isError") is not True
+
+
+def test_reset_cpk_color_override_dispatch(srv):
+    bridge = make_bridge({"reset_cpk_color_override": {"cleared_atoms": 3, "cleared_bonds": 0}})
+    result = srv.dispatch_tool(bridge, "reset_cpk_color_override", {"scope": "atoms"})
+    assert result.get("isError") is not True
+    assert "3 atom(s)" in result["content"][0]["text"]
+    assert bridge.call.call_args[0][1] == {"scope": "atoms"}
+
+
+def test_cpk_tools_registered_highlight_atoms_renamed(srv):
+    names = [t["name"] for t in srv._TOOLS]
+    assert "set_cpk_color_override" in names
+    assert "reset_cpk_color_override" in names
+    assert "highlight_atoms" not in names

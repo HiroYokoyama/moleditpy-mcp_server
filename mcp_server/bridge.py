@@ -186,6 +186,9 @@ def execute_operation(ctx: Any, operation: str, args: Dict[str, Any]) -> Any:  #
     if operation == "get_app_source":
         return _get_app_source(args)
 
+    if operation == "reset_cpk_color_override":
+        return _reset_cpk_color_override(ctx, args)
+
     if operation == "open_plugin_installer":
         return _open_plugin_installer(ctx)
 
@@ -196,6 +199,30 @@ def execute_operation(ctx: Any, operation: str, args: Dict[str, Any]) -> Any:  #
         return _set_file_io_config(ctx, args)
 
     raise ValueError(f"Unknown operation: {operation!r}")
+
+
+def _reset_cpk_color_override(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Clear plugin CPK color overrides (atoms and/or bonds) and redraw once."""
+    scope = args.get("scope", "all")
+    if scope not in ("atoms", "bonds", "all"):
+        raise ValueError("'scope' must be 'atoms', 'bonds', or 'all'")
+    mw = ctx.get_main_window()
+    v3d = getattr(mw, "view_3d_manager", None) if mw else None
+    if v3d is None:
+        raise ValueError("3D view is not available")
+    # Overrides are stored on the 3D manager and reapplied on every redraw;
+    # update_*_color_override(idx, None) removes one entry but triggers a
+    # full redraw per call, so clear the stores directly and redraw once.
+    cleared_atoms = cleared_bonds = 0
+    if scope in ("atoms", "all") and hasattr(v3d, "_plugin_color_overrides"):
+        cleared_atoms = len(v3d._plugin_color_overrides)
+        v3d._plugin_color_overrides.clear()
+    if scope in ("bonds", "all") and hasattr(v3d, "_plugin_bond_color_overrides"):
+        cleared_bonds = len(v3d._plugin_bond_color_overrides)
+        v3d._plugin_bond_color_overrides.clear()
+    if getattr(v3d, "current_mol", None) is not None and (cleared_atoms or cleared_bonds):
+        v3d.draw_molecule_3d(v3d.current_mol)
+    return {"cleared_atoms": cleared_atoms, "cleared_bonds": cleared_bonds}
 
 
 def _find_menu_action(actions: Any, needle: str) -> Any:

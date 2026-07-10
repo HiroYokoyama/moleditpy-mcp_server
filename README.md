@@ -274,7 +274,8 @@ Claude loads it automatically whenever a task involves the MoleditPy MCP tools. 
 | `get_mapped_smiles` | SMILES with atom indices embedded as map numbers + legend (find atom_index targets) |
 | `apply_reaction_smarts` | Modify the 2D molecule with a Reaction SMARTS transformation (optional anchor atom) |
 | `trigger_3d_conversion` | Run MoleditPy's built-in 2D→3D optimizer (ETKDG/MMFF) |
-| `highlight_atoms` | Override atom colors in the 3D viewer (hex color per atom index) |
+| `set_cpk_color_override` | Override atom CPK colors in the 3D viewer (hex per atom index); persists across redraws (formerly `highlight_atoms`, still accepted) |
+| `reset_cpk_color_override` | Clear atom/bond color overrides (`scope`: atoms / bonds / all) and restore default colors |
 | `highlight_bonds` | Override bond colors in the 3D viewer (hex color per bond index) |
 | `push_undo_checkpoint` | Push the current state onto MoleditPy's undo stack |
 | `enter_3d_mode` | Switch the UI to 3D viewer mode |

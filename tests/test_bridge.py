@@ -1077,3 +1077,51 @@ def test_open_plugin_installer_no_mw_raises(bridge_mod, ctx):
     ctx.get_main_window.return_value = None
     with pytest.raises(ValueError, match="Main window"):
         bridge_mod.execute_operation(ctx, "open_plugin_installer", {})
+
+
+# ---------------------------------------------------------------------------
+# reset_cpk_color_override
+# ---------------------------------------------------------------------------
+
+
+def _v3d_with_overrides(ctx, atoms=None, bonds=None):
+    v3d = MagicMock()
+    v3d._plugin_color_overrides = dict(atoms or {})
+    v3d._plugin_bond_color_overrides = dict(bonds or {})
+    ctx.get_main_window.return_value.view_3d_manager = v3d
+    return v3d
+
+
+def test_reset_cpk_override_all(bridge_mod, ctx):
+    v3d = _v3d_with_overrides(ctx, atoms={0: "#FF0000", 2: "#00FF00"}, bonds={1: "#0000FF"})
+    result = bridge_mod.execute_operation(ctx, "reset_cpk_color_override", {})
+    assert result == {"cleared_atoms": 2, "cleared_bonds": 1}
+    assert v3d._plugin_color_overrides == {}
+    assert v3d._plugin_bond_color_overrides == {}
+    v3d.draw_molecule_3d.assert_called_once_with(v3d.current_mol)
+
+
+def test_reset_cpk_override_atoms_only(bridge_mod, ctx):
+    v3d = _v3d_with_overrides(ctx, atoms={0: "#FF0000"}, bonds={1: "#0000FF"})
+    result = bridge_mod.execute_operation(ctx, "reset_cpk_color_override", {"scope": "atoms"})
+    assert result == {"cleared_atoms": 1, "cleared_bonds": 0}
+    assert v3d._plugin_bond_color_overrides == {1: "#0000FF"}
+
+
+def test_reset_cpk_override_nothing_to_clear_skips_redraw(bridge_mod, ctx):
+    v3d = _v3d_with_overrides(ctx)
+    result = bridge_mod.execute_operation(ctx, "reset_cpk_color_override", {})
+    assert result == {"cleared_atoms": 0, "cleared_bonds": 0}
+    v3d.draw_molecule_3d.assert_not_called()
+
+
+def test_reset_cpk_override_bad_scope_raises(bridge_mod, ctx):
+    with pytest.raises(ValueError, match="scope"):
+        bridge_mod.execute_operation(ctx, "reset_cpk_color_override", {"scope": "everything"})
+
+
+def test_reset_cpk_override_no_v3d_raises(bridge_mod, ctx):
+    mw = MagicMock(spec=[])  # no view_3d_manager attribute
+    ctx.get_main_window.return_value = mw
+    with pytest.raises(ValueError, match="3D view"):
+        bridge_mod.execute_operation(ctx, "reset_cpk_color_override", {})
