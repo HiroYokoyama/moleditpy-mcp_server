@@ -118,8 +118,14 @@ _TOOLS: List[Dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "mol_block": {
-                    "type": "string",
-                    "description": "The MOL or SDF block text.",
+                    "oneOf": [
+                        {"type": "string"},
+                        {"type": "array", "items": {"type": "string"}},
+                    ],
+                    "description": (
+                        "The MOL or SDF block text. PREFER an array of lines "
+                        "(joined with newlines) to avoid newline-escaping issues."
+                    ),
                 }
             },
             "required": ["mol_block"],
@@ -136,10 +142,14 @@ _TOOLS: List[Dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "xyz_text": {
-                    "type": "string",
+                    "oneOf": [
+                        {"type": "string"},
+                        {"type": "array", "items": {"type": "string"}},
+                    ],
                     "description": (
                         "XYZ coordinate data. One atom per line: 'Element X Y Z'. "
-                        "Standard XYZ file headers are accepted."
+                        "Standard XYZ file headers are accepted. PREFER an array "
+                        "of lines to avoid newline-escaping issues."
                     ),
                 },
                 "source_name": {
@@ -286,8 +296,15 @@ _TOOLS: List[Dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "string",
-                    "description": "Python source code to execute (may be multi-line).",
+                    "oneOf": [
+                        {"type": "string"},
+                        {"type": "array", "items": {"type": "string"}},
+                    ],
+                    "description": (
+                        "Python source code to execute (may be multi-line). "
+                        "PREFER an array of lines (joined with newlines) to "
+                        "avoid newline-escaping issues."
+                    ),
                 }
             },
             "required": ["code"],
@@ -527,8 +544,15 @@ _TOOLS: List[Dict[str, Any]] = [
                     "description": "Relative path, e.g. 'run1/molecule.inp'",
                 },
                 "content": {
-                    "type": "string",
-                    "description": "Text content to write (UTF-8).",
+                    "oneOf": [
+                        {"type": "string"},
+                        {"type": "array", "items": {"type": "string"}},
+                    ],
+                    "description": (
+                        "Text content to write (UTF-8). PREFER an array of "
+                        "lines (joined with newlines) for multi-line content "
+                        "to avoid newline-escaping issues."
+                    ),
                 },
                 "overwrite": {
                     "type": "boolean",
@@ -561,16 +585,27 @@ _TOOLS: List[Dict[str, Any]] = [
                     "description": "Relative path, e.g. 'run1/molecule.inp'",
                 },
                 "header": {
-                    "type": "string",
+                    "oneOf": [
+                        {"type": "string"},
+                        {"type": "array", "items": {"type": "string"}},
+                    ],
                     "description": (
                         "Text placed before the coordinate block "
                         "(e.g. route section, charge and multiplicity). "
-                        "A newline is added if missing."
+                        "PREFER an array of lines (joined with newlines) — "
+                        "it avoids newline-escaping issues. "
+                        "A trailing newline is added if missing."
                     ),
                 },
                 "footer": {
-                    "type": "string",
-                    "description": "Text placed after the coordinate block.",
+                    "oneOf": [
+                        {"type": "string"},
+                        {"type": "array", "items": {"type": "string"}},
+                    ],
+                    "description": (
+                        "Text placed after the coordinate block. "
+                        "PREFER an array of lines, as with header."
+                    ),
                 },
                 "element_style": {
                     "type": "string",
@@ -773,6 +808,19 @@ def _get_sandbox(bridge: Any) -> tuple[str, List[str]]:
         )
     allowed: List[str] = cfg.get("allowed_extensions", [])
     return base_dir, allowed
+
+
+def _text_arg(value: Any) -> str:
+    """
+    Accept a tool text argument as either a string or a list of lines.
+
+    A list is joined with newlines — the unambiguous way for MCP clients
+    to pass multi-line content (some deliver literal backslash-n instead
+    of real newlines inside plain strings).
+    """
+    if isinstance(value, list):
+        return "\n".join(str(line) for line in value)
+    return str(value) if value is not None else ""
 
 
 def format_xyz_block(
@@ -984,7 +1032,7 @@ def dispatch_tool(  # noqa: C901
             return _tool_ok(f"Molecule loaded from SMILES: {smiles}")
 
         if name == "load_from_mol_block":
-            mol_block = arguments.get("mol_block", "").strip()
+            mol_block = _text_arg(arguments.get("mol_block", "")).strip()
             if not mol_block:
                 return _tool_err("'mol_block' argument is required.")
             result = bridge.call("load_mol_block", {"mol_block": mol_block})
@@ -993,7 +1041,7 @@ def dispatch_tool(  # noqa: C901
             return _tool_err("Failed to parse MOL block. Check the format.")
 
         if name == "show_xyz_in_viewer":
-            xyz_text = arguments.get("xyz_text", "").strip()
+            xyz_text = _text_arg(arguments.get("xyz_text", "")).strip()
             source_name = arguments.get("source_name", "MCP input")
             if not xyz_text:
                 return _tool_err("'xyz_text' argument is required.")
@@ -1036,7 +1084,7 @@ def dispatch_tool(  # noqa: C901
             )
 
         if name == "run_python":
-            code = arguments.get("code", "").strip()
+            code = _text_arg(arguments.get("code", "")).strip()
             if not code:
                 return _tool_err("'code' argument is required.")
             result = bridge.call("run_python", {"code": code}, timeout=30.0)
@@ -1269,7 +1317,7 @@ def dispatch_tool(  # noqa: C901
 
         if name == "write_text_file":
             user_path = arguments.get("path", "").strip()
-            content = arguments.get("content", "")
+            content = _text_arg(arguments.get("content", ""))
             overwrite = bool(arguments.get("overwrite", False))
             if not user_path:
                 return _tool_err("'path' argument is required.")
@@ -1325,11 +1373,11 @@ def dispatch_tool(  # noqa: C901
             parts = []
             if bool(arguments.get("xyz_header", False)):
                 parts.append(f"{n_atoms}\n{arguments.get('comment', '')}\n")
-            header = arguments.get("header", "")
+            header = _text_arg(arguments.get("header", ""))
             if header:
                 parts.append(header if header.endswith("\n") else header + "\n")
             parts.append(block + "\n")
-            footer = arguments.get("footer", "")
+            footer = _text_arg(arguments.get("footer", ""))
             if footer:
                 parts.append(footer if footer.endswith("\n") else footer + "\n")
             content = "".join(parts)

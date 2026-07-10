@@ -1119,3 +1119,60 @@ def test_new_plugin_tools_registered(srv):
     names = [t["name"] for t in srv._TOOLS]
     assert "list_available_plugins" in names
     assert "open_plugin_installer" in names
+
+
+def test_write_xyz_block_header_footer_as_line_arrays(srv, tmp_path):
+    bridge = _xyz_bridge(tmp_path)
+    result = srv.dispatch_tool(bridge, "write_file_with_xyz_block", {
+        "path": "arr.inp",
+        "header": ["! B3LYP def2-SVP", "* xyz 0 1"],
+        "footer": ["*", "# end"],
+    })
+    assert result.get("isError") is not True
+    lines = (tmp_path / "arr.inp").read_text().splitlines()
+    assert lines[0] == "! B3LYP def2-SVP"
+    assert lines[1] == "* xyz 0 1"
+    assert lines[2].split()[0] == "C"
+    assert lines[-2] == "*"
+    assert lines[-1] == "# end"
+
+
+def test_write_xyz_block_string_header_still_works(srv, tmp_path):
+    bridge = _xyz_bridge(tmp_path)
+    srv.dispatch_tool(bridge, "write_file_with_xyz_block", {
+        "path": "str.inp", "header": "%mem 4GB\n! Opt",
+    })
+    lines = (tmp_path / "str.inp").read_text().splitlines()
+    assert lines[0] == "%mem 4GB"
+    assert lines[1] == "! Opt"
+
+
+def test_write_text_file_content_as_line_array(srv, tmp_path):
+    bridge = _file_bridge(srv, tmp_path)
+    srv.dispatch_tool(bridge, "write_text_file", {
+        "path": "arr.txt", "content": ["line1", "line2"],
+    })
+    assert (tmp_path / "arr.txt").read_text() == "line1\nline2"
+
+
+def test_run_python_code_as_line_array(srv):
+    bridge = make_bridge({"run_python": {"stdout": "", "stderr": "", "result": "4"}})
+    result = srv.dispatch_tool(bridge, "run_python", {"code": ["x = 2 + 2", "result = x"]})
+    assert result.get("isError") is not True
+    op, args = bridge.call.call_args[0][0], bridge.call.call_args[0][1]
+    assert op == "run_python"
+    assert args["code"] == "x = 2 + 2\nresult = x"
+
+
+def test_show_xyz_text_as_line_array(srv):
+    bridge = make_bridge({"show_xyz": {"success": True}})
+    srv.dispatch_tool(bridge, "show_xyz_in_viewer", {"xyz_text": ["C 0 0 0", "O 1 0 0"]})
+    args = bridge.call.call_args[0][1]
+    assert args["xyz_text"] == "C 0 0 0\nO 1 0 0"
+
+
+def test_load_mol_block_as_line_array(srv):
+    bridge = make_bridge({"load_mol_block": {"success": True, "num_atoms": 1}})
+    srv.dispatch_tool(bridge, "load_from_mol_block", {"mol_block": ["line1", "M  END"]})
+    args = bridge.call.call_args[0][1]
+    assert args["mol_block"] == "line1\nM  END"
