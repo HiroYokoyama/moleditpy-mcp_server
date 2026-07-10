@@ -296,3 +296,46 @@ class TestTesterGUI:
             "count", {"type": "integer", "default": 5}, required=True
         )
         assert field.value() == 5
+
+
+@pytest.mark.skipif(not _has_pyqt6(), reason="PyQt6 not installed")
+class TestUnionParamField:
+    """string-or-array (oneOf) fields parse JSON arrays, pass strings through."""
+
+    @classmethod
+    def setup_class(cls) -> None:
+        from PyQt6.QtWidgets import QApplication
+
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        cls.app = QApplication.instance() or QApplication([])
+        cls.mod = _load_tester()
+        cls.union_schema = {
+            "oneOf": [
+                {"type": "string"},
+                {"type": "array", "items": {"type": "string"}},
+            ],
+            "description": "text or lines",
+        }
+
+    def _field(self):
+        return self.mod.ParamField("header", self.union_schema, required=False)
+
+    def test_union_field_uses_multiline_editor(self) -> None:
+        from PyQt6.QtWidgets import QPlainTextEdit
+
+        assert isinstance(self._field().widget, QPlainTextEdit)
+
+    def test_union_field_parses_json_array(self) -> None:
+        field = self._field()
+        field.widget.setPlainText('["line1", "line2"]')
+        assert field.value() == ["line1", "line2"]
+
+    def test_union_field_passes_plain_text_through(self) -> None:
+        field = self._field()
+        field.widget.setPlainText("! Opt\n* xyz 0 1")
+        assert field.value() == "! Opt\n* xyz 0 1"
+
+    def test_union_field_invalid_json_stays_string(self) -> None:
+        field = self._field()
+        field.widget.setPlainText('["broken')
+        assert field.value() == '["broken'

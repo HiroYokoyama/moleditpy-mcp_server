@@ -178,6 +178,12 @@ class ParamField:
         self.schema = schema
         self.required = required
         self.type = schema.get("type", "string")
+        # Union schemas ({"oneOf": [{"type": "string"}, {"type": "array"...}]})
+        # have no top-level "type". Track the allowed types so value() can
+        # send a JSON array when the user enters one.
+        self.union_types = frozenset(
+            alt.get("type") for alt in schema.get("oneOf", []) if isinstance(alt, dict)
+        )
         self.include_box: Optional[QCheckBox] = None
         self.widget = self._build_widget()
 
@@ -214,9 +220,13 @@ class ParamField:
             )
             edit.setFixedHeight(60)
             w = edit
-        elif self.name in _MULTILINE_HINTS:
+        elif self.name in _MULTILINE_HINTS or "array" in self.union_types:
             edit = QPlainTextEdit()
             edit.setFixedHeight(120)
+            if "array" in self.union_types:
+                edit.setPlaceholderText(
+                    'Multi-line text, or a JSON array of lines: ["line1", "line2"]'
+                )
             if isinstance(default, str):
                 edit.setPlainText(default)
             w = edit
@@ -242,6 +252,17 @@ class ParamField:
             text = self.widget.text()
         if self.type in ("array", "object"):
             return parse_json_param(self.name, self.type, text)
+        if "array" in self.union_types:
+            # string-or-array union: send a JSON array if the user typed one,
+            # otherwise pass the text through as a plain string.
+            stripped = text.strip()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                try:
+                    parsed = json.loads(stripped)
+                except json.JSONDecodeError:
+                    return text
+                if isinstance(parsed, list):
+                    return parsed
         return text
 
     def is_included(self) -> bool:
