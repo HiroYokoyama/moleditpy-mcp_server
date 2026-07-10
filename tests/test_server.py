@@ -1042,3 +1042,80 @@ def test_write_xyz_block_bad_atom_order_is_tool_error(srv, tmp_path):
         "path": "mol.xyz", "atom_order": [0, 0],
     })
     assert result.get("isError") is True
+
+
+# ---------------------------------------------------------------------------
+# list_available_plugins / open_plugin_installer
+# ---------------------------------------------------------------------------
+
+_REGISTRY_JSON = json.dumps([
+    {"name": "Cool Analyzer", "version": "1.0.0", "visible": True,
+     "description": "Analyzes things.", "tags": ["Analysis"]},
+    {"name": "Hidden Legacy", "version": "0.1", "visible": False,
+     "description": "Old.", "tags": []},
+    {"name": "ORCA Input Generator Neo", "version": "2026.01.01", "visible": True,
+     "description": "Generates ORCA inputs.", "tags": ["DFT", "Generator"]},
+]).encode("utf-8")
+
+
+def _mock_urlopen(payload):
+    cm = MagicMock()
+    cm.__enter__ = MagicMock(return_value=MagicMock(read=MagicMock(return_value=payload)))
+    cm.__exit__ = MagicMock(return_value=False)
+    return MagicMock(return_value=cm)
+
+
+def test_list_available_plugins_hides_invisible(srv):
+    bridge = make_bridge({})
+    with patch.object(srv.urllib.request, "urlopen", _mock_urlopen(_REGISTRY_JSON)):
+        result = srv.dispatch_tool(bridge, "list_available_plugins", {})
+    text = result["content"][0]["text"]
+    assert result.get("isError") is not True
+    assert "Cool Analyzer" in text
+    assert "ORCA Input Generator Neo" in text
+    assert "Hidden Legacy" not in text
+    assert "2 plugin(s)" in text
+
+
+def test_list_available_plugins_search_filter(srv):
+    bridge = make_bridge({})
+    with patch.object(srv.urllib.request, "urlopen", _mock_urlopen(_REGISTRY_JSON)):
+        result = srv.dispatch_tool(bridge, "list_available_plugins", {"search": "orca"})
+    text = result["content"][0]["text"]
+    assert "ORCA Input Generator Neo" in text
+    assert "Cool Analyzer" not in text
+
+
+def test_list_available_plugins_no_match(srv):
+    bridge = make_bridge({})
+    with patch.object(srv.urllib.request, "urlopen", _mock_urlopen(_REGISTRY_JSON)):
+        result = srv.dispatch_tool(bridge, "list_available_plugins", {"search": "zzz"})
+    assert "No plugins" in result["content"][0]["text"]
+
+
+def test_list_available_plugins_network_error(srv):
+    bridge = make_bridge({})
+    with patch.object(srv.urllib.request, "urlopen", MagicMock(side_effect=OSError("offline"))):
+        result = srv.dispatch_tool(bridge, "list_available_plugins", {})
+    assert result.get("isError") is True
+    assert "Could not fetch" in result["content"][0]["text"]
+
+
+def test_open_plugin_installer_found(srv):
+    bridge = make_bridge({"open_plugin_installer": {"found": True}})
+    result = srv.dispatch_tool(bridge, "open_plugin_installer", {})
+    assert result.get("isError") is not True
+    assert "opened" in result["content"][0]["text"]
+
+
+def test_open_plugin_installer_missing(srv):
+    bridge = make_bridge({"open_plugin_installer": {"found": False}})
+    result = srv.dispatch_tool(bridge, "open_plugin_installer", {})
+    assert result.get("isError") is True
+    assert "not installed" in result["content"][0]["text"]
+
+
+def test_new_plugin_tools_registered(srv):
+    names = [t["name"] for t in srv._TOOLS]
+    assert "list_available_plugins" in names
+    assert "open_plugin_installer" in names

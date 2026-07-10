@@ -1037,3 +1037,43 @@ def test_set_file_io_config_shows_status(bridge_mod, ctx):
 def test_execute_unknown_operation_raises(bridge_mod, ctx):
     with pytest.raises(ValueError, match="Unknown operation"):
         bridge_mod.execute_operation(ctx, "does_not_exist", {})
+
+
+# ---------------------------------------------------------------------------
+# open_plugin_installer
+# ---------------------------------------------------------------------------
+
+
+def _menu_action(text, submenu=None):
+    action = MagicMock()
+    action.text.return_value = text
+    action.menu.return_value = submenu
+    return action
+
+
+def test_open_plugin_installer_found(bridge_mod, ctx):
+    installer = _menu_action("Plugin Installer...")
+    submenu = MagicMock()
+    submenu.actions.return_value = [_menu_action("Reload Plugins"), installer]
+    plugin_menu = _menu_action("&Plugin", submenu=submenu)
+    ctx.get_main_window.return_value.menuBar.return_value.actions.return_value = [
+        _menu_action("&File"), plugin_menu,
+    ]
+
+    result = bridge_mod.execute_operation(ctx, "open_plugin_installer", {})
+    assert result["found"] is True
+    bridge_mod.QTimer.singleShot.assert_called_once_with(0, installer.trigger)
+
+
+def test_open_plugin_installer_not_found(bridge_mod, ctx):
+    ctx.get_main_window.return_value.menuBar.return_value.actions.return_value = [
+        _menu_action("&File"), _menu_action("&Edit"),
+    ]
+    result = bridge_mod.execute_operation(ctx, "open_plugin_installer", {})
+    assert result["found"] is False
+
+
+def test_open_plugin_installer_no_mw_raises(bridge_mod, ctx):
+    ctx.get_main_window.return_value = None
+    with pytest.raises(ValueError, match="Main window"):
+        bridge_mod.execute_operation(ctx, "open_plugin_installer", {})

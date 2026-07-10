@@ -19,7 +19,7 @@ import logging
 import threading
 from typing import Any, Dict, List, Optional
 
-from PyQt6.QtCore import QObject, Qt, pyqtSignal
+from PyQt6.QtCore import QObject, Qt, QTimer, pyqtSignal
 
 logger = logging.getLogger(__name__)
 
@@ -186,6 +186,9 @@ def execute_operation(ctx: Any, operation: str, args: Dict[str, Any]) -> Any:  #
     if operation == "get_app_source":
         return _get_app_source(args)
 
+    if operation == "open_plugin_installer":
+        return _open_plugin_installer(ctx)
+
     if operation == "get_file_io_config":
         return _get_file_io_config(ctx)
 
@@ -193,6 +196,34 @@ def execute_operation(ctx: Any, operation: str, args: Dict[str, Any]) -> Any:  #
         return _set_file_io_config(ctx, args)
 
     raise ValueError(f"Unknown operation: {operation!r}")
+
+
+def _find_menu_action(actions: Any, needle: str) -> Any:
+    """Recursively search QAction lists (incl. submenus) for a text match."""
+    for action in actions:
+        text = str(action.text()).replace("&", "").replace("...", "").strip()
+        if needle.lower() in text.lower():
+            return action
+        submenu = action.menu()
+        if submenu is not None:
+            found = _find_menu_action(submenu.actions(), needle)
+            if found is not None:
+                return found
+    return None
+
+
+def _open_plugin_installer(ctx: Any) -> Dict[str, Any]:
+    mw = ctx.get_main_window()
+    if mw is None:
+        raise ValueError("Main window is not available")
+    action = _find_menu_action(mw.menuBar().actions(), "Plugin Installer")
+    if action is None:
+        return {"found": False}
+    # The installer opens a modal dialog (dlg.exec()); trigger it only after
+    # this bridge call has returned so the MCP request does not block inside
+    # the dialog's event loop.
+    QTimer.singleShot(0, action.trigger)
+    return {"found": True}
 
 
 def _get_molecule_info(ctx: Any) -> Dict[str, Any]:

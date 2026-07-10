@@ -472,6 +472,37 @@ _TOOLS: List[Dict[str, Any]] = [
         ),
         "inputSchema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "list_available_plugins",
+        "description": (
+            "Fetch the official MoleditPy plugin registry and list the plugins "
+            "available for installation (name, version, tags, description). "
+            "Optionally filter with a search term matched against name, "
+            "description, and tags. Use this to discover functionality the "
+            "user is missing (e.g. a specific input generator or analyzer), "
+            "then suggest installing it via open_plugin_installer."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "search": {
+                    "type": "string",
+                    "description": "Optional case-insensitive filter term.",
+                },
+            },
+        },
+    },
+    {
+        "name": "open_plugin_installer",
+        "description": (
+            "Open the Plugin Installer window inside MoleditPy so the user "
+            "can install or update plugins from the official registry. "
+            "Use after suggesting a plugin found via list_available_plugins. "
+            "Errors with manual-install instructions if the Plugin Installer "
+            "plugin itself is not installed."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
     # ------------------------------------------------------------------
     # File I/O (sandboxed to the configured base directory)
     # ------------------------------------------------------------------
@@ -803,6 +834,10 @@ def format_xyz_block(
 
 _PLUGIN_DEV_MANUAL_URL = (
     "https://hiroyokoyama.github.io/python_molecular_editor/docs/PLUGIN_DEVELOPMENT_MANUAL_V4.md"
+)
+
+_PLUGIN_REGISTRY_URL = (
+    "https://hiroyokoyama.github.io/moleditpy-plugins/REGISTRY/plugins.json"
 )
 
 
@@ -1144,6 +1179,56 @@ def dispatch_tool(  # noqa: C901
             result = bridge.call("reload_plugins")
             return _tool_ok(
                 f"Plugins reloaded. {result['plugin_count']} plugin(s) found."
+            )
+
+        if name == "list_available_plugins":
+            try:
+                with urllib.request.urlopen(_PLUGIN_REGISTRY_URL, timeout=15) as resp:
+                    entries = json.loads(resp.read().decode("utf-8"))
+            except Exception as exc:  # noqa: BLE001 — network errors vary widely
+                return _tool_err(f"Could not fetch the plugin registry: {exc}")
+            search = (arguments.get("search") or "").strip().lower()
+            lines = []
+            for entry in entries:
+                if not entry.get("visible", False):
+                    continue
+                pname = entry.get("name", "?")
+                desc = entry.get("description", "")
+                tags = ", ".join(entry.get("tags", []))
+                if search and search not in f"{pname} {desc} {tags}".lower():
+                    continue
+                lines.append(
+                    f"- {pname} (v{entry.get('version', '?')})"
+                    + (f" [{tags}]" if tags else "")
+                    + (f"\n    {desc}" if desc else "")
+                )
+            if not lines:
+                return _tool_ok(
+                    f"No plugins in the registry match {search!r}."
+                    if search else "The plugin registry returned no visible plugins."
+                )
+            header = f"{len(lines)} plugin(s) available in the official registry"
+            if search:
+                header += f" matching {search!r}"
+            return _tool_ok(
+                header + ":\n" + "\n".join(lines)
+                + "\n\nTo install one, call open_plugin_installer and let the "
+                "user pick it in the installer window."
+            )
+
+        if name == "open_plugin_installer":
+            data = bridge.call("open_plugin_installer")
+            if data["found"]:
+                return _tool_ok(
+                    "Plugin Installer window opened in MoleditPy. "
+                    "Ask the user to select and install the plugin there."
+                )
+            return _tool_err(
+                "The Plugin Installer plugin is not installed in this MoleditPy. "
+                "Manual install: download the plugin from the Plugin Explorer at "
+                "https://hiroyokoyama.github.io/moleditpy-plugins/explorer/ and "
+                "place it in the MoleditPy plugin directory (see get_plugin_dir), "
+                "then call reload_plugins."
             )
 
         # ------------------------------------------------------------------
