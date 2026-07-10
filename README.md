@@ -236,6 +236,26 @@ To start the server automatically every time MoleditPy launches, open **Plugins 
 
 ---
 
+## AI Skill (SKILL.md) — optional
+
+This repo ships a [`SKILL.md`](SKILL.md) that teaches AI agents *how* to use these tools well: always taking coordinates from the live molecule (never retyping them), checkpointing the undo stack after edits, configuring the file sandbox before writing, ready-made recipes for QM input generation and plugin authoring, and discovering/suggesting installable plugins.
+
+To install it for **Claude Code**, copy the file into a skill directory:
+
+```bash
+# Personal (all projects)
+mkdir -p ~/.claude/skills/moleditpy-mcp
+cp SKILL.md ~/.claude/skills/moleditpy-mcp/SKILL.md
+
+# Or per-project
+mkdir -p .claude/skills/moleditpy-mcp
+cp SKILL.md .claude/skills/moleditpy-mcp/SKILL.md
+```
+
+Claude loads it automatically whenever a task involves the MoleditPy MCP tools. Other agent frameworks that support Anthropic-style skills (a `SKILL.md` with YAML frontmatter) can consume the same file.
+
+---
+
 ## Available MCP Tools
 
 ### Molecule tools
@@ -277,11 +297,14 @@ To start the server automatically every time MoleditPy launches, open **Plugins 
 | `get_app_source` | Read a source file or list a directory within the package |
 | `get_plugin_dir` | Return the absolute path to the plugin directory |
 | `reload_plugins` | Re-scan and reload all plugins (activates freshly written plugins) |
+| `list_available_plugins` | Fetch the official plugin registry and list installable plugins (optional `search` filter) |
+| `open_plugin_installer` | Open the in-app Plugin Installer window to install a suggested plugin; if the installer plugin is absent, directs the user to the [Plugin Explorer](https://hiroyokoyama.github.io/moleditpy-plugins/explorer/) for a manual download |
 
 ### File I/O tools (sandboxed)
 
 | Tool | Description |
 |------|-------------|
+| `write_file_with_xyz_block` | **Preferred for QM input generation** — write a file composed as header + live XYZ coordinate block + footer, with `element_style`, `atom_order`, `precision`, and standard-XYZ-header options |
 | `write_text_file` | Write text to a file; auto-creates parent dirs; `overwrite=false` by default |
 | `read_text_file` | Read a file's UTF-8 text content (≤ 4 MB) |
 | `list_directory` | List files and subdirectories with sizes |
