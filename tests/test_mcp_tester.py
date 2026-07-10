@@ -182,6 +182,29 @@ class TestMCPClient:
         with pytest.raises(RuntimeError):
             self.client._rpc("bogus/method")
 
+    def test_custom_headers_sent_on_every_request(self) -> None:
+        client = self.mod.MCPClient(
+            f"http://127.0.0.1:{self.port}/mcp", headers={"X-Test": "yes"}
+        )
+        captured = []
+        real_urlopen = self.mod.urllib.request.urlopen
+
+        def _capturing_urlopen(req, *args, **kwargs):
+            captured.append(dict(req.header_items()))
+            return real_urlopen(req, *args, **kwargs)
+
+        self.mod.urllib.request.urlopen = _capturing_urlopen
+        try:
+            client.initialize()
+        finally:
+            self.mod.urllib.request.urlopen = real_urlopen
+        assert captured
+        assert captured[0].get("X-test") == "yes"
+
+    def test_no_headers_means_no_extra_headers(self) -> None:
+        client = self.mod.MCPClient(f"http://127.0.0.1:{self.port}/mcp")
+        assert client.headers == {}
+
 
 # ---------------------------------------------------------------------------
 # Tier 3: GUI (real PyQt6, offscreen)
@@ -194,11 +217,16 @@ class TestTesterGUI:
 
     @classmethod
     def setup_class(cls) -> None:
+        import tempfile
+
         from PyQt6.QtWidgets import QApplication
 
         from mcp_server.server import MCPHttpServer
 
         cls.mod = _load_tester()
+        # Never touch the real user's home directory during tests.
+        cls._history_tmpdir = tempfile.mkdtemp(prefix="mcp_gui_tester_history_")
+        cls.mod.HISTORY_PATH = Path(cls._history_tmpdir) / "history.json"
         cls.app = QApplication.instance() or QApplication([])
         cls.port = _free_port()
         cls.server = MCPHttpServer(_StubBridge(), "Stub MCP", "0.0", port=cls.port)
@@ -210,6 +238,9 @@ class TestTesterGUI:
     @classmethod
     def teardown_class(cls) -> None:
         cls.server.stop()
+        import shutil
+
+        shutil.rmtree(cls._history_tmpdir, ignore_errors=True)
 
     def _make_window(self):
         win = self.mod.MCPTesterWindow(f"http://127.0.0.1:{self.port}/mcp")
@@ -250,7 +281,7 @@ class TestTesterGUI:
     def test_json_object_param_validation(self) -> None:
         win = self._make_window()
         names = [t["name"] for t in self.tools]
-        win.tool_list.setCurrentRow(names.index("highlight_atoms"))
+        win.tool_list.setCurrentRow(names.index("set_cpk_color_override"))
         self.app.processEvents()
         field = win.fields[0]
         field.widget.setPlainText('{"0": "#FF0000"}')
@@ -258,6 +289,116 @@ class TestTesterGUI:
         field.widget.setPlainText("not json")
         with pytest.raises(ValueError):
             field.value()
+
+    def test_refresh_tools_button_preserves_selection(self) -> None:
+        win = self._make_window()
+        win.client = self.client  # normally set by the Connect button
+        names = [t["name"] for t in self.tools]
+        win.tool_list.setCurrentRow(names.index("get_app_info"))
+        self.app.processEvents()
+        assert win.refresh_btn is not None
+        win._on_refresh_tools()
+        deadline = time.time() + 5
+        while time.time() < deadline and not win.refresh_btn.isEnabled():
+            self.app.processEvents()
+            time.sleep(0.02)
+        current = win.tool_list.currentItem()
+        assert current is not None
+        assert current.data(self.mod.Qt.ItemDataRole.UserRole)["name"] == "get_app_info"
+        assert win.tool_list.count() == len(self.tools)
+
+    def test_refresh_tools_noop_without_client(self) -> None:
+        win = self._make_window()
+        win.client = None
+        win._on_refresh_tools()  # must not raise
+
+    def test_headers_field_rejects_invalid_json(self, monkeypatch) -> None:
+        # QMessageBox.warning() opens a real modal event loop even under the
+        # offscreen platform, so stub it out to keep the test non-blocking.
+        monkeypatch.setattr(self.mod.QMessageBox, "warning", lambda *a, **k: None)
+        win = self._make_window()
+        win.headers_edit.setText("{not json}")
+        win._on_connect()
+        # invalid JSON must not create a client
+        assert win.client is None
+
+    def test_headers_field_accepts_valid_json_object(self) -> None:
+        win = self._make_window()
+        win.headers_edit.setText('{"Authorization": "Bearer xyz"}')
+        win._on_connect()
+        assert win.client is not None
+        assert win.client.headers == {"Authorization": "Bearer xyz"}
+
+    def test_headers_field_rejects_non_object_json(self, monkeypatch) -> None:
+        monkeypatch.setattr(self.mod.QMessageBox, "warning", lambda *a, **k: None)
+        win = self._make_window()
+        win.headers_edit.setText("[1, 2, 3]")
+        win._on_connect()
+        assert win.client is None
+
+    def test_reset_form_clears_prefill(self) -> None:
+        win = self._make_window()
+        win.history.data["write_text_file"] = {"path": "remembered.txt"}
+        names = [t["name"] for t in self.tools]
+        win.tool_list.setCurrentRow(names.index("write_text_file"))
+        self.app.processEvents()
+        by_name = {f.name: f for f in win.fields}
+        assert by_name["path"].widget.text() == "remembered.txt"
+        win._on_reset_form()
+        by_name = {f.name: f for f in win.fields}
+        assert by_name["path"].widget.text() == ""
+
+    def test_argument_history_prefills_form_and_records_on_call(self) -> None:
+        win = self._make_window()
+        win.client = self.client
+        names = [t["name"] for t in self.tools]
+        win.tool_list.setCurrentRow(names.index("get_app_info"))
+        self.app.processEvents()
+        win._on_call()
+        deadline = time.time() + 5
+        while time.time() < deadline and not win.result_text.toPlainText():
+            self.app.processEvents()
+            time.sleep(0.02)
+        assert win.history.get("get_app_info") == {}
+
+    def test_response_rendering_image_and_resource_content(self) -> None:
+        import base64
+
+        from PyQt6.QtWidgets import QLabel, QPlainTextEdit
+
+        win = self._make_window()
+        png_1x1 = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YA"
+            "AAAASUVORK5CYII="
+        )
+        content = [
+            {"type": "text", "text": "hello"},
+            {"type": "image", "data": base64.b64encode(png_1x1).decode("ascii"), "mimeType": "image/png"},
+            {"type": "resource", "resource": {"uri": "file:///x.txt"}},
+            {"type": "something_else", "value": 42},
+        ]
+        win._render_content_extras(content)
+        widgets = [
+            win.result_extra_lay.itemAt(i).widget()
+            for i in range(win.result_extra_lay.count())
+            if win.result_extra_lay.itemAt(i).widget() is not None
+        ]
+        # text block contributes nothing to result_extra; image + resource + unknown do
+        assert len(widgets) == 3
+        assert isinstance(widgets[0], QLabel) and not widgets[0].pixmap().isNull()
+        assert isinstance(widgets[1], QPlainTextEdit)
+        assert "resource" in widgets[1].toPlainText()
+        assert isinstance(widgets[2], QPlainTextEdit)
+        assert "something_else" in widgets[2].toPlainText()
+
+    def test_response_rendering_bad_image_data_falls_back_to_json(self) -> None:
+        from PyQt6.QtWidgets import QPlainTextEdit
+
+        win = self._make_window()
+        content = [{"type": "image", "data": "not-base64!!", "mimeType": "image/png"}]
+        win._render_content_extras(content)
+        widget = win.result_extra_lay.itemAt(0).widget()
+        assert isinstance(widget, QPlainTextEdit)
 
     def test_tool_filter(self) -> None:
         win = self._make_window()
@@ -339,3 +480,143 @@ class TestUnionParamField:
         field = self._field()
         field.widget.setPlainText('["broken')
         assert field.value() == '["broken'
+
+
+@pytest.mark.skipif(not _has_pyqt6(), reason="PyQt6 not installed")
+class TestGeneralizedOneOf:
+    """Generalized oneOf handling beyond the string-or-array special case."""
+
+    @classmethod
+    def setup_class(cls) -> None:
+        from PyQt6.QtWidgets import QApplication
+
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        cls.app = QApplication.instance() or QApplication([])
+        cls.mod = _load_tester()
+
+    def test_string_or_object_uses_multiline_json_editor(self) -> None:
+        from PyQt6.QtWidgets import QPlainTextEdit
+
+        schema = {"oneOf": [{"type": "string"}, {"type": "object"}]}
+        field = self.mod.ParamField("meta", schema, required=False)
+        assert isinstance(field.widget, QPlainTextEdit)
+        field.widget.setPlainText('{"a": 1}')
+        assert field.value() == {"a": 1}
+        field.widget.setPlainText("plain text")
+        assert field.value() == "plain text"
+
+    def test_integer_or_boolean_falls_back_to_first_alternative_widget(self) -> None:
+        from PyQt6.QtWidgets import QSpinBox
+
+        schema = {"oneOf": [{"type": "integer"}, {"type": "boolean"}]}
+        field = self.mod.ParamField("level", schema, required=False)
+        assert isinstance(field.widget, QSpinBox)
+
+    def test_boolean_or_string_prefers_string_editor(self) -> None:
+        # Per the widget-selection rule (array/object > string > fallback),
+        # a boolean+string union still gets a text editor, not a checkbox.
+        from PyQt6.QtWidgets import QLineEdit
+
+        schema = {"oneOf": [{"type": "boolean"}, {"type": "string"}]}
+        field = self.mod.ParamField("flag", schema, required=False)
+        assert isinstance(field.widget, QLineEdit)
+        field.widget.setText("true")
+        assert field.value() is True
+
+    def test_boolean_only_oneof_falls_back_to_checkbox(self) -> None:
+        from PyQt6.QtWidgets import QCheckBox
+
+        schema = {"oneOf": [{"type": "boolean"}, {"type": "integer"}]}
+        field = self.mod.ParamField("flag", schema, required=False)
+        assert isinstance(field.widget, QCheckBox)
+        field.widget.setChecked(True)
+        assert field.value() is True
+
+    def test_number_or_integer_falls_back_to_double_spinbox(self) -> None:
+        from PyQt6.QtWidgets import QDoubleSpinBox
+
+        schema = {"oneOf": [{"type": "number"}, {"type": "integer"}]}
+        field = self.mod.ParamField("weight", schema, required=False)
+        # no array/object/string alt present -> first alt ("number") wins.
+        assert isinstance(field.widget, QDoubleSpinBox)
+        field.widget.setValue(3.5)
+        assert field.value() == 3.5
+
+    def test_coerce_union_value_prefers_matching_union_type(self) -> None:
+        # Exercise _coerce_union_value directly for a string+integer union
+        # backed by a line edit, since building the widget always prefers
+        # the "string" branch when present.
+        schema = {"oneOf": [{"type": "integer"}, {"type": "string"}]}
+        field = self.mod.ParamField("count_or_label", schema, required=False)
+        assert field._coerce_union_value("42") == 42
+        assert field._coerce_union_value("not a number") == "not a number"
+        # "boolean" is not an allowed alternative, so JSON-looking "true"
+        # stays a raw string rather than becoming a Python bool.
+        assert field._coerce_union_value("true") == "true"
+
+    def test_explicit_type_is_not_treated_as_oneof(self) -> None:
+        # A schema with an explicit top-level "type" alongside oneOf/enum-like
+        # constructs must not go through the union widget path.
+        schema = {"type": "string", "oneOf": [{"const": "a"}, {"const": "b"}]}
+        field = self.mod.ParamField("choice", schema, required=False)
+        from PyQt6.QtWidgets import QLineEdit
+
+        assert isinstance(field.widget, QLineEdit)
+
+
+@pytest.mark.skipif(not _has_pyqt6(), reason="PyQt6 not installed")
+class TestArgumentHistory:
+    """Per-tool argument memory: in-memory + persisted JSON file."""
+
+    @classmethod
+    def setup_class(cls) -> None:
+        cls.mod = _load_tester()
+
+    def test_remember_and_get_roundtrip(self, tmp_path) -> None:
+        history = self.mod.ArgumentHistory(path=tmp_path / "history.json")
+        history.remember("tool_a", {"x": 1})
+        assert history.get("tool_a") == {"x": 1}
+        assert history.get("tool_b") is None
+
+    def test_history_persists_to_file(self, tmp_path) -> None:
+        path = tmp_path / "history.json"
+        history = self.mod.ArgumentHistory(path=path)
+        history.remember("tool_a", {"x": 1})
+        assert path.is_file()
+        reloaded = self.mod.ArgumentHistory(path=path)
+        assert reloaded.get("tool_a") == {"x": 1}
+
+    def test_corrupt_history_file_ignored_silently(self, tmp_path) -> None:
+        path = tmp_path / "history.json"
+        path.write_text("{not valid json", encoding="utf-8")
+        history = self.mod.ArgumentHistory(path=path)  # must not raise
+        assert history.get("anything") is None
+
+    def test_unreadable_history_file_ignored_silently(self, tmp_path) -> None:
+        path = tmp_path / "missing_dir" / "history.json"  # parent doesn't exist
+        history = self.mod.ArgumentHistory(path=path)  # must not raise on load
+        assert history.get("anything") is None
+        history.remember("tool_a", {"x": 1})  # save failure must not raise either
+        assert history.get("tool_a") == {"x": 1}
+
+    def test_capped_at_max_tools(self, tmp_path) -> None:
+        path = tmp_path / "history.json"
+        history = self.mod.ArgumentHistory(path=path, max_tools=3)
+        for i in range(5):
+            history.remember(f"tool_{i}", {"i": i})
+        assert len(history.data) == 3
+        # oldest entries evicted first
+        assert history.get("tool_0") is None
+        assert history.get("tool_1") is None
+        assert history.get("tool_4") == {"i": 4}
+
+    def test_remember_moves_tool_to_most_recent(self, tmp_path) -> None:
+        path = tmp_path / "history.json"
+        history = self.mod.ArgumentHistory(path=path, max_tools=2)
+        history.remember("tool_a", {"x": 1})
+        history.remember("tool_b", {"x": 2})
+        history.remember("tool_a", {"x": 3})  # re-remember a -> now most recent
+        history.remember("tool_c", {"x": 4})  # should evict tool_b, not tool_a
+        assert history.get("tool_b") is None
+        assert history.get("tool_a") == {"x": 3}
+        assert history.get("tool_c") == {"x": 4}
