@@ -576,13 +576,16 @@ class MCPTesterWindow(QMainWindow):
         self.result_tabs.addTab(result_page, "Result")
         self.result_tabs.addTab(self.raw_text, "Raw JSON")
 
-        # Draggable split between the parameter form (top, larger by
-        # default) and the result tabs (bottom).
+        # Draggable vertical (height) split: parameter form on top takes
+        # ~3/4 of the pane, result tabs on the bottom ~1/4.
         right_split = QSplitter(Qt.Orientation.Vertical)
         right_split.addWidget(params_pane)
         right_split.addWidget(self.result_tabs)
         right_split.setStretchFactor(0, 3)
-        right_split.setStretchFactor(1, 2)
+        right_split.setStretchFactor(1, 1)
+        # Stretch factors only govern resize distribution; set the initial
+        # sizes explicitly so the form starts tall without a manual drag.
+        right_split.setSizes([450, 150])
         right_lay.addWidget(right_split, stretch=1)
 
         splitter = QSplitter()
