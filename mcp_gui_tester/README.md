@@ -1,5 +1,7 @@
 # mcp-gui-tester
 
+[![PyPI](https://img.shields.io/pypi/v/mcp-gui-tester)](https://pypi.org/project/mcp-gui-tester/) [![Python](https://img.shields.io/pypi/pyversions/mcp-gui-tester)](https://pypi.org/project/mcp-gui-tester/) [![Tests](https://github.com/HiroYokoyama/moleditpy-mcp_server/actions/workflows/test.yml/badge.svg)](https://github.com/HiroYokoyama/moleditpy-mcp_server/actions/workflows/test.yml)
+
 A lightweight **PyQt6 GUI tester for MCP servers** speaking the
 [Model Context Protocol](https://modelcontextprotocol.io) **Streamable HTTP
 transport** (JSON-RPC over `POST`).

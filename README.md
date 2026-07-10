@@ -6,6 +6,7 @@ Once running, any MCP-compatible client — **Claude Desktop**, **Claude Code**,
 
 [![Tests](https://github.com/HiroYokoyama/moleditpy-mcp_server/actions/workflows/test.yml/badge.svg)](https://github.com/HiroYokoyama/moleditpy-mcp_server/actions/workflows/test.yml)
 [![Downloads](https://img.shields.io/github/downloads/HiroYokoyama/moleditpy-mcp_server/total)](https://github.com/HiroYokoyama/moleditpy-mcp_server/releases)
+[![PyPI - mcp-gui-tester](https://img.shields.io/pypi/v/mcp-gui-tester?label=mcp-gui-tester)](https://pypi.org/project/mcp-gui-tester/)
 
 
 ---
@@ -219,6 +220,8 @@ curl http://127.0.0.1:7891/health
 ```
 
 ### GUI tester
+
+[![PyPI](https://img.shields.io/pypi/v/mcp-gui-tester)](https://pypi.org/project/mcp-gui-tester/) [![Python](https://img.shields.io/pypi/pyversions/mcp-gui-tester)](https://pypi.org/project/mcp-gui-tester/)
 
 A standalone PyQt6 test client, [`mcp-gui-tester`](mcp_gui_tester/), is included as a separate installable package for interactive debugging. It connects to any MCP server speaking the Streamable HTTP transport, lists the available tools, generates a parameter input form from each tool's `inputSchema` (with required/optional handling, JSON editors for array/object parameters, and enum dropdowns), and shows both the formatted result and the raw JSON-RPC response:
 
