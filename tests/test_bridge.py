@@ -98,6 +98,60 @@ def test_execute_get_xyz_block_with_data(bridge_mod, ctx):
 
 
 # ---------------------------------------------------------------------------
+# get_xyz_atoms
+# ---------------------------------------------------------------------------
+
+
+def test_execute_get_xyz_atoms_no_mol(bridge_mod, ctx):
+    ctx.current_molecule = None
+    result = bridge_mod.execute_operation(ctx, "get_xyz_atoms", {})
+    assert result["has_data"] is False
+    assert result["atoms"] == []
+
+
+def test_execute_get_xyz_atoms_no_conformer(bridge_mod, ctx):
+    mock_mol = MagicMock()
+    mock_mol.GetNumConformers.return_value = 0
+    ctx.current_molecule = mock_mol
+    result = bridge_mod.execute_operation(ctx, "get_xyz_atoms", {})
+    assert result["has_data"] is False
+    assert result["atoms"] == []
+
+
+def _fake_xyz_atom(idx, symbol, z):
+    atom = MagicMock()
+    atom.GetIdx.return_value = idx
+    atom.GetSymbol.return_value = symbol
+    atom.GetAtomicNum.return_value = z
+    return atom
+
+
+def test_execute_get_xyz_atoms_with_data(bridge_mod, ctx):
+    mock_mol = MagicMock()
+    mock_mol.GetNumConformers.return_value = 1
+    mock_mol.GetAtoms.return_value = [
+        _fake_xyz_atom(0, "C", 6),
+        _fake_xyz_atom(1, "O", 8),
+    ]
+    positions = {
+        0: MagicMock(x=0.0, y=0.5, z=-1.25),
+        1: MagicMock(x=1.2, y=0.0, z=0.0),
+    }
+    mock_mol.GetConformer.return_value.GetAtomPosition.side_effect = positions.__getitem__
+    ctx.current_molecule = mock_mol
+
+    result = bridge_mod.execute_operation(ctx, "get_xyz_atoms", {})
+    assert result["has_data"] is True
+    assert len(result["atoms"]) == 2
+    assert result["atoms"][0] == {
+        "index": 0, "symbol": "C", "atomic_num": 6,
+        "x": 0.0, "y": 0.5, "z": -1.25,
+    }
+    assert result["atoms"][1]["symbol"] == "O"
+    assert result["atoms"][1]["x"] == 1.2
+
+
+# ---------------------------------------------------------------------------
 # load_smiles
 # ---------------------------------------------------------------------------
 

@@ -80,6 +80,9 @@ def execute_operation(ctx: Any, operation: str, args: Dict[str, Any]) -> Any:  #
     if operation == "get_atom_properties":
         return _get_atom_properties(ctx, args.get("atom_indices") or [])
 
+    if operation == "get_xyz_atoms":
+        return _get_xyz_atoms(ctx)
+
     if operation == "get_bond_info":
         return _get_bond_info(ctx)
 
@@ -238,6 +241,28 @@ def _get_atom_properties(ctx: Any, atom_indices: List[int]) -> Dict[str, Any]:
             }
         )
     return {"atoms": atoms}
+
+
+def _get_xyz_atoms(ctx: Any) -> Dict[str, Any]:
+    mol = ctx.current_molecule
+    if mol is None or mol.GetNumConformers() == 0:
+        return {"atoms": [], "has_data": False}
+    conf = mol.GetConformer()
+    atoms: List[Dict[str, Any]] = []
+    for atom in mol.GetAtoms():
+        idx = atom.GetIdx()
+        pos = conf.GetAtomPosition(idx)
+        atoms.append(
+            {
+                "index": idx,
+                "symbol": atom.GetSymbol(),
+                "atomic_num": atom.GetAtomicNum(),
+                "x": float(pos.x),
+                "y": float(pos.y),
+                "z": float(pos.z),
+            }
+        )
+    return {"atoms": atoms, "has_data": True}
 
 
 def _get_bond_info(ctx: Any) -> Dict[str, Any]:
