@@ -482,7 +482,11 @@ _TOOLS: List[Dict[str, Any]] = [
             "The path is relative to that directory. "
             "Parent subdirectories are created automatically. "
             "Set overwrite=true to replace an existing file (default: false). "
-            "Only extensions on the allowed list are accepted."
+            "Only extensions on the allowed list are accepted. "
+            "NOTE: for files that must contain the current molecule's 3D "
+            "coordinates (quantum-chemistry input files, .xyz exports), "
+            "prefer write_file_with_xyz_block instead of pasting coordinates "
+            "into 'content'."
         ),
         "inputSchema": {
             "type": "object",
@@ -501,6 +505,81 @@ _TOOLS: List[Dict[str, Any]] = [
                 },
             },
             "required": ["path", "content"],
+        },
+    },
+    {
+        "name": "write_file_with_xyz_block",
+        "description": (
+            "PREFERRED tool for generating quantum-chemistry input files "
+            "(Gaussian, ORCA, GAMESS, xTB, etc.). "
+            "Writes a text file whose coordinate block is taken directly from the "
+            "molecule currently loaded in MoleditPy — never retype coordinates into "
+            "write_text_file, use this instead to avoid transcription errors. "
+            "The file is composed as: header + XYZ coordinate block + footer. "
+            "Put keywords, charge/multiplicity lines, etc. in 'header' and any "
+            "trailing sections in 'footer'. The block itself is customisable: "
+            "element column style, atom order/subset, and coordinate precision. "
+            "Same sandbox rules as write_text_file (relative path, allowed "
+            "extensions, overwrite flag)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Relative path, e.g. 'run1/molecule.inp'",
+                },
+                "header": {
+                    "type": "string",
+                    "description": (
+                        "Text placed before the coordinate block "
+                        "(e.g. route section, charge and multiplicity). "
+                        "A newline is added if missing."
+                    ),
+                },
+                "footer": {
+                    "type": "string",
+                    "description": "Text placed after the coordinate block.",
+                },
+                "element_style": {
+                    "type": "string",
+                    "enum": ["symbol", "atomic_number", "symbol_and_number"],
+                    "description": (
+                        "Element column format: 'symbol' -> 'C' (default), "
+                        "'atomic_number' -> '6', "
+                        "'symbol_and_number' -> 'C 6.0' (GAMESS $DATA style)."
+                    ),
+                },
+                "atom_order": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": (
+                        "Optional list of 0-based RDKit atom indices defining the "
+                        "output order (may also be a subset). Omit to keep the "
+                        "molecule's native order. No duplicates allowed."
+                    ),
+                },
+                "precision": {
+                    "type": "integer",
+                    "description": "Coordinate decimal places, 1-12 (default 6).",
+                },
+                "xyz_header": {
+                    "type": "boolean",
+                    "description": (
+                        "Prepend the standard 2-line XYZ header (atom count + "
+                        "comment) for .xyz files (default false = bare block)."
+                    ),
+                },
+                "comment": {
+                    "type": "string",
+                    "description": "Comment line used when xyz_header=true.",
+                },
+                "overwrite": {
+                    "type": "boolean",
+                    "description": "Allow overwriting an existing file (default false).",
+                },
+            },
+            "required": ["path"],
         },
     },
     {
@@ -663,6 +742,58 @@ def _get_sandbox(bridge: Any) -> tuple[str, List[str]]:
         )
     allowed: List[str] = cfg.get("allowed_extensions", [])
     return base_dir, allowed
+
+
+def format_xyz_block(
+    atoms: List[Dict[str, Any]],
+    element_style: str = "symbol",
+    atom_order: Optional[List[int]] = None,
+    precision: int = 6,
+) -> str:
+    """
+    Format per-atom records into an XYZ coordinate block (no trailing newline).
+
+    *atoms* is the list returned by the bridge's ``get_xyz_atoms`` operation.
+    Raises ValueError on an invalid element_style, precision, or atom_order.
+    """
+    if element_style not in ("symbol", "atomic_number", "symbol_and_number"):
+        raise ValueError(
+            f"Unknown element_style {element_style!r}. "
+            "Use 'symbol', 'atomic_number', or 'symbol_and_number'."
+        )
+    if not 1 <= precision <= 12:
+        raise ValueError("precision must be between 1 and 12.")
+
+    by_index = {a["index"]: a for a in atoms}
+    if atom_order is None:
+        selected = atoms
+    else:
+        if len(set(atom_order)) != len(atom_order):
+            raise ValueError("atom_order contains duplicate indices.")
+        bad = [i for i in atom_order if i not in by_index]
+        if bad:
+            raise ValueError(
+                f"atom_order contains invalid atom indices: {bad} "
+                f"(valid range: 0..{len(atoms) - 1})."
+            )
+        selected = [by_index[i] for i in atom_order]
+
+    width = precision + 8  # room for sign, 4 integer digits, and the point
+    lines = []
+    for a in selected:
+        if element_style == "symbol":
+            elem = f"{a['symbol']:<3}"
+        elif element_style == "atomic_number":
+            elem = f"{a['atomic_num']:<3d}"
+        else:  # symbol_and_number (GAMESS $DATA style)
+            elem = f"{a['symbol']:<3} {float(a['atomic_num']):>5.1f}"
+        lines.append(
+            f"{elem} "
+            f"{a['x']:>{width}.{precision}f} "
+            f"{a['y']:>{width}.{precision}f} "
+            f"{a['z']:>{width}.{precision}f}"
+        )
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -1073,6 +1204,60 @@ def dispatch_tool(  # noqa: C901
             size = target.stat().st_size
             return _tool_ok(
                 f"Written: {user_path} ({size:,} bytes)"
+            )
+
+        if name == "write_file_with_xyz_block":
+            user_path = arguments.get("path", "").strip()
+            if not user_path:
+                return _tool_err("'path' argument is required.")
+            overwrite = bool(arguments.get("overwrite", False))
+            base_dir, allowed_exts = _get_sandbox(bridge)
+            target = _resolve_safe_path(user_path, base_dir)
+            _check_extension(target, allowed_exts)
+            if target.exists() and not overwrite:
+                return _tool_err(
+                    f"{user_path!r} already exists. Pass overwrite=true to replace it."
+                )
+
+            data = bridge.call("get_xyz_atoms")
+            if not data["has_data"]:
+                return _tool_err(
+                    "No 3D coordinates available. "
+                    "Use trigger_3d_conversion first, or load XYZ data via show_xyz_in_viewer."
+                )
+            block = format_xyz_block(
+                data["atoms"],
+                element_style=arguments.get("element_style", "symbol"),
+                atom_order=arguments.get("atom_order"),
+                precision=int(arguments.get("precision", 6)),
+            )
+            n_atoms = (
+                len(arguments["atom_order"])
+                if arguments.get("atom_order")
+                else len(data["atoms"])
+            )
+
+            parts = []
+            if bool(arguments.get("xyz_header", False)):
+                parts.append(f"{n_atoms}\n{arguments.get('comment', '')}\n")
+            header = arguments.get("header", "")
+            if header:
+                parts.append(header if header.endswith("\n") else header + "\n")
+            parts.append(block + "\n")
+            footer = arguments.get("footer", "")
+            if footer:
+                parts.append(footer if footer.endswith("\n") else footer + "\n")
+            content = "".join(parts)
+
+            if len(content.encode("utf-8")) > _MAX_FILE_BYTES:
+                return _tool_err(
+                    f"Content exceeds the {_MAX_FILE_BYTES // 1024 // 1024} MB limit."
+                )
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+            size = target.stat().st_size
+            return _tool_ok(
+                f"Written: {user_path} ({size:,} bytes, {n_atoms} atom(s) in coordinate block)"
             )
 
         if name == "read_text_file":

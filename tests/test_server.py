@@ -892,3 +892,153 @@ def test_list_app_source_tree_subtree(srv):
     bridge = make_bridge({"list_app_source_tree": {"content": "plugins/\n└── plugin_interface.py"}})
     result = srv.dispatch_tool(bridge, "list_app_source_tree", {"path": "plugins"})
     assert result.get("isError") is not True
+
+
+# ---------------------------------------------------------------------------
+# write_file_with_xyz_block / format_xyz_block
+# ---------------------------------------------------------------------------
+
+_XYZ_ATOMS = [
+    {"index": 0, "symbol": "C", "atomic_num": 6, "x": 0.0, "y": 0.0, "z": 0.0},
+    {"index": 1, "symbol": "O", "atomic_num": 8, "x": 1.208, "y": 0.0, "z": 0.0},
+    {"index": 2, "symbol": "H", "atomic_num": 1, "x": -0.55, "y": 0.92, "z": 0.0},
+]
+
+
+def _xyz_bridge(tmp_path, has_data=True):
+    return make_bridge({
+        "get_file_io_config": {
+            "base_dir": str(tmp_path),
+            "allowed_extensions": [".txt", ".inp", ".xyz", ".gjf"],
+        },
+        "get_xyz_atoms": {"atoms": _XYZ_ATOMS if has_data else [], "has_data": has_data},
+    })
+
+
+def test_format_xyz_block_default_symbol(srv):
+    block = srv.format_xyz_block(_XYZ_ATOMS)
+    lines = block.split("\n")
+    assert len(lines) == 3
+    assert lines[0].split() == ["C", "0.000000", "0.000000", "0.000000"]
+    assert lines[1].split()[0] == "O"
+    assert lines[1].split()[1] == "1.208000"
+
+
+def test_format_xyz_block_atomic_number(srv):
+    block = srv.format_xyz_block(_XYZ_ATOMS, element_style="atomic_number")
+    firsts = [ln.split()[0] for ln in block.split("\n")]
+    assert firsts == ["6", "8", "1"]
+
+
+def test_format_xyz_block_symbol_and_number(srv):
+    block = srv.format_xyz_block(_XYZ_ATOMS, element_style="symbol_and_number")
+    parts = block.split("\n")[0].split()
+    assert parts[0] == "C"
+    assert parts[1] == "6.0"
+    assert len(parts) == 5
+
+
+def test_format_xyz_block_precision(srv):
+    block = srv.format_xyz_block(_XYZ_ATOMS, precision=3)
+    assert "1.208" in block
+    assert "1.2080" not in block
+
+
+def test_format_xyz_block_atom_order_reorder_and_subset(srv):
+    block = srv.format_xyz_block(_XYZ_ATOMS, atom_order=[2, 0])
+    firsts = [ln.split()[0] for ln in block.split("\n")]
+    assert firsts == ["H", "C"]
+
+
+def test_format_xyz_block_atom_order_duplicate_rejected(srv):
+    with pytest.raises(ValueError, match="duplicate"):
+        srv.format_xyz_block(_XYZ_ATOMS, atom_order=[0, 0])
+
+
+def test_format_xyz_block_atom_order_invalid_index_rejected(srv):
+    with pytest.raises(ValueError, match="invalid"):
+        srv.format_xyz_block(_XYZ_ATOMS, atom_order=[0, 99])
+
+
+def test_format_xyz_block_bad_style_rejected(srv):
+    with pytest.raises(ValueError, match="element_style"):
+        srv.format_xyz_block(_XYZ_ATOMS, element_style="nope")
+
+
+def test_format_xyz_block_bad_precision_rejected(srv):
+    with pytest.raises(ValueError, match="precision"):
+        srv.format_xyz_block(_XYZ_ATOMS, precision=0)
+
+
+def test_write_xyz_tool_is_registered(srv):
+    names = [t["name"] for t in srv._TOOLS]
+    assert "write_file_with_xyz_block" in names
+
+
+def test_write_xyz_block_basic_file(srv, tmp_path):
+    bridge = _xyz_bridge(tmp_path)
+    result = srv.dispatch_tool(bridge, "write_file_with_xyz_block", {
+        "path": "mol.inp",
+        "header": "! B3LYP def2-SVP\n* xyz 0 1",
+        "footer": "*",
+    })
+    assert result.get("isError") is not True
+    text = (tmp_path / "mol.inp").read_text()
+    lines = text.splitlines()
+    assert lines[0] == "! B3LYP def2-SVP"
+    assert lines[1] == "* xyz 0 1"
+    assert lines[2].split()[0] == "C"
+    assert lines[-1] == "*"
+    assert "3 atom(s)" in result["content"][0]["text"]
+
+
+def test_write_xyz_block_standard_xyz_header(srv, tmp_path):
+    bridge = _xyz_bridge(tmp_path)
+    srv.dispatch_tool(bridge, "write_file_with_xyz_block", {
+        "path": "mol.xyz", "xyz_header": True, "comment": "formaldehyde",
+    })
+    lines = (tmp_path / "mol.xyz").read_text().splitlines()
+    assert lines[0] == "3"
+    assert lines[1] == "formaldehyde"
+    assert lines[2].split()[0] == "C"
+
+
+def test_write_xyz_block_atom_order_subset_count(srv, tmp_path):
+    bridge = _xyz_bridge(tmp_path)
+    result = srv.dispatch_tool(bridge, "write_file_with_xyz_block", {
+        "path": "sub.xyz", "atom_order": [1], "xyz_header": True,
+    })
+    lines = (tmp_path / "sub.xyz").read_text().splitlines()
+    assert lines[0] == "1"
+    assert lines[2].split()[0] == "O"
+    assert "1 atom(s)" in result["content"][0]["text"]
+
+
+def test_write_xyz_block_no_3d_errors(srv, tmp_path):
+    bridge = _xyz_bridge(tmp_path, has_data=False)
+    result = srv.dispatch_tool(bridge, "write_file_with_xyz_block", {"path": "mol.xyz"})
+    assert result.get("isError") is True
+    assert "No 3D coordinates" in result["content"][0]["text"]
+    assert not (tmp_path / "mol.xyz").exists()
+
+
+def test_write_xyz_block_no_overwrite_by_default(srv, tmp_path):
+    bridge = _xyz_bridge(tmp_path)
+    (tmp_path / "mol.xyz").write_text("original")
+    result = srv.dispatch_tool(bridge, "write_file_with_xyz_block", {"path": "mol.xyz"})
+    assert result.get("isError") is True
+    assert (tmp_path / "mol.xyz").read_text() == "original"
+
+
+def test_write_xyz_block_extension_checked(srv, tmp_path):
+    bridge = _xyz_bridge(tmp_path)
+    result = srv.dispatch_tool(bridge, "write_file_with_xyz_block", {"path": "mol.exe"})
+    assert result.get("isError") is True
+
+
+def test_write_xyz_block_bad_atom_order_is_tool_error(srv, tmp_path):
+    bridge = _xyz_bridge(tmp_path)
+    result = srv.dispatch_tool(bridge, "write_file_with_xyz_block", {
+        "path": "mol.xyz", "atom_order": [0, 0],
+    })
+    assert result.get("isError") is True
