@@ -39,10 +39,13 @@ preparing quantum-chemistry / DFT calculations. Its core workflow:
 
 The 2D canvas and the 3D viewer hold SEPARATE representations. Most
 coordinate-reading MCP tools (including `current molecule` state) see
-the **3D side** — so with a freshly drawn 2D molecule, coordinate tools
-report "no 3D data" until `trigger_3d_conversion` runs. Editing tools
-(`apply_reaction_smarts`, SMILES loading) act on the **2D side** and
-require re-conversion for the 3D geometry to reflect the change.
+the **3D side** — so with a freshly drawn or freshly loaded 2D molecule,
+coordinate tools report "no 3D data" until `trigger_3d_conversion` runs.
+Loading tools (`load_molecule_from_smiles`, `load_molecule_by_name`,
+`load_from_mol_block`) act on the **2D side only** — convert afterwards.
+Exception: `apply_reaction_smarts` auto-converts its product to 3D by
+default (its `convert_to_3d` argument, default true), so chained edits
+and follow-up coordinate reads work without an extra conversion step.
 
 ## Core rules
 
