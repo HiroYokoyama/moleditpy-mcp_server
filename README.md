@@ -27,7 +27,7 @@ Ask an AI to load, modify, and analyze molecules entirely through conversation:
 Use the AI as a smart input file generator:
 
 - **Generate ORCA, Gaussian, NWChem, … inputs** from the current geometry
-- **Write files directly to disk** — the AI calls `write_text_file` into a sandboxed directory you configure
+- **Write files directly to disk** — the AI calls `write_file_with_xyz_block` (coordinates come straight from the live molecule) or `write_text_file` into a sandboxed directory you configure
 - **Read files back** — verify what was written, or load a computed result (`.xyz`, `.log`, …)
 - **Organize jobs** — `list_directory`, create subdirectories, delete obsolete files
 
@@ -350,8 +350,8 @@ Security guarantees:
 > "Generate an ORCA input file for the current molecule using B3LYP/def2-TZVP and save it to `ethanol_opt.inp`."
 
 The LLM will:
-1. Call `get_molecule_xyz` to get the geometry.
-2. Call `write_text_file` with `path="ethanol_opt.inp"` and the generated ORCA input.
+1. Call `get_current_molecule` (and `trigger_3d_conversion` if there is no 3D geometry yet).
+2. Call `write_file_with_xyz_block` with `path="ethanol_opt.inp"`, `header=["! B3LYP def2-TZVP Opt", "* xyz 0 1"]`, and `footer=["*"]` — the coordinate block is inserted directly from the live molecule, so nothing is retyped.
 3. Optionally call `read_text_file` to confirm what was written.
 
 #### Typical plugin authoring workflow

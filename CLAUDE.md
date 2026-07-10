@@ -50,10 +50,11 @@ All settings are stored under `plugin.mcp_server.<key>` in the app's persistent 
 
 ## Adding New MCP Tools
 
-1. Add a handler function `_my_tool(ctx, args)` in `bridge.py`.
-2. Register it in `_OPERATIONS` dict at the bottom of `bridge.py`.
-3. Add the tool definition (name, description, input schema) to `_TOOL_DEFINITIONS` in `server.py`.
-4. Add tests in `tests/test_bridge.py`.
+1. Add a handler function `_my_tool(ctx, args)` in `bridge.py` and a branch for it in the `execute_operation()` if-chain.
+2. Add the tool definition (name, description, input schema) to the `_TOOLS` list in `server.py`.
+3. Add a dispatch branch in `dispatch_tool()` in `server.py` that calls `bridge.call("my_tool", ...)` and formats the result via `_tool_ok`/`_tool_err`.
+4. Add tests in `tests/test_bridge.py` (operation) and `tests/test_server.py` (schema + dispatch).
+5. Multi-line string arguments should also accept a JSON array of lines — pass them through `_text_arg()` in `server.py`.
 
 ## CI
 
