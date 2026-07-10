@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import socketserver
 import threading
 import urllib.parse
@@ -174,8 +173,9 @@ _TOOLS: List[Dict[str, Any]] = [
             "embedded as an atom map number, plus an index legend. "
             "IMPORTANT: map number = atom_index + 1 (RDKit reserves map 0 for "
             "'unmapped'), so an atom shown as [c:5] has atom_index 4. "
-            "Call this BEFORE apply_reaction_smarts or highlight_atoms to find "
-            "out which atom_index refers to which atom."
+            "Call this BEFORE apply_reaction_smarts, set_cpk_color_override, "
+            "or set_bond_color_override to find out which atom_index refers "
+            "to which atom."
         ),
         "inputSchema": {"type": "object", "properties": {}},
     },
@@ -1092,7 +1092,9 @@ def dispatch_tool(  # noqa: C901
             return _tool_err("Failed to parse XYZ data. Verify the format.")
 
         if name == "trigger_3d_conversion":
-            bridge.call("trigger_3d_conversion")
+            # The RDKit fallback (ETKDG embed + MMFF optimize) runs in-thread
+            # and can exceed the default 10 s on larger molecules.
+            bridge.call("trigger_3d_conversion", timeout=60.0)
             return _tool_ok(
                 "3D conversion triggered. "
                 "Use get_molecule_xyz to retrieve the generated coordinates."
