@@ -2,6 +2,6 @@
 
 from .app import MCPClient, MCPTesterWindow, main
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = ["MCPClient", "MCPTesterWindow", "main", "__version__"]
