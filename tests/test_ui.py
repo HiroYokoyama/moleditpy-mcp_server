@@ -119,3 +119,66 @@ def test_file_path_is_rejected_not_a_directory(on_base_dir_changed, tmp_path):
     on_base_dir_changed(fake)
     fake._plugin.context.set_setting.assert_not_called()
     fake._plugin.context.show_status_message.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Client configuration templates (module-level data + pure render function)
+# ---------------------------------------------------------------------------
+
+
+def _load_templates():
+    """Extract _CLIENT_TEMPLATES and render_client_config without importing Qt."""
+    tree = ast.parse(UI_SOURCE)
+    namespace: dict = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "_CLIENT_TEMPLATES"
+            for t in node.targets
+        ):
+            exec(  # noqa: S102 — controlled source, tests only
+                ast.get_source_segment(UI_SOURCE, node), namespace
+            )
+        if isinstance(node, ast.FunctionDef) and node.name == "render_client_config":
+            exec(ast.get_source_segment(UI_SOURCE, node), namespace)
+    return namespace["_CLIENT_TEMPLATES"], namespace["render_client_config"]
+
+
+_TEMPLATES, _RENDER = _load_templates()
+
+_EXPECTED_CLIENTS = {
+    "Claude Desktop", "Claude Code (CLI)", "Cursor", "Windsurf", "Zed",
+    "VS Code (Copilot)", "OpenAI Codex CLI", "Google Antigravity",
+    "curl (raw HTTP)",
+}
+
+
+def test_all_expected_clients_present():
+    assert set(_TEMPLATES.keys()) == _EXPECTED_CLIENTS
+
+
+def test_every_template_renders_port():
+    for client in _TEMPLATES:
+        snippet = _RENDER(client, 7891)
+        assert "7891" in snippet, client
+        assert "{PORT}" not in snippet, client
+
+
+def test_json_templates_are_valid_json():
+    import json as _json
+
+    toml_or_shell = {"OpenAI Codex CLI", "curl (raw HTTP)"}
+    for client in _TEMPLATES:
+        if client in toml_or_shell:
+            continue
+        snippet = _RENDER(client, 12345)
+        parsed = _json.loads(snippet)
+        assert isinstance(parsed, dict), client
+
+
+def test_every_template_has_note():
+    for client, (_template, note) in _TEMPLATES.items():
+        assert note.strip(), client
+
+
+def test_claude_desktop_uses_streamable_http():
+    assert "streamable-http" in _RENDER("Claude Desktop", 7891)

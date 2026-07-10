@@ -12,6 +12,7 @@ from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -27,15 +28,104 @@ from PyQt6.QtWidgets import (
 if TYPE_CHECKING:
     from mcp_server import MCPServerPlugin
 
-_CLAUDE_DESKTOP_CONFIG = """\
-{{
-  "mcpServers": {{
-    "moleditpy": {{
+# Client configuration templates. "{PORT}" is substituted verbatim (plain
+# str.replace, so JSON braces need no escaping). Each entry:
+# display name -> (template, where-to-put-it note).
+_CLIENT_TEMPLATES = {
+    "Claude Desktop": (
+        """{
+  "mcpServers": {
+    "moleditpy": {
       "type": "streamable-http",
-      "url": "http://127.0.0.1:{port}/mcp"
-    }}
-  }}
-}}"""
+      "url": "http://127.0.0.1:{PORT}/mcp"
+    }
+  }
+}""",
+        "Add to <i>claude_desktop_config.json</i>, then restart Claude Desktop.",
+    ),
+    "Claude Code (CLI)": (
+        """{
+  "mcpServers": {
+    "moleditpy": {
+      "type": "http",
+      "url": "http://127.0.0.1:{PORT}/mcp"
+    }
+  }
+}""",
+        "Add to your Claude Code MCP configuration, or per-project "
+        "<i>.claude/settings.json</i>.",
+    ),
+    "Cursor": (
+        """{
+  "mcpServers": {
+    "moleditpy": {
+      "url": "http://127.0.0.1:{PORT}/mcp"
+    }
+  }
+}""",
+        "Add to <i>~/.cursor/mcp.json</i> (global) or <i>.cursor/mcp.json</i> "
+        "(project).",
+    ),
+    "Windsurf": (
+        """{
+  "mcpServers": {
+    "moleditpy": {
+      "serverUrl": "http://127.0.0.1:{PORT}/mcp"
+    }
+  }
+}""",
+        "Add to <i>~/.codeium/windsurf/mcp_config.json</i>.",
+    ),
+    "Zed": (
+        """{
+  "context_servers": {
+    "moleditpy": {
+      "url": "http://127.0.0.1:{PORT}/mcp"
+    }
+  }
+}""",
+        "Add to <i>~/.config/zed/settings.json</i>.",
+    ),
+    "VS Code (Copilot)": (
+        """{
+  "servers": {
+    "moleditpy": {
+      "type": "http",
+      "url": "http://127.0.0.1:{PORT}/mcp"
+    }
+  }
+}""",
+        "Add to <i>.vscode/mcp.json</i> in your workspace (VS Code 1.101+).",
+    ),
+    "OpenAI Codex CLI": (
+        """[mcp_servers.moleditpy]
+url = "http://127.0.0.1:{PORT}/mcp\"""",
+        "Add to <i>~/.codex/config.toml</i> (global) or "
+        "<i>.codex/config.toml</i> (project).",
+    ),
+    "Google Antigravity": (
+        """{
+  "mcpServers": {
+    "moleditpy": {
+      "serverUrl": "http://127.0.0.1:{PORT}/mcp"
+    }
+  }
+}""",
+        "Add to <i>~/.gemini/antigravity/mcp_config.json</i>.",
+    ),
+    "curl (raw HTTP)": (
+        """curl -s -X POST http://127.0.0.1:{PORT}/mcp \\
+  -H "Content-Type: application/json" \\
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'""",
+        "Run from any shell to list the available tools.",
+    ),
+}
+
+
+def render_client_config(client: str, port: int) -> str:
+    """Return the configuration snippet for *client* with *port* filled in."""
+    template = _CLIENT_TEMPLATES[client][0]
+    return template.replace("{PORT}", str(port))
 
 
 class MCPStatusDialog(QDialog):
@@ -79,6 +169,7 @@ class MCPStatusDialog(QDialog):
             "The local port the MCP server listens on. "
             "Restart the server after changing."
         )
+        self._port_spin.valueChanged.connect(lambda _v: self._update_config_view())
         port_row.addWidget(self._port_spin)
         port_row.addStretch()
         layout.addLayout(port_row)
@@ -111,8 +202,19 @@ class MCPStatusDialog(QDialog):
         copy_btn.clicked.connect(self._copy_url)
         layout.addWidget(copy_btn)
 
-        # Claude Desktop configuration snippet
-        layout.addWidget(QLabel("<b>Claude Desktop configuration:</b>"))
+        # Client configuration snippets (selector above the snippet view)
+        client_row = QHBoxLayout()
+        client_row.addWidget(QLabel("<b>Client configuration:</b>"))
+        self._client_combo = QComboBox()
+        self._client_combo.addItems(list(_CLIENT_TEMPLATES.keys()))
+        self._client_combo.currentTextChanged.connect(self._on_client_changed)
+        client_row.addWidget(self._client_combo, 1)
+        copy_cfg_btn = QPushButton("Copy")
+        copy_cfg_btn.setToolTip("Copy the snippet below to the clipboard")
+        copy_cfg_btn.clicked.connect(self._copy_config)
+        client_row.addWidget(copy_cfg_btn)
+        layout.addLayout(client_row)
+
         self._config_view = QTextEdit()
         self._config_view.setReadOnly(True)
         self._config_view.setMaximumHeight(120)
@@ -121,13 +223,10 @@ class MCPStatusDialog(QDialog):
         )
         layout.addWidget(self._config_view)
 
-        note = QLabel(
-            "Add the snippet above to <i>claude_desktop_config.json</i>, "
-            "then restart Claude Desktop."
-        )
-        note.setWordWrap(True)
-        note.setStyleSheet("color: gray; font-size: 11px;")
-        layout.addWidget(note)
+        self._config_note = QLabel()
+        self._config_note.setWordWrap(True)
+        self._config_note.setStyleSheet("color: gray; font-size: 11px;")
+        layout.addWidget(self._config_note)
 
         # Start / Stop button
         self._toggle_btn = QPushButton()
@@ -159,8 +258,24 @@ class MCPStatusDialog(QDialog):
 
         url = self._plugin.url
         self._url_lbl.setText(url)
+        self._update_config_view()
+
+    def _update_config_view(self) -> None:
+        client = self._client_combo.currentText()
+        if client not in _CLIENT_TEMPLATES:
+            return
         self._config_view.setPlainText(
-            _CLAUDE_DESKTOP_CONFIG.format(port=port)
+            render_client_config(client, self._port_spin.value())
+        )
+        self._config_note.setText(_CLIENT_TEMPLATES[client][1])
+
+    def _on_client_changed(self, _text: str) -> None:
+        self._update_config_view()
+
+    def _copy_config(self) -> None:
+        QApplication.clipboard().setText(self._config_view.toPlainText())
+        self._plugin.context.show_status_message(
+            "Client configuration copied to clipboard.", 2000
         )
 
     def _toggle(self) -> None:
