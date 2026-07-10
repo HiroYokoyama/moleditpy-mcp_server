@@ -488,8 +488,12 @@ class MCPTesterWindow(QMainWindow):
         self.refresh_btn.setEnabled(False)
         self.refresh_btn.clicked.connect(self._on_refresh_tools)
         top_lay.addWidget(self.refresh_btn)
+
+        # Status lives in the bottom status bar so long messages (connect
+        # errors, tool results) can never stretch the top bar and shove the
+        # buttons around.
         self.status_label = QLabel("Not connected")
-        top_lay.addWidget(self.status_label)
+        self.statusBar().addWidget(self.status_label, 1)
 
         # --- left: tool list with filter ------------------------------
         left = QWidget()
@@ -520,7 +524,6 @@ class MCPTesterWindow(QMainWindow):
         params_scroll = QScrollArea()
         params_scroll.setWidgetResizable(True)
         params_scroll.setWidget(self.params_group)
-        right_lay.addWidget(params_scroll, stretch=1)
 
         call_row = QWidget()
         call_row_lay = QHBoxLayout(call_row)
@@ -533,7 +536,12 @@ class MCPTesterWindow(QMainWindow):
         self.reset_form_btn.setEnabled(False)
         self.reset_form_btn.clicked.connect(self._on_reset_form)
         call_row_lay.addWidget(self.reset_form_btn)
-        right_lay.addWidget(call_row)
+
+        params_pane = QWidget()
+        params_pane_lay = QVBoxLayout(params_pane)
+        params_pane_lay.setContentsMargins(0, 0, 0, 0)
+        params_pane_lay.addWidget(params_scroll, stretch=1)
+        params_pane_lay.addWidget(call_row)
 
         self.result_tabs = QTabWidget()
         mono = QFont("Consolas" if sys.platform == "win32" else "Monospace")
@@ -560,7 +568,15 @@ class MCPTesterWindow(QMainWindow):
         self.raw_text.setFont(mono)
         self.result_tabs.addTab(result_page, "Result")
         self.result_tabs.addTab(self.raw_text, "Raw JSON")
-        right_lay.addWidget(self.result_tabs, stretch=2)
+
+        # Draggable split between the parameter form (top, larger by
+        # default) and the result tabs (bottom).
+        right_split = QSplitter(Qt.Orientation.Vertical)
+        right_split.addWidget(params_pane)
+        right_split.addWidget(self.result_tabs)
+        right_split.setStretchFactor(0, 3)
+        right_split.setStretchFactor(1, 2)
+        right_lay.addWidget(right_split, stretch=1)
 
         splitter = QSplitter()
         splitter.addWidget(left)
