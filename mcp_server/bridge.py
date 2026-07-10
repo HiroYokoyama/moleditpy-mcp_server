@@ -111,16 +111,7 @@ def execute_operation(ctx: Any, operation: str, args: Dict[str, Any]) -> Any:  #
         return {"success": True}
 
     if operation == "highlight_bonds":
-        bond_colors = args.get("bond_colors")
-        if not bond_colors:
-            raise ValueError("'bond_colors' argument is required")
-        ctrl = ctx.get_3d_controller()
-        if ctrl is None:
-            raise ValueError("3D controller is not available (is the 3D viewer active?)")
-        for idx_str, color in bond_colors.items():
-            ctrl.set_bond_color(int(idx_str), color)
-        ctx.refresh_3d_view()
-        return {"success": True}
+        return _set_bond_colors(ctx, args)
 
     if operation == "push_undo_checkpoint":
         ctx.push_undo_checkpoint()
@@ -199,6 +190,49 @@ def execute_operation(ctx: Any, operation: str, args: Dict[str, Any]) -> Any:  #
         return _set_file_io_config(ctx, args)
 
     raise ValueError(f"Unknown operation: {operation!r}")
+
+
+def _parse_atom_pair(pair: str) -> tuple:
+    """Parse an 'i-j' (or 'i,j') atom-pair key into two int indices."""
+    for sep in ("-", ","):
+        if sep in pair:
+            left, _, right = pair.partition(sep)
+            try:
+                return int(left.strip()), int(right.strip())
+            except ValueError:
+                break
+    raise ValueError(
+        f"Invalid atom pair {pair!r}: expected 'atomIndex1-atomIndex2', e.g. '0-3'."
+    )
+
+
+def _set_bond_colors(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+    bond_colors = args.get("bond_colors") or {}
+    pair_colors = args.get("atom_pair_colors") or {}
+    if not bond_colors and not pair_colors:
+        raise ValueError("Provide 'bond_colors' and/or 'atom_pair_colors'.")
+    ctrl = ctx.get_3d_controller()
+    if ctrl is None:
+        raise ValueError("3D controller is not available (is the 3D viewer active?)")
+
+    resolved: Dict[int, str] = {}
+    if pair_colors:
+        mol = ctx.current_molecule
+        if mol is None:
+            raise ValueError("No molecule with 3D data — run trigger_3d_conversion first.")
+        for pair, color in pair_colors.items():
+            idx1, idx2 = _parse_atom_pair(str(pair))
+            bond = mol.GetBondBetweenAtoms(idx1, idx2)
+            if bond is None:
+                raise ValueError(f"No bond exists between atoms {idx1} and {idx2}.")
+            resolved[bond.GetIdx()] = color
+    for idx_str, color in bond_colors.items():
+        resolved[int(idx_str)] = color
+
+    for bond_idx, color in resolved.items():
+        ctrl.set_bond_color(bond_idx, color)
+    ctx.refresh_3d_view()
+    return {"success": True, "bonds_colored": len(resolved)}
 
 
 def _reset_cpk_color_override(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:

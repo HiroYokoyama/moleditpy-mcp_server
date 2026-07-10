@@ -276,7 +276,7 @@ Claude loads it automatically whenever a task involves the MoleditPy MCP tools. 
 | `trigger_3d_conversion` | Run MoleditPy's built-in 2D→3D optimizer (ETKDG/MMFF) |
 | `set_cpk_color_override` | Override atom CPK colors in the 3D viewer (hex per atom index); persists across redraws (formerly `highlight_atoms`, still accepted) |
 | `reset_cpk_color_override` | Clear atom/bond color overrides (`scope`: atoms / bonds / all) and restore default colors |
-| `highlight_bonds` | Override bond colors in the 3D viewer (hex color per bond index) |
+| `set_bond_color_override` | Override bond colors in the 3D viewer by bond index or `"atom1-atom2"` pairs; persists across redraws (formerly `highlight_bonds`, still accepted) |
 | `push_undo_checkpoint` | Push the current state onto MoleditPy's undo stack |
 | `enter_3d_mode` | Switch the UI to 3D viewer mode |
 | `exit_3d_mode` | Switch the UI back to 2D editing mode |

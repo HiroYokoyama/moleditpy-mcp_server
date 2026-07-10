@@ -806,12 +806,29 @@ def test_refresh_ui(srv):
 
 
 def test_highlight_bonds_ok(srv):
-    bridge = make_bridge({"highlight_bonds": {"success": True}})
+    bridge = make_bridge({"highlight_bonds": {"success": True, "bonds_colored": 2}})
     result = srv.dispatch_tool(bridge, "highlight_bonds", {
         "bond_colors": {"0": "#FF0000", "2": "#0000FF"}
     })
     assert result.get("isError") is not True
-    assert "2" in result["content"][0]["text"]
+    assert "2 bond(s)" in result["content"][0]["text"]
+
+
+def test_set_bond_color_override_atom_pairs(srv):
+    bridge = make_bridge({"highlight_bonds": {"success": True, "bonds_colored": 1}})
+    result = srv.dispatch_tool(bridge, "set_bond_color_override", {
+        "atom_pair_colors": {"0-3": "#00FF00"}
+    })
+    assert result.get("isError") is not True
+    assert "persists across redraws" in result["content"][0]["text"]
+    args = bridge.call.call_args[0][1]
+    assert args["atom_pair_colors"] == {"0-3": "#00FF00"}
+
+
+def test_bond_override_tool_renamed(srv):
+    names = [t["name"] for t in srv._TOOLS]
+    assert "set_bond_color_override" in names
+    assert "highlight_bonds" not in names
 
 
 def test_highlight_bonds_empty(srv):

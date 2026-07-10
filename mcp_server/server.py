@@ -419,12 +419,14 @@ _TOOLS: List[Dict[str, Any]] = [
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
-        "name": "highlight_bonds",
+        "name": "set_bond_color_override",
         "description": (
             "Override the display color of specific bonds in the 3D viewer. "
             "bond_colors maps bond index (as string key) to a hex color "
             "(e.g. {\"0\": \"#FF0000\", \"3\": \"#0000FF\"}). "
-            "Call refresh_3d_view afterwards to show the changes."
+            "Overrides PERSIST across redraws until cleared with "
+            "reset_cpk_color_override (scope 'bonds' or 'all'). "
+            "(Formerly named highlight_bonds.)"
         ),
         "inputSchema": {
             "type": "object",
@@ -433,9 +435,19 @@ _TOOLS: List[Dict[str, Any]] = [
                     "type": "object",
                     "description": "Bond index → hex color, e.g. {\"0\": \"#FF0000\"}.",
                     "additionalProperties": {"type": "string"},
-                }
+                },
+                "atom_pair_colors": {
+                    "type": "object",
+                    "description": (
+                        "'atomIndex1-atomIndex2' → hex color, e.g. "
+                        "{\"0-3\": \"#FF0000\"} — colors the bond between the "
+                        "two atoms. Easier than bond indices: use the atom "
+                        "indices from get_mapped_smiles/get_atom_properties. "
+                        "Errors if no bond exists between the pair."
+                    ),
+                    "additionalProperties": {"type": "string"},
+                },
             },
-            "required": ["bond_colors"],
         },
     },
     # ------------------------------------------------------------------
@@ -1223,13 +1235,22 @@ def dispatch_tool(  # noqa: C901
             bridge.call("refresh_ui")
             return _tool_ok("UI refreshed.")
 
-        if name == "highlight_bonds":
+        # "highlight_bonds" kept as a hidden alias for pre-1.4.1 clients.
+        if name in ("set_bond_color_override", "highlight_bonds"):
             bond_colors = arguments.get("bond_colors")
-            if not bond_colors:
-                return _tool_err("'bond_colors' argument is required.")
-            bridge.call("highlight_bonds", {"bond_colors": bond_colors})
+            pair_colors = arguments.get("atom_pair_colors")
+            if not bond_colors and not pair_colors:
+                return _tool_err(
+                    "Provide 'bond_colors' (bond index → color) and/or "
+                    "'atom_pair_colors' ('i-j' atom pair → color)."
+                )
+            data = bridge.call(
+                "highlight_bonds",
+                {"bond_colors": bond_colors, "atom_pair_colors": pair_colors},
+            )
             return _tool_ok(
-                f"Highlighted {len(bond_colors)} bond(s) in the 3D viewer."
+                f"Bond color override set for {data['bonds_colored']} bond(s); "
+                "persists across redraws until reset_cpk_color_override."
             )
 
         # ------------------------------------------------------------------

@@ -692,11 +692,44 @@ def test_execute_highlight_bonds_ok(bridge_mod, ctx):
     assert ctrl.set_bond_color.call_count == 2
     ctx.refresh_3d_view.assert_called()
     assert result["success"] is True
+    assert result["bonds_colored"] == 2
 
 
 def test_execute_highlight_bonds_empty_raises(bridge_mod, ctx):
-    with pytest.raises(ValueError, match="required"):
+    with pytest.raises(ValueError, match="Provide"):
         bridge_mod.execute_operation(ctx, "highlight_bonds", {"bond_colors": {}})
+
+
+def test_execute_bond_colors_by_atom_pair(bridge_mod, ctx):
+    mol = MagicMock()
+    bond = MagicMock()
+    bond.GetIdx.return_value = 7
+    mol.GetBondBetweenAtoms.return_value = bond
+    ctx.current_molecule = mol
+    result = bridge_mod.execute_operation(
+        ctx, "highlight_bonds", {"atom_pair_colors": {"0-3": "#00FF00"}}
+    )
+    mol.GetBondBetweenAtoms.assert_called_once_with(0, 3)
+    ctx.get_3d_controller.return_value.set_bond_color.assert_called_once_with(7, "#00FF00")
+    assert result["bonds_colored"] == 1
+
+
+def test_execute_bond_colors_atom_pair_no_bond_raises(bridge_mod, ctx):
+    mol = MagicMock()
+    mol.GetBondBetweenAtoms.return_value = None
+    ctx.current_molecule = mol
+    with pytest.raises(ValueError, match="No bond exists between atoms 0 and 5"):
+        bridge_mod.execute_operation(
+            ctx, "highlight_bonds", {"atom_pair_colors": {"0-5": "#00FF00"}}
+        )
+
+
+def test_execute_bond_colors_bad_pair_key_raises(bridge_mod, ctx):
+    ctx.current_molecule = MagicMock()
+    with pytest.raises(ValueError, match="Invalid atom pair"):
+        bridge_mod.execute_operation(
+            ctx, "highlight_bonds", {"atom_pair_colors": {"nonsense": "#00FF00"}}
+        )
 
 
 def test_execute_highlight_bonds_no_controller_raises(bridge_mod, ctx):
