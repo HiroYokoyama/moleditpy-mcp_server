@@ -123,6 +123,31 @@ when the user asked to replace.
    `write_text_file` the plugin (single `.py` with `initialize(context)`
    and the `PLUGIN_*` constants).
 4. `reload_plugins` to activate without restarting.
+5. If the new/edited plugin does not appear or still runs the old code
+   after `reload_plugins`, don't keep re-reloading — see Troubleshooting.
+
+## Troubleshooting: reload didn't work / tools misbehave
+
+`reload_plugins` re-imports plugin modules, but Python module reloading
+has real limits: stale references held by menus/dialogs, module-level
+state, renamed files, or a plugin that errored halfway through
+`initialize()` can all leave the app running old or half-loaded code.
+There is no MCP tool that restarts the app — the fix is manual.
+
+If `reload_plugins` does not activate your changes, a tool starts
+returning errors that make no sense for the current state, or the app
+appears wedged (any suspected bug in MoleditPy or this MCP plugin):
+
+1. Tell the user to **restart MoleditPy** (close and reopen the app),
+   then **start the MCP server again** (Plugins → MCP Server; it does
+   not auto-start unless the user enabled auto-start in its settings).
+2. Ask the user to say when it's back up, then re-check with
+   `get_app_info` / `get_current_molecule` before continuing. Note the
+   restart clears the undo history and any unsaved molecule state, so
+   remind the user to save first if their work matters.
+3. If the problem persists after a clean restart, it is a genuine bug —
+   help the user report it instead of retrying the same call
+   (main app: https://github.com/HiroYokoyama/python_molecular_editor/issues).
 
 ## `run_python` escape hatch
 
