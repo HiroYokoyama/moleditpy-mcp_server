@@ -129,6 +129,53 @@ def test_dispatch_get_molecule_xyz_with_data(srv):
     assert xyz in result["content"][0]["text"]
 
 
+def test_dispatch_get_atom_properties_empty(srv):
+    bridge = _bridge({"get_atom_properties": {"atoms": []}})
+    result = srv.dispatch_tool(bridge, "get_atom_properties", {})
+    assert "No molecule loaded or no atoms found" in result["content"][0]["text"]
+
+
+def test_dispatch_get_atom_properties_with_atoms(srv):
+    bridge = _bridge({
+        "get_atom_properties": {
+            "atoms": [
+                {
+                    "index": 0,
+                    "symbol": "C",
+                    "atomic_num": 6,
+                    "formal_charge": 0,
+                    "hybridization": "SP3",
+                    "total_hs": 4,
+                    "num_radical_electrons": 0,
+                }
+            ]
+        }
+    })
+    result = srv.dispatch_tool(bridge, "get_atom_properties", {"atom_indices": [0]})
+    text = result["content"][0]["text"]
+    assert "C" in text
+    assert "Z=6" in text
+    bridge.call.assert_called_with("get_atom_properties", {"atom_indices": [0]})
+
+
+def test_dispatch_get_bond_info_empty(srv):
+    bridge = _bridge({"get_bond_info": {"bonds": []}})
+    result = srv.dispatch_tool(bridge, "get_bond_info", {})
+    assert "no bonds" in result["content"][0]["text"].lower()
+
+
+def test_dispatch_get_bond_info_with_bonds(srv):
+    bridge = _bridge({
+        "get_bond_info": {
+            "bonds": [{"index": 0, "atom1": 0, "atom2": 1, "bond_type": "DOUBLE"}]
+        }
+    })
+    result = srv.dispatch_tool(bridge, "get_bond_info", {})
+    text = result["content"][0]["text"]
+    assert "DOUBLE" in text
+    assert "atom 0" in text
+
+
 def test_dispatch_load_smiles_missing_arg(srv):
     bridge = MagicMock()
     result = srv.dispatch_tool(bridge, "load_molecule_from_smiles", {})
@@ -173,6 +220,27 @@ def test_dispatch_show_xyz_failure(srv):
         bridge, "show_xyz_in_viewer", {"xyz_text": "bad data"}
     )
     assert result.get("isError") is True
+
+
+def test_dispatch_load_from_mol_block_missing_arg(srv):
+    bridge = MagicMock()
+    result = srv.dispatch_tool(bridge, "load_from_mol_block", {})
+    assert result.get("isError") is True
+    bridge.call.assert_not_called()
+
+
+def test_dispatch_load_from_mol_block_parse_failure(srv):
+    bridge = _bridge({"load_mol_block": {"success": False}})
+    result = srv.dispatch_tool(bridge, "load_from_mol_block", {"mol_block": "garbage"})
+    assert result.get("isError") is True
+    assert "Failed to parse" in result["content"][0]["text"]
+
+
+def test_dispatch_trigger_3d_conversion(srv):
+    bridge = _bridge({"trigger_3d_conversion": {"success": True}})
+    result = srv.dispatch_tool(bridge, "trigger_3d_conversion", {})
+    assert result.get("isError") is not True
+    bridge.call.assert_called_with("trigger_3d_conversion", timeout=60.0)
 
 
 def test_dispatch_get_selected_atoms_empty(srv):
@@ -299,6 +367,14 @@ def test_mcp_http_server_stop_closes_socket(srv):
     assert sock.fileno() == -1
 
 
+def test_mcp_http_server_port_property(srv):
+    bridge = MagicMock()
+    server = srv.MCPHttpServer(
+        bridge, server_name="Test", server_version="1.0", port=12345
+    )
+    assert server.port == 12345
+
+
 # ---------------------------------------------------------------------------
 # _MCPHandler protocol (via _handle_method)
 # ---------------------------------------------------------------------------
@@ -352,6 +428,151 @@ def test_handle_unknown_method_raises(srv):
     handler = _make_handler(srv)
     with pytest.raises(srv._MethodNotFound):
         handler._handle_method("unknown/method", {})
+
+
+def test_handle_tools_call_bridge_not_initialized(srv):
+    handler = _make_handler(srv)
+    handler.__class__.bridge = None
+    result = handler._handle_method(
+        "tools/call", {"name": "get_app_info", "arguments": {}}
+    )
+    assert result.get("isError") is True
+    assert "Bridge not initialized" in result["content"][0]["text"]
+
+
+# ---------------------------------------------------------------------------
+# _MCPHandler HTTP methods (do_OPTIONS / do_GET / do_POST / _process)
+# ---------------------------------------------------------------------------
+
+
+def test_do_options_sends_cors_and_200(srv):
+    handler = _make_handler(srv)
+    handler.send_response = MagicMock()
+    handler.send_header = MagicMock()
+    handler.end_headers = MagicMock()
+    handler.do_OPTIONS()
+    handler.send_response.assert_called_once_with(200)
+    handler.end_headers.assert_called_once()
+
+
+def test_do_get_health_endpoint(srv):
+    handler = _make_handler(srv)
+    handler.path = "/health"
+    handler.send_response = MagicMock()
+    handler.send_header = MagicMock()
+    handler.end_headers = MagicMock()
+    handler.wfile = MagicMock()
+    handler.do_GET()
+    handler.send_response.assert_called_once_with(200)
+    body = json.loads(handler.wfile.write.call_args[0][0])
+    assert body["status"] == "ok"
+
+
+def test_do_get_root_endpoint(srv):
+    handler = _make_handler(srv)
+    handler.path = "/"
+    handler.send_response = MagicMock()
+    handler.send_header = MagicMock()
+    handler.end_headers = MagicMock()
+    handler.wfile = MagicMock()
+    handler.do_GET()
+    handler.send_response.assert_called_once_with(200)
+
+
+def test_do_get_unknown_path_404(srv):
+    handler = _make_handler(srv)
+    handler.path = "/nope"
+    handler.send_error = MagicMock()
+    handler.do_GET()
+    handler.send_error.assert_called_once_with(404)
+
+
+def test_do_post_wrong_path_404(srv):
+    handler = _make_handler(srv)
+    handler.path = "/other"
+    handler.send_error = MagicMock()
+    handler.do_POST()
+    handler.send_error.assert_called_once_with(404, "Use POST /mcp")
+
+
+def test_do_post_empty_body_400(srv):
+    handler = _make_handler(srv)
+    handler.path = "/mcp"
+    handler.headers = {"Content-Length": "0"}
+    handler.send_error = MagicMock()
+    handler.do_POST()
+    handler.send_error.assert_called_once_with(400, "Empty body")
+
+
+def test_do_post_invalid_json_sends_parse_error(srv):
+    handler = _make_handler(srv)
+    handler.path = "/mcp"
+    handler.headers = {"Content-Length": "7"}
+    handler.rfile = MagicMock()
+    handler.rfile.read.return_value = b"not json"
+    handler.send_response = MagicMock()
+    handler.send_header = MagicMock()
+    handler.end_headers = MagicMock()
+    handler.wfile = MagicMock()
+    handler.do_POST()
+    body = json.loads(handler.wfile.write.call_args[0][0])
+    assert body["error"]["code"] == -32700
+    assert body["id"] is None
+
+
+def test_process_notification_acknowledges_with_202(srv):
+    handler = _make_handler(srv)
+    handler.send_response = MagicMock()
+    handler.send_header = MagicMock()
+    handler.end_headers = MagicMock()
+    handler._process({"method": "notifications/initialized"})
+    handler.send_response.assert_called_once_with(202)
+    handler.end_headers.assert_called_once()
+
+
+def test_process_success_sends_result(srv):
+    handler = _make_handler(srv)
+    handler.send_response = MagicMock()
+    handler.send_header = MagicMock()
+    handler.end_headers = MagicMock()
+    handler.wfile = MagicMock()
+    handler._process({"id": 1, "method": "ping", "params": {}})
+    body = json.loads(handler.wfile.write.call_args[0][0])
+    assert body == {"jsonrpc": "2.0", "result": {}, "id": 1}
+
+
+def test_process_method_exception_sends_internal_error(srv):
+    handler = _make_handler(srv)
+    handler.send_response = MagicMock()
+    handler.send_header = MagicMock()
+    handler.end_headers = MagicMock()
+    handler.wfile = MagicMock()
+    handler._process({"id": 7, "method": "unknown/method", "params": {}})
+    body = json.loads(handler.wfile.write.call_args[0][0])
+    assert body["error"]["code"] == -32603
+    assert body["id"] == 7
+
+
+def test_do_post_full_roundtrip(srv):
+    """Exercises do_POST's happy path end-to-end (real _process call)."""
+    handler = _make_handler(srv)
+    handler.path = "/mcp"
+    message = json.dumps({"id": 1, "method": "ping", "params": {}}).encode("utf-8")
+    handler.headers = {"Content-Length": str(len(message))}
+    handler.rfile = MagicMock()
+    handler.rfile.read.return_value = message
+    handler.send_response = MagicMock()
+    handler.send_header = MagicMock()
+    handler.end_headers = MagicMock()
+    handler.wfile = MagicMock()
+    handler.do_POST()
+    body = json.loads(handler.wfile.write.call_args[0][0])
+    assert body == {"jsonrpc": "2.0", "result": {}, "id": 1}
+
+
+def test_log_message_delegates_to_logger(srv):
+    handler = _make_handler(srv)
+    handler.log_message("%s bar", "foo")  # should not raise
 
 
 # ---------------------------------------------------------------------------
@@ -441,6 +662,15 @@ def test_write_text_file_empty_path_rejected(srv, tmp_path):
     assert "path" in result["content"][0]["text"]
 
 
+def test_write_text_file_no_extension_rejected(srv, tmp_path):
+    bridge = _file_bridge(srv, tmp_path)
+    result = srv.dispatch_tool(bridge, "write_text_file", {
+        "path": "README", "content": "hi"
+    })
+    assert result.get("isError") is True
+    assert "no extension" in result["content"][0]["text"]
+
+
 def test_write_text_file_content_too_large_rejected(srv, tmp_path):
     bridge = _file_bridge(srv, tmp_path)
     huge = "x" * (5 * 1024 * 1024)
@@ -481,6 +711,30 @@ def test_read_text_file_traversal_rejected(srv, tmp_path):
     assert result.get("isError") is True
 
 
+def test_read_text_file_missing_path(srv):
+    bridge = MagicMock()
+    result = srv.dispatch_tool(bridge, "read_text_file", {})
+    assert result.get("isError") is True
+    bridge.call.assert_not_called()
+
+
+def test_read_text_file_rejects_directory(srv, tmp_path):
+    (tmp_path / "subdir.txt").mkdir()
+    bridge = _file_bridge(srv, tmp_path)
+    result = srv.dispatch_tool(bridge, "read_text_file", {"path": "subdir.txt"})
+    assert result.get("isError") is True
+    assert "is not a file" in result["content"][0]["text"]
+
+
+def test_read_text_file_too_large_rejected(srv, tmp_path, monkeypatch):
+    (tmp_path / "big.txt").write_text("x" * 100)
+    monkeypatch.setattr(srv, "_MAX_FILE_BYTES", 10)
+    bridge = _file_bridge(srv, tmp_path)
+    result = srv.dispatch_tool(bridge, "read_text_file", {"path": "big.txt"})
+    assert result.get("isError") is True
+    assert "MB read limit" in result["content"][0]["text"]
+
+
 def test_list_directory_ok(srv, tmp_path):
     (tmp_path / "mol.xyz").write_text("3\ntest\nC 0 0 0\n")
     (tmp_path / "sub").mkdir()
@@ -495,6 +749,27 @@ def test_list_directory_traversal_rejected(srv, tmp_path):
     bridge = _file_bridge(srv, tmp_path)
     result = srv.dispatch_tool(bridge, "list_directory", {"path": "../../"})
     assert result.get("isError") is True
+
+
+def test_list_directory_nonexistent_rejected(srv, tmp_path):
+    bridge = _file_bridge(srv, tmp_path)
+    result = srv.dispatch_tool(bridge, "list_directory", {"path": "nope"})
+    assert result.get("isError") is True
+    assert "does not exist" in result["content"][0]["text"]
+
+
+def test_list_directory_not_a_directory_rejected(srv, tmp_path):
+    (tmp_path / "file.txt").write_text("x")
+    bridge = _file_bridge(srv, tmp_path)
+    result = srv.dispatch_tool(bridge, "list_directory", {"path": "file.txt"})
+    assert result.get("isError") is True
+    assert "is not a directory" in result["content"][0]["text"]
+
+
+def test_list_directory_empty_reports_empty(srv, tmp_path):
+    bridge = _file_bridge(srv, tmp_path)
+    result = srv.dispatch_tool(bridge, "list_directory", {})
+    assert "(empty)" in result["content"][0]["text"]
 
 
 def test_delete_file_requires_confirm(srv, tmp_path):
@@ -523,6 +798,32 @@ def test_delete_file_traversal_rejected(srv, tmp_path):
         "path": "../../important.txt", "confirm": True
     })
     assert result.get("isError") is True
+
+
+def test_delete_file_missing_path(srv):
+    bridge = MagicMock()
+    result = srv.dispatch_tool(bridge, "delete_file", {"confirm": True})
+    assert result.get("isError") is True
+    bridge.call.assert_not_called()
+
+
+def test_delete_file_not_exists_rejected(srv, tmp_path):
+    bridge = _file_bridge(srv, tmp_path)
+    result = srv.dispatch_tool(bridge, "delete_file", {
+        "path": "missing.txt", "confirm": True
+    })
+    assert result.get("isError") is True
+    assert "does not exist" in result["content"][0]["text"]
+
+
+def test_delete_file_rejects_directory(srv, tmp_path):
+    (tmp_path / "dir.txt").mkdir()
+    bridge = _file_bridge(srv, tmp_path)
+    result = srv.dispatch_tool(bridge, "delete_file", {
+        "path": "dir.txt", "confirm": True
+    })
+    assert result.get("isError") is True
+    assert "not a regular file" in result["content"][0]["text"]
 
 
 def test_get_file_io_config_no_base_dir(srv):
@@ -599,6 +900,15 @@ def test_run_python_no_output(srv):
     })
     result = srv.dispatch_tool(bridge, "run_python", {"code": "pass"})
     assert "(no output)" in result["content"][0]["text"]
+
+
+def test_run_python_stderr(srv):
+    bridge = make_bridge({
+        "run_python": {"stdout": "", "stderr": "warn!\n", "result": "None"}
+    })
+    result = srv.dispatch_tool(bridge, "run_python", {"code": "pass"})
+    assert result.get("isError") is not True
+    assert "warn!" in result["content"][0]["text"]
 
 
 def test_run_python_empty_code(srv):
@@ -893,6 +1203,34 @@ def test_get_plugin_dev_manual_network_error(srv):
     assert result.get("isError") is True
 
 
+def test_fetch_plugin_dev_manual_success(srv):
+    """Exercises the real (unpatched) fetch body, not just dispatch_tool's
+    error-handling wrapper."""
+    resp = MagicMock()
+    resp.read.return_value = b"# Real manual content"
+    cm = MagicMock()
+    cm.__enter__.return_value = resp
+    cm.__exit__.return_value = False
+    with patch.object(srv.urllib.request, "urlopen", MagicMock(return_value=cm)):
+        text = srv._fetch_plugin_dev_manual()
+    assert "Real manual content" in text
+
+
+def test_fetch_plugin_dev_manual_http_error(srv):
+    import urllib.error
+
+    err = urllib.error.HTTPError("url", 404, "Not Found", {}, None)
+    with patch.object(srv.urllib.request, "urlopen", MagicMock(side_effect=err)):
+        with pytest.raises(ValueError, match="HTTP 404"):
+            srv._fetch_plugin_dev_manual()
+
+
+def test_fetch_plugin_dev_manual_generic_error(srv):
+    with patch.object(srv.urllib.request, "urlopen", MagicMock(side_effect=OSError("offline"))):
+        with pytest.raises(ValueError, match="Failed to fetch plugin development manual"):
+            srv._fetch_plugin_dev_manual()
+
+
 def test_get_app_source_ok(srv):
     bridge = make_bridge({"get_app_source": {"type": "file", "content": "# plugin_interface\n"}})
     result = srv.dispatch_tool(bridge, "get_app_source", {"path": "plugins/plugin_interface.py"})
@@ -1097,6 +1435,15 @@ def test_write_xyz_block_bad_atom_order_is_tool_error(srv, tmp_path):
     assert result.get("isError") is True
 
 
+def test_write_xyz_block_content_too_large_rejected(srv, tmp_path, monkeypatch):
+    monkeypatch.setattr(srv, "_MAX_FILE_BYTES", 10)
+    bridge = _xyz_bridge(tmp_path)
+    result = srv.dispatch_tool(bridge, "write_file_with_xyz_block", {"path": "mol.xyz"})
+    assert result.get("isError") is True
+    assert "MB limit" in result["content"][0]["text"]
+    assert not (tmp_path / "mol.xyz").exists()
+
+
 # ---------------------------------------------------------------------------
 # list_available_plugins / open_plugin_installer
 # ---------------------------------------------------------------------------
@@ -1243,6 +1590,13 @@ def test_set_cpk_color_override_dispatch(srv):
     })
     assert result.get("isError") is not True
     assert "persists across redraws" in result["content"][0]["text"]
+
+
+def test_set_cpk_color_override_missing_arg(srv):
+    bridge = MagicMock()
+    result = srv.dispatch_tool(bridge, "set_cpk_color_override", {})
+    assert result.get("isError") is True
+    bridge.call.assert_not_called()
 
 
 def test_highlight_atoms_legacy_alias_still_dispatches(srv):
