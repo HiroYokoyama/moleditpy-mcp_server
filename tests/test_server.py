@@ -432,6 +432,35 @@ def test_write_text_file_extension_not_allowed(srv, tmp_path):
     assert result.get("isError") is True
 
 
+def test_write_text_file_empty_path_rejected(srv, tmp_path):
+    bridge = _file_bridge(srv, tmp_path)
+    result = srv.dispatch_tool(bridge, "write_text_file", {
+        "path": "  ", "content": "bad"
+    })
+    assert result.get("isError") is True
+    assert "path" in result["content"][0]["text"]
+
+
+def test_write_text_file_content_too_large_rejected(srv, tmp_path):
+    bridge = _file_bridge(srv, tmp_path)
+    huge = "x" * (5 * 1024 * 1024)
+    result = srv.dispatch_tool(bridge, "write_text_file", {
+        "path": "big.txt", "content": huge
+    })
+    assert result.get("isError") is True
+    assert "MB limit" in result["content"][0]["text"]
+    assert not (tmp_path / "big.txt").exists()
+
+
+def test_write_file_with_xyz_block_empty_path_rejected(srv, tmp_path):
+    bridge = _file_bridge(srv, tmp_path)
+    result = srv.dispatch_tool(bridge, "write_file_with_xyz_block", {
+        "path": "", "content": "ignored"
+    })
+    assert result.get("isError") is True
+    assert "path" in result["content"][0]["text"]
+
+
 def test_read_text_file_ok(srv, tmp_path):
     (tmp_path / "data.txt").write_text("content here")
     bridge = _file_bridge(srv, tmp_path)
@@ -522,6 +551,13 @@ def test_set_file_io_config_nonexistent_dir(srv, tmp_path):
         "base_dir": str(tmp_path / "does_not_exist"),
     })
     assert result.get("isError") is True
+
+
+def test_set_file_io_config_no_args_rejected(srv):
+    bridge = make_bridge({"set_file_io_config": {"success": True}})
+    result = srv.dispatch_tool(bridge, "set_file_io_config", {})
+    assert result.get("isError") is True
+    assert "base_dir or allowed_extensions" in result["content"][0]["text"]
 
 
 def test_file_io_no_base_dir_configured(srv, tmp_path):
