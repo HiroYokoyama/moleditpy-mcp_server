@@ -252,3 +252,27 @@ def test_show_status_opens_dialog(pkg, ctx):
         finally:
             sys.modules.pop("mcp_server.ui", None)
     ctx.register_window.assert_called_once()
+
+
+def test_show_status_reuses_existing_visible_window(pkg, ctx):
+    """If a status dialog is already open, raise/activate it instead of
+    creating a second one."""
+    win = MagicMock()
+    win.isVisible.return_value = True
+    ctx.get_window.return_value = win
+    plugin = pkg.MCPServerPlugin(ctx)
+    plugin.show_status()
+    win.raise_.assert_called_once()
+    win.activateWindow.assert_called_once()
+    ctx.register_window.assert_not_called()
+
+
+def test_url_uses_running_server_url(pkg, ctx):
+    """Once the server is running, url reflects the actual bound port
+    (the server object's url), not just the configured setting."""
+    ctx.get_setting.return_value = 7891
+    with _mock_server_modules():
+        plugin = pkg.MCPServerPlugin(ctx)
+        plugin.start(port=12345)
+        assert plugin.url == "http://127.0.0.1:12345/mcp"
+        plugin.stop()
