@@ -5,7 +5,7 @@ Expose [MoleditPy](https://github.com/HiroYokoyama/python_molecular_editor) to A
 Once running, any MCP-compatible client — **Claude Desktop**, **Claude Code**, **Cursor**, **Windsurf**, **Zed**, **VS Code (Copilot)**, **OpenAI Codex CLI**, **Google Antigravity**, or any HTTP client — can query and control the molecular editor in real time.
 
 [![Tests](https://github.com/HiroYokoyama/moleditpy-mcp_server/actions/workflows/test.yml/badge.svg)](https://github.com/HiroYokoyama/moleditpy-mcp_server/actions/workflows/test.yml)
-![Test Coverage](https://img.shields.io/badge/coverage->80%25-green)
+![Test Coverage](https://img.shields.io/badge/coverage->90%25-green)
 [![Downloads](https://img.shields.io/github/downloads/HiroYokoyama/moleditpy-mcp_server/total)](https://github.com/HiroYokoyama/moleditpy-mcp_server/releases)
 [![PyPI - mcp-gui-tester](https://img.shields.io/pypi/v/mcp-gui-tester?label=mcp-gui-tester)](https://pypi.org/project/mcp-gui-tester/)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21289092.svg)](https://doi.org/10.5281/zenodo.21289092)
