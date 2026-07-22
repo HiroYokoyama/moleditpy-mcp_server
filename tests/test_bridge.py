@@ -564,6 +564,90 @@ def test_apply_reaction_smarts_anchor_not_found_falls_back(bridge_mod, ctx):
     assert result["selected_product"] == 0
 
 
+def test_apply_reaction_smarts_anchor_more_matches_than_products_breaks(bridge_mod, ctx):
+    """More RunReactants matches than products (i >= len(products)) must
+    break the enumeration loop instead of indexing out of range."""
+    mol = MagicMock()
+    mol.GetNumHeavyAtoms.return_value = 6
+    ctx.current_molecule = mol
+    products = ((_make_product(7),), (_make_product(7),))  # only 2 products
+    with _RdkitPatch() as rd:
+        mol_h, _ = _configure_reaction(rd, mol, products)
+        # 3 matches, none containing the anchor, so the loop runs past
+        # len(products) and must break rather than IndexError.
+        mol_h.GetSubstructMatches.return_value = ((0, 1), (2, 3), (4, 5))
+        result = bridge_mod.execute_operation(
+            ctx,
+            "apply_reaction_smarts",
+            {"reaction_smarts": "[c:1][H]>>[c:1][Cl]", "atom_index": 99},
+        )
+    assert result["selected_product"] == 0
+
+
+def test_apply_reaction_smarts_anchor_bad_atom_index_falls_back(bridge_mod, ctx):
+    """A non-integer atom_index must be caught by the broad except and fall
+    back to the first match instead of propagating."""
+    mol = MagicMock()
+    mol.GetNumHeavyAtoms.return_value = 6
+    ctx.current_molecule = mol
+    products = ((_make_product(7),),)
+    with _RdkitPatch() as rd:
+        _configure_reaction(rd, mol, products)
+        result = bridge_mod.execute_operation(
+            ctx,
+            "apply_reaction_smarts",
+            {"reaction_smarts": "[c:1][H]>>[c:1][Cl]", "atom_index": "not-a-number"},
+        )
+    assert result["selected_product"] == 0
+
+
+def test_apply_reaction_smarts_sanitize_and_removehs_failures_continue(bridge_mod, ctx):
+    """SanitizeMol/RemoveHs failures on the product are logged and swallowed
+    (not fatal) — the transformation still succeeds. Also exercises the
+    atom-map-reset loop body (new_mol.GetAtoms() non-empty) and the
+    mapped_smiles atom-map loop body (report_mol.GetAtoms() non-empty)."""
+    mol = MagicMock()
+    mol.GetNumHeavyAtoms.return_value = 6
+    ctx.current_molecule = mol
+    with _RdkitPatch() as rd:
+        atom_in_product = MagicMock()
+        product = MagicMock()
+        product.GetNumAtoms.return_value = 7
+        product.GetAtoms.return_value = [atom_in_product]
+        _configure_reaction(rd, mol, ((product,),), final_smiles="Clc1ccccc1")
+        rd.chem.SanitizeMol.side_effect = RuntimeError("sanitize fail")
+        rd.chem.RemoveHs.side_effect = RuntimeError("removehs fail")
+        report_atom = MagicMock()
+        report_atom.GetIdx.return_value = 0
+        rd.chem.MolFromSmiles.return_value.GetAtoms.return_value = [report_atom]
+
+        result = bridge_mod.execute_operation(
+            ctx, "apply_reaction_smarts", {"reaction_smarts": "[c:1][H]>>[c:1][Cl]"}
+        )
+    assert result["success"] is True
+    atom_in_product.SetAtomMapNum.assert_called_once_with(0)
+    report_atom.SetAtomMapNum.assert_called_once_with(1)
+
+
+def test_apply_reaction_smarts_3d_conversion_failure_continues(bridge_mod, ctx):
+    """A failure in the post-transformation 3D conversion must be logged
+    and swallowed — the overall transformation still reports success, with
+    converted_3d = False."""
+    mol = MagicMock()
+    mol.GetNumHeavyAtoms.return_value = 6
+    ctx.current_molecule = mol
+    ctx.get_main_window.return_value.compute_manager.trigger_conversion.side_effect = (
+        RuntimeError("3d fail")
+    )
+    with _RdkitPatch() as rd:
+        _configure_reaction(rd, mol, ((_make_product(7),),), final_smiles="Clc1ccccc1")
+        result = bridge_mod.execute_operation(
+            ctx, "apply_reaction_smarts", {"reaction_smarts": "[c:1][H]>>[c:1][Cl]"}
+        )
+    assert result["success"] is True
+    assert result["converted_3d"] is False
+
+
 # ---------------------------------------------------------------------------
 # get_mapped_smiles
 # ---------------------------------------------------------------------------
@@ -653,6 +737,178 @@ def test_execute_trigger_3d_conversion_fallback_rdkit(bridge_mod, ctx):
     ctx.refresh_ui.assert_called()
 
 
+def test_execute_trigger_3d_conversion_no_molecule_raises(bridge_mod, ctx):
+    mw = MagicMock(spec=[])  # no compute_manager
+    ctx.get_main_window.return_value = mw
+    ctx.current_molecule = None
+    with pytest.raises(ValueError, match="No molecule loaded"):
+        bridge_mod.execute_operation(ctx, "trigger_3d_conversion", {})
+
+
+def test_execute_trigger_3d_conversion_embed_failure_raises(bridge_mod, ctx):
+    mw = MagicMock(spec=[])  # no compute_manager → fallback path
+    ctx.get_main_window.return_value = mw
+    mol_mock = MagicMock()
+    ctx.current_molecule = mol_mock
+
+    allchem_mock = MagicMock(name="AllChem")
+    allchem_mock.EmbedMolecule.return_value = 1  # non-zero = failure
+    allchem_mock.ETKDGv3.return_value = MagicMock()
+
+    chem_mock = MagicMock(name="Chem")
+    chem_mock.AddHs.return_value = mol_mock
+    chem_mock.AllChem = allchem_mock
+
+    rdkit_mock = MagicMock(name="rdkit")
+    rdkit_mock.Chem = chem_mock
+
+    saved = {k: sys.modules.get(k) for k in ("rdkit", "rdkit.Chem", "rdkit.Chem.AllChem")}
+    sys.modules["rdkit"] = rdkit_mock
+    sys.modules["rdkit.Chem"] = chem_mock
+    sys.modules["rdkit.Chem.AllChem"] = allchem_mock
+    try:
+        with pytest.raises(ValueError, match="3D embedding failed"):
+            bridge_mod.execute_operation(ctx, "trigger_3d_conversion", {})
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = v
+
+
+# ---------------------------------------------------------------------------
+# _find_moleditpy_spec / list_app_source_tree / get_app_source
+# ---------------------------------------------------------------------------
+
+
+def test_find_moleditpy_spec_not_found_raises(bridge_mod):
+    import importlib.util
+
+    original_find_spec = importlib.util.find_spec
+    importlib.util.find_spec = lambda name: None
+    try:
+        with pytest.raises(ValueError, match="not found"):
+            bridge_mod._find_moleditpy_spec()
+    finally:
+        importlib.util.find_spec = original_find_spec
+
+
+def test_find_moleditpy_spec_found(bridge_mod, tmp_path):
+    import importlib.util
+
+    fake_spec = MagicMock()
+    fake_spec.submodule_search_locations = [str(tmp_path)]
+    original_find_spec = importlib.util.find_spec
+    importlib.util.find_spec = lambda name: fake_spec if name == "moleditpy" else None
+    try:
+        assert bridge_mod._find_moleditpy_spec() is fake_spec
+    finally:
+        importlib.util.find_spec = original_find_spec
+
+
+def test_execute_list_app_source_tree_spec_missing_locations_raises(bridge_mod, ctx):
+    fake_spec = MagicMock()
+    fake_spec.submodule_search_locations = []
+    original = bridge_mod._find_moleditpy_spec
+    bridge_mod._find_moleditpy_spec = lambda: fake_spec
+    try:
+        with pytest.raises(ValueError, match="not found"):
+            bridge_mod.execute_operation(ctx, "list_app_source_tree", {})
+    finally:
+        bridge_mod._find_moleditpy_spec = original
+
+
+def test_execute_list_app_source_tree_path_outside_package_raises(bridge_mod, ctx, tmp_path):
+    fake_spec = MagicMock()
+    fake_spec.submodule_search_locations = [str(tmp_path)]
+    original = bridge_mod._find_moleditpy_spec
+    bridge_mod._find_moleditpy_spec = lambda: fake_spec
+    try:
+        with pytest.raises(ValueError, match="outside the moleditpy package"):
+            bridge_mod.execute_operation(ctx, "list_app_source_tree", {"path": "../../etc"})
+    finally:
+        bridge_mod._find_moleditpy_spec = original
+
+
+def test_execute_get_app_source_directory(bridge_mod, ctx, tmp_path):
+    (tmp_path / "core").mkdir()
+    (tmp_path / "core" / "a.py").write_text("x = 1", encoding="utf-8")
+    fake_spec = MagicMock()
+    fake_spec.submodule_search_locations = [str(tmp_path)]
+    original = bridge_mod._find_moleditpy_spec
+    bridge_mod._find_moleditpy_spec = lambda: fake_spec
+    try:
+        result = bridge_mod.execute_operation(ctx, "get_app_source", {"path": "core"})
+    finally:
+        bridge_mod._find_moleditpy_spec = original
+    assert result["type"] == "directory"
+    assert "a.py" in result["content"]
+
+
+def test_execute_get_app_source_file(bridge_mod, ctx, tmp_path):
+    (tmp_path / "mod.py").write_text("print('hi')", encoding="utf-8")
+    fake_spec = MagicMock()
+    fake_spec.submodule_search_locations = [str(tmp_path)]
+    original = bridge_mod._find_moleditpy_spec
+    bridge_mod._find_moleditpy_spec = lambda: fake_spec
+    try:
+        result = bridge_mod.execute_operation(ctx, "get_app_source", {"path": "mod.py"})
+    finally:
+        bridge_mod._find_moleditpy_spec = original
+    assert result["type"] == "file"
+    assert "print" in result["content"]
+
+
+def test_execute_get_app_source_not_exists_raises(bridge_mod, ctx, tmp_path):
+    fake_spec = MagicMock()
+    fake_spec.submodule_search_locations = [str(tmp_path)]
+    original = bridge_mod._find_moleditpy_spec
+    bridge_mod._find_moleditpy_spec = lambda: fake_spec
+    try:
+        with pytest.raises(ValueError, match="does not exist"):
+            bridge_mod.execute_operation(ctx, "get_app_source", {"path": "nope.py"})
+    finally:
+        bridge_mod._find_moleditpy_spec = original
+
+
+def test_execute_get_app_source_too_large_raises(bridge_mod, ctx, tmp_path):
+    (tmp_path / "big.py").write_bytes(b"x" * (201 * 1024))
+    fake_spec = MagicMock()
+    fake_spec.submodule_search_locations = [str(tmp_path)]
+    original = bridge_mod._find_moleditpy_spec
+    bridge_mod._find_moleditpy_spec = lambda: fake_spec
+    try:
+        with pytest.raises(ValueError, match="exceeds"):
+            bridge_mod.execute_operation(ctx, "get_app_source", {"path": "big.py"})
+    finally:
+        bridge_mod._find_moleditpy_spec = original
+
+
+def test_execute_get_app_source_outside_package_raises(bridge_mod, ctx, tmp_path):
+    fake_spec = MagicMock()
+    fake_spec.submodule_search_locations = [str(tmp_path)]
+    original = bridge_mod._find_moleditpy_spec
+    bridge_mod._find_moleditpy_spec = lambda: fake_spec
+    try:
+        with pytest.raises(ValueError, match="outside the moleditpy package"):
+            bridge_mod.execute_operation(ctx, "get_app_source", {"path": "../etc/passwd"})
+    finally:
+        bridge_mod._find_moleditpy_spec = original
+
+
+def test_execute_get_app_source_spec_missing_locations_raises(bridge_mod, ctx):
+    fake_spec = MagicMock()
+    fake_spec.submodule_search_locations = []
+    original = bridge_mod._find_moleditpy_spec
+    bridge_mod._find_moleditpy_spec = lambda: fake_spec
+    try:
+        with pytest.raises(ValueError, match="not found"):
+            bridge_mod.execute_operation(ctx, "get_app_source", {"path": "x.py"})
+    finally:
+        bridge_mod._find_moleditpy_spec = original
+
+
 # ---------------------------------------------------------------------------
 # highlight_atoms
 # ---------------------------------------------------------------------------
@@ -729,6 +985,24 @@ def test_execute_bond_colors_bad_pair_key_raises(bridge_mod, ctx):
     with pytest.raises(ValueError, match="Invalid atom pair"):
         bridge_mod.execute_operation(
             ctx, "highlight_bonds", {"atom_pair_colors": {"nonsense": "#00FF00"}}
+        )
+
+
+def test_execute_bond_colors_pair_non_int_raises(bridge_mod, ctx):
+    """A pair with a separator but non-integer parts must also raise
+    'Invalid atom pair' (exercises the except-ValueError-then-break path)."""
+    ctx.current_molecule = MagicMock()
+    with pytest.raises(ValueError, match="Invalid atom pair"):
+        bridge_mod.execute_operation(
+            ctx, "highlight_bonds", {"atom_pair_colors": {"a-b": "#00FF00"}}
+        )
+
+
+def test_execute_bond_colors_pair_no_molecule_raises(bridge_mod, ctx):
+    ctx.current_molecule = None
+    with pytest.raises(ValueError, match="No molecule with 3D data"):
+        bridge_mod.execute_operation(
+            ctx, "highlight_bonds", {"atom_pair_colors": {"0-3": "#00FF00"}}
         )
 
 
@@ -892,6 +1166,13 @@ def test_execute_reload_plugins_returns_none(bridge_mod, ctx):
     mw.plugin_manager.discover_plugins.return_value = None
     result = bridge_mod.execute_operation(ctx, "reload_plugins", {})
     assert result["plugin_count"] == 0
+
+
+def test_execute_reload_plugins_no_plugin_manager_raises(bridge_mod, ctx):
+    mw_mock = MagicMock(spec=[])  # no attributes → hasattr returns False
+    ctx.get_main_window.return_value = mw_mock
+    with pytest.raises(ValueError, match="not available"):
+        bridge_mod.execute_operation(ctx, "reload_plugins", {})
 
 
 # ---------------------------------------------------------------------------
