@@ -50,6 +50,9 @@ class Qt:
     class TextInteractionFlag:
         TextSelectableByMouse = 1
 
+    class ItemDataRole:
+        ToolTipRole = 3
+
 
 # ---------------------------------------------------------------------------
 # QtGui
@@ -198,13 +201,52 @@ class QLineEdit(_QObjectBase):
 class QComboBox(_QObjectBase):
     def __init__(self, parent=None):
         self._items = []
+        self._data = []
+        self._roles = []
         self._current = -1
+        self._enabled = True
+        self._tooltip = ""
         self.currentTextChanged = _Signal()
+        self.currentIndexChanged = _Signal()
 
     def addItems(self, items):
-        self._items.extend(items)
-        if self._current == -1 and self._items:
+        for item in items:
+            self.addItem(item)
+
+    def addItem(self, text, userData=None):
+        self._items.append(text)
+        self._data.append(userData)
+        self._roles.append({})
+        if self._current == -1:
             self._current = 0
+
+    def count(self):
+        return len(self._items)
+
+    def setItemData(self, index, value, role=None):
+        self._roles[index][role] = value
+
+    def itemData(self, index, role=None):
+        if role is None:
+            return self._data[index]
+        return self._roles[index].get(role)
+
+    def findData(self, value):
+        return self._data.index(value) if value in self._data else -1
+
+    def setCurrentIndex(self, index):
+        if 0 <= index < len(self._items) and index != self._current:
+            self._current = index
+            self.currentIndexChanged.emit(index)
+            self.currentTextChanged.emit(self._items[index])
+
+    def currentIndex(self):
+        return self._current
+
+    def currentData(self):
+        if 0 <= self._current < len(self._data):
+            return self._data[self._current]
+        return None
 
     def currentText(self):
         if 0 <= self._current < len(self._items):
@@ -215,6 +257,15 @@ class QComboBox(_QObjectBase):
         if text in self._items:
             self._current = self._items.index(text)
             self.currentTextChanged.emit(text)
+
+    def setEnabled(self, value):
+        self._enabled = bool(value)
+
+    def isEnabled(self):
+        return self._enabled
+
+    def setToolTip(self, text):
+        self._tooltip = text
 
 
 class QTextEdit(_QObjectBase):

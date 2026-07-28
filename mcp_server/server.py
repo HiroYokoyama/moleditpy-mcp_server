@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import socketserver
 import threading
 import urllib.parse
@@ -22,7 +23,56 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-_PROTOCOL_VERSION = "2024-11-05"
+# --- Protocol versions -----------------------------------------------------
+# Two eras of MCP are spoken here:
+#   * "legacy"  — handshake-based (`initialize`), 2025-11-25 and earlier.
+#   * "modern"  — stateless per-request metadata, 2026-07-28 and later.
+_PROTOCOL_VERSION = "2024-11-05"          # legacy default when none requested
+_MODERN_PROTOCOL_VERSION = "2026-07-28"
+_LEGACY_PROTOCOL_VERSIONS = (
+    "2025-11-25",
+    "2025-06-18",
+    "2025-03-26",
+    "2024-11-05",
+)
+_MODERN_PROTOCOL_VERSIONS = (_MODERN_PROTOCOL_VERSION,)
+
+#: Valid values for the ``protocol_mode`` setting.
+PROTOCOL_MODES = ("auto", "legacy", "modern")
+
+# `_meta` keys defined by the 2026-07-28 revision.
+_META_PROTOCOL_VERSION = "io.modelcontextprotocol/protocolVersion"
+_META_CLIENT_INFO = "io.modelcontextprotocol/clientInfo"
+_META_SERVER_INFO = "io.modelcontextprotocol/serverInfo"
+
+# JSON-RPC error codes (2026-07-28 protocol-defined sub-range).
+_ERR_METHOD_NOT_FOUND = -32601
+_ERR_HEADER_MISMATCH = -32020
+_ERR_UNSUPPORTED_PROTOCOL_VERSION = -32022
+
+# Cache hints returned on CacheableResult responses (2026-07-28).
+_TOOLS_TTL_MS = 300_000  # tool list only changes when the plugin is updated
+_DISCOVER_TTL_MS = 300_000
+
+#: Natural-language guidance returned by `server/discover` (2026-07-28) so the
+#: client can prime its model with what this server is for.
+_SERVER_INSTRUCTIONS = (
+    "This server drives a running instance of MoleditPy, a desktop molecular "
+    "editor for preparing quantum-chemistry calculations. The user is watching "
+    "the same window you are editing.\n"
+    "\n"
+    "Typical flow: read the current state (get_current_molecule, "
+    "get_molecule_xyz, get_bond_info), modify it (load_molecule_from_smiles, "
+    "load_molecule_by_name, apply_reaction_smarts), then generate input files "
+    "with write_file_with_xyz_block — never retype coordinates by hand.\n"
+    "\n"
+    "Before a destructive edit, call push_undo_checkpoint so the user can undo. "
+    "3D coordinates only exist after trigger_3d_conversion. File tools are "
+    "confined to the base directory configured in the plugin's settings "
+    "dialog; grep_files and find_files search that directory, the installed "
+    "MoleditPy source, or the user's plugin folder — use them (plus "
+    "get_plugin_dev_manual and get_app_source) when writing MoleditPy plugins."
+)
 
 _TOOLS: List[Dict[str, Any]] = [
     # ------------------------------------------------------------------
@@ -492,7 +542,9 @@ _TOOLS: List[Dict[str, Any]] = [
             "Read a source file or list a directory from the installed moleditpy package. "
             "Pass a path relative to the package root "
             "(e.g. 'plugins/plugin_interface.py', 'core/molecular_data.py', or '.'). "
-            "Use this to inspect the real API before writing a plugin."
+            "Use this to inspect the real API before writing a plugin. "
+            "Pass start_line/end_line to read only part of a large file — "
+            "the natural follow-up to a grep_files hit."
         ),
         "inputSchema": {
             "type": "object",
@@ -503,7 +555,15 @@ _TOOLS: List[Dict[str, Any]] = [
                         "Path relative to the moleditpy package root, e.g. "
                         "'plugins/plugin_interface.py' or '.' for the root listing."
                     ),
-                }
+                },
+                "start_line": {
+                    "type": "integer",
+                    "description": "First line to return, 1-based (default 1).",
+                },
+                "end_line": {
+                    "type": "integer",
+                    "description": "Last line to return, inclusive. Omit for end of file.",
+                },
             },
             "required": ["path"],
         },
@@ -693,12 +753,22 @@ _TOOLS: List[Dict[str, Any]] = [
         "name": "read_text_file",
         "description": (
             "Read and return the UTF-8 text content of a file inside the "
-            "configured base directory. Path is relative to that directory."
+            "configured base directory. Path is relative to that directory. "
+            "Pass start_line/end_line to read only a slice of a large file "
+            "(line numbers are 1-based and match grep_files output)."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "Relative file path."},
+                "start_line": {
+                    "type": "integer",
+                    "description": "First line to return, 1-based (default 1).",
+                },
+                "end_line": {
+                    "type": "integer",
+                    "description": "Last line to return, inclusive. Omit for end of file.",
+                },
             },
             "required": ["path"],
         },
@@ -715,6 +785,110 @@ _TOOLS: List[Dict[str, Any]] = [
                 "path": {
                     "type": "string",
                     "description": "Relative path (default '.' = base directory).",
+                },
+            },
+        },
+    },
+    # ------------------------------------------------------------------
+    # Code / text search
+    # ------------------------------------------------------------------
+    {
+        "name": "grep_files",
+        "description": (
+            "Search file contents with a regular expression and return matching "
+            "lines as 'relative/path.py:LINE: text' — the fastest way to find "
+            "where something is defined or used. "
+            "Choose the tree with 'root':\n"
+            "  'app_source'  — the installed MoleditPy package source. Use this "
+            "to find the real PluginContext API, signal names, or an example of "
+            "how the app does something before writing a plugin.\n"
+            "  'plugins'     — the user's plugin directory (~/.moleditpy/plugins).\n"
+            "  'files'       — the configured file I/O base directory "
+            "(calculation outputs, inputs, notes); only files with allowed "
+            "extensions are searched.\n"
+            "Follow a hit with get_app_source or read_text_file using "
+            "start_line/end_line to read the surrounding code."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": (
+                        "Python regular expression, e.g. 'def add_menu_action' or "
+                        "'class \\\\w+Dialog'. Set fixed_string=true to search for "
+                        "it literally instead."
+                    ),
+                },
+                "root": {
+                    "type": "string",
+                    "enum": ["app_source", "plugins", "files"],
+                    "description": "Which tree to search (default 'app_source').",
+                },
+                "path": {
+                    "type": "string",
+                    "description": (
+                        "Optional sub-path within the root to narrow the search "
+                        "(e.g. 'plugins' or 'core')."
+                    ),
+                },
+                "glob": {
+                    "type": "string",
+                    "description": (
+                        "Filename filter, e.g. '*.py' (default) or '*.md'. "
+                        "Use '*' to search every text file."
+                    ),
+                },
+                "ignore_case": {
+                    "type": "boolean",
+                    "description": "Case-insensitive match (default false).",
+                },
+                "fixed_string": {
+                    "type": "boolean",
+                    "description": "Treat 'pattern' as a literal string (default false).",
+                },
+                "context": {
+                    "type": "integer",
+                    "description": (
+                        "Lines of surrounding context to include per match, 0-10 "
+                        "(default 0)."
+                    ),
+                },
+                "max_matches": {
+                    "type": "integer",
+                    "description": "Stop after this many matches, 1-500 (default 100).",
+                },
+            },
+            "required": ["pattern"],
+        },
+    },
+    {
+        "name": "find_files",
+        "description": (
+            "List files whose name matches a glob pattern, recursively, inside "
+            "one of the searchable trees. Use it to locate a module before "
+            "reading it (e.g. pattern '*dialog*.py' in root 'app_source'). "
+            "Same 'root' choices as grep_files."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": "Filename glob, e.g. '*.py', 'plugin_*.py' (default '*').",
+                },
+                "root": {
+                    "type": "string",
+                    "enum": ["app_source", "plugins", "files"],
+                    "description": "Which tree to search (default 'app_source').",
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Optional sub-path within the root to search under.",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum paths to return, 1-1000 (default 200).",
                 },
             },
         },
@@ -771,6 +945,60 @@ _TOOLS: List[Dict[str, Any]] = [
         },
     },
 ]
+
+
+# ---------------------------------------------------------------------------
+# Tool annotations (behaviour hints — clients use them to decide what needs
+# confirmation, what can be retried, and what merely reads state)
+# ---------------------------------------------------------------------------
+
+_READ_ONLY_TOOLS = {
+    "get_current_molecule", "get_molecule_xyz", "get_atom_properties",
+    "get_bond_info", "get_selected_atoms", "get_mapped_smiles", "get_app_info",
+    "get_plugin_dir", "get_plugin_dev_manual", "list_app_source_tree",
+    "get_app_source", "list_available_plugins", "check_chemistry",
+    "read_text_file", "list_directory", "get_file_io_config",
+    "grep_files", "find_files",
+}
+
+#: Tools that replace or erase user work (the canvas, or a file on disk).
+_DESTRUCTIVE_TOOLS = {
+    "load_molecule_from_smiles", "load_from_mol_block", "load_molecule_by_name",
+    "show_xyz_in_viewer", "apply_reaction_smarts", "clear_canvas",
+    "write_text_file", "write_file_with_xyz_block", "delete_file", "run_python",
+}
+
+#: Mutating tools whose repeated call leaves the same state.
+_IDEMPOTENT_TOOLS = {
+    "set_cpk_color_override", "reset_cpk_color_override",
+    "set_bond_color_override", "highlight_bonds", "enter_3d_mode",
+    "exit_3d_mode", "fit_2d_view", "reset_3d_camera", "refresh_3d_view",
+    "refresh_ui", "reload_plugins", "open_plugin_installer",
+    "set_file_io_config", "trigger_3d_conversion",
+}
+
+#: Tools that reach outside MoleditPy (network).
+_OPEN_WORLD_TOOLS = {
+    "load_molecule_by_name", "list_available_plugins", "get_plugin_dev_manual",
+}
+
+
+def _apply_annotations() -> None:
+    """Attach MCP behaviour hints to every tool definition."""
+    for tool in _TOOLS:
+        name = tool["name"]
+        read_only = name in _READ_ONLY_TOOLS
+        annotations: Dict[str, Any] = {
+            "readOnlyHint": read_only,
+            "openWorldHint": name in _OPEN_WORLD_TOOLS,
+        }
+        if not read_only:
+            annotations["destructiveHint"] = name in _DESTRUCTIVE_TOOLS
+            annotations["idempotentHint"] = name in _IDEMPOTENT_TOOLS
+        tool["annotations"] = annotations
+
+
+_apply_annotations()
 
 
 # ---------------------------------------------------------------------------
@@ -849,6 +1077,207 @@ def _get_sandbox(bridge: Any) -> tuple[str, List[str]]:
         )
     allowed: List[str] = cfg.get("allowed_extensions", [])
     return base_dir, allowed
+
+
+# ---------------------------------------------------------------------------
+# Code / text search helpers (run in the server thread — no Qt needed beyond
+# resolving the root directory)
+# ---------------------------------------------------------------------------
+
+_SEARCH_SKIP_DIRS = {
+    "__pycache__", ".git", ".mypy_cache", ".pytest_cache", ".ruff_cache",
+    ".venv", "venv", "node_modules", ".idea", ".vscode",
+}
+
+#: Suffixes searched in the source/plugin trees (the sandbox root uses the
+#: user's own extension allowlist instead).
+_SEARCH_TEXT_SUFFIXES = {
+    ".py", ".pyw", ".pyi", ".md", ".txt", ".json", ".toml", ".cfg", ".ini",
+    ".yaml", ".yml", ".rst", ".csv", ".xyz", ".inp", ".out", ".log", ".sh",
+    ".bat", ".html", ".css", ".js", ".ts",
+}
+
+_GREP_MAX_FILE_BYTES = 2 * 1024 * 1024
+_GREP_MAX_FILES = 20_000
+_GREP_MAX_LINE_CHARS = 300
+
+
+def _resolve_search_root(
+    bridge: Any, root: str, sub_path: str
+) -> tuple[Path, Path, Optional[List[str]]]:
+    """
+    Resolve a search *root* name to directories.
+
+    Returns (base, start, allowed_extensions) where *start* is *base* narrowed
+    by *sub_path*, and allowed_extensions is None for the source/plugin trees.
+    """
+    if root == "files":
+        base_dir, allowed = _get_sandbox(bridge)
+        base = Path(base_dir).expanduser().resolve()
+        exts: Optional[List[str]] = [e.lower() for e in allowed]
+    elif root == "app_source":
+        base = Path(bridge.call("get_app_source_root")["root"]).resolve()
+        exts = None
+    elif root == "plugins":
+        base = Path(bridge.call("get_plugin_dir")["plugin_dir"]).expanduser().resolve()
+        exts = None
+    else:
+        raise ValueError(
+            f"Unknown root {root!r}. Use 'app_source', 'plugins', or 'files'."
+        )
+    if not base.is_dir():
+        raise ValueError(f"The {root!r} directory does not exist: {base}")
+
+    start = base
+    if sub_path:
+        if Path(sub_path).is_absolute():
+            raise ValueError("'path' must be relative to the selected root.")
+        start = (base / sub_path).resolve()
+        try:
+            start.relative_to(base)
+        except ValueError:
+            raise ValueError(f"Path {sub_path!r} resolves outside the {root!r} root.")
+        if not start.is_dir():
+            raise ValueError(f"{sub_path!r} is not a directory inside the {root!r} root.")
+    return base, start, exts
+
+
+def _iter_search_files(
+    start: Path, name_glob: str, allowed_exts: Optional[List[str]]
+) -> Any:
+    """Yield candidate files under *start*, skipping caches and binaries."""
+    count = 0
+    for path in sorted(start.rglob(name_glob or "*")):
+        if count >= _GREP_MAX_FILES:
+            return
+        if not path.is_file():
+            continue
+        if _SEARCH_SKIP_DIRS.intersection(path.parts):
+            continue
+        suffix = path.suffix.lower()
+        if allowed_exts is not None:
+            if suffix not in allowed_exts:
+                continue
+        elif suffix not in _SEARCH_TEXT_SUFFIXES:
+            continue
+        count += 1
+        yield path
+
+
+def run_grep(  # noqa: PLR0913 - one option per documented tool argument
+    start: Path,
+    base: Path,
+    pattern: str,
+    name_glob: str = "*.py",
+    allowed_exts: Optional[List[str]] = None,
+    ignore_case: bool = False,
+    fixed_string: bool = False,
+    context: int = 0,
+    max_matches: int = 100,
+) -> str:
+    """Search file contents under *start* and format the matches for an LLM."""
+    if not pattern:
+        raise ValueError("'pattern' argument is required.")
+    context = max(0, min(int(context), 10))
+    max_matches = max(1, min(int(max_matches), 500))
+    flags = re.IGNORECASE if ignore_case else 0
+    try:
+        regex = re.compile(re.escape(pattern) if fixed_string else pattern, flags)
+    except re.error as exc:
+        raise ValueError(
+            f"Invalid regular expression {pattern!r}: {exc}. "
+            "Pass fixed_string=true to search for it literally."
+        ) from exc
+
+    out: List[str] = []
+    matches = 0
+    files_with_matches = 0
+    truncated = False
+    for path in _iter_search_files(start, name_glob, allowed_exts):
+        if truncated:
+            break
+        try:
+            if path.stat().st_size > _GREP_MAX_FILE_BYTES:
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if "\x00" in text[:4096]:  # binary
+            continue
+        lines = text.splitlines()
+        hits = [i for i, line in enumerate(lines) if regex.search(line)]
+        if not hits:
+            continue
+        files_with_matches += 1
+        rel = path.relative_to(base).as_posix()
+        shown: set = set()
+        for i in hits:
+            if matches >= max_matches:
+                truncated = True
+                break
+            matches += 1
+            for j in range(max(0, i - context), min(len(lines), i + context + 1)):
+                if j in shown:
+                    continue
+                shown.add(j)
+                sep = ":" if j == i else "-"
+                body = lines[j].rstrip()
+                if len(body) > _GREP_MAX_LINE_CHARS:
+                    body = body[:_GREP_MAX_LINE_CHARS] + " …"
+                out.append(f"{rel}{sep}{j + 1}{sep} {body}")
+
+    if not out:
+        return (
+            f"No matches for {pattern!r} in {base} "
+            f"(glob {name_glob or '*'}).\n"
+            "Try a broader pattern, ignore_case=true, or glob='*'."
+        )
+    header = (
+        f"{matches} match(es) in {files_with_matches} file(s) under {base}"
+        + (" — truncated, refine the pattern or raise max_matches" if truncated else "")
+    )
+    return header + ":\n" + "\n".join(out)
+
+
+def run_find(
+    start: Path, base: Path, name_glob: str = "*", max_results: int = 200
+) -> str:
+    """List file paths under *start* matching *name_glob*."""
+    max_results = max(1, min(int(max_results), 1000))
+    found: List[str] = []
+    truncated = False
+    for path in sorted(start.rglob(name_glob or "*")):
+        if not path.is_file() or _SEARCH_SKIP_DIRS.intersection(path.parts):
+            continue
+        if len(found) >= max_results:
+            truncated = True
+            break
+        found.append(
+            f"{path.relative_to(base).as_posix()}  ({path.stat().st_size:,} bytes)"
+        )
+    if not found:
+        return f"No files matching {name_glob or '*'} under {start}."
+    header = f"{len(found)} file(s) under {base}" + (
+        " — truncated, raise max_results" if truncated else ""
+    )
+    return header + ":\n" + "\n".join(found)
+
+
+def _slice_lines(text: str, start_line: Any, end_line: Any) -> str:
+    """Return the 1-based [start_line, end_line] slice of *text*, annotated."""
+    if start_line is None and end_line is None:
+        return text
+    lines = text.splitlines()
+    first = max(1, int(start_line or 1))
+    last = len(lines) if end_line is None else min(len(lines), int(end_line))
+    if first > len(lines):
+        raise ValueError(
+            f"start_line {first} is past the end of the file ({len(lines)} lines)."
+        )
+    if last < first:
+        raise ValueError("end_line must be greater than or equal to start_line.")
+    body = "\n".join(lines[first - 1:last])
+    return f"[lines {first}-{last} of {len(lines)}]\n{body}"
 
 
 def _text_arg(value: Any) -> str:
@@ -1278,7 +1707,39 @@ def dispatch_tool(  # noqa: C901
             if not path:
                 return _tool_err("'path' argument is required.")
             result = bridge.call("get_app_source", {"path": path})
-            return _tool_ok(result["content"])
+            content = result["content"]
+            if result.get("type") != "directory":
+                content = _slice_lines(
+                    content, arguments.get("start_line"), arguments.get("end_line")
+                )
+            return _tool_ok(content)
+
+        if name in ("grep_files", "find_files"):
+            root = (arguments.get("root") or "app_source").strip()
+            sub_path = (arguments.get("path") or "").strip()
+            base, start, allowed_exts = _resolve_search_root(bridge, root, sub_path)
+            if name == "find_files":
+                return _tool_ok(
+                    run_find(
+                        start,
+                        base,
+                        name_glob=(arguments.get("pattern") or "*").strip(),
+                        max_results=arguments.get("max_results", 200),
+                    )
+                )
+            return _tool_ok(
+                run_grep(
+                    start,
+                    base,
+                    pattern=arguments.get("pattern", ""),
+                    name_glob=(arguments.get("glob") or "*.py").strip(),
+                    allowed_exts=allowed_exts,
+                    ignore_case=bool(arguments.get("ignore_case", False)),
+                    fixed_string=bool(arguments.get("fixed_string", False)),
+                    context=arguments.get("context", 0),
+                    max_matches=arguments.get("max_matches", 100),
+                )
+            )
 
         if name == "get_plugin_dir":
             result = bridge.call("get_plugin_dir")
@@ -1474,7 +1935,13 @@ def dispatch_tool(  # noqa: C901
                     f"File is {size:,} bytes, exceeding the "
                     f"{_MAX_FILE_BYTES // 1024 // 1024} MB read limit."
                 )
-            return _tool_ok(target.read_text(encoding="utf-8"))
+            return _tool_ok(
+                _slice_lines(
+                    target.read_text(encoding="utf-8"),
+                    arguments.get("start_line"),
+                    arguments.get("end_line"),
+                )
+            )
 
         if name == "list_directory":
             user_path = arguments.get("path", ".") or "."
@@ -1532,6 +1999,155 @@ def dispatch_tool(  # noqa: C901
 
 
 # ---------------------------------------------------------------------------
+# Protocol helpers (2026-07-28 "modern" era + handshake-based "legacy" era)
+# ---------------------------------------------------------------------------
+
+
+def supported_versions(mode: str = "auto") -> List[str]:
+    """Protocol versions this server accepts under *mode*, newest first."""
+    if mode == "modern":
+        return list(_MODERN_PROTOCOL_VERSIONS)
+    if mode == "legacy":
+        return list(_LEGACY_PROTOCOL_VERSIONS)
+    return list(_MODERN_PROTOCOL_VERSIONS) + list(_LEGACY_PROTOCOL_VERSIONS)
+
+
+def decode_header_value(value: str) -> str:
+    """Decode the ``=?base64?...?=`` sentinel form used by header mirroring."""
+    if value.startswith("=?base64?") and value.endswith("?="):
+        import base64  # pylint: disable=import-outside-toplevel
+        try:
+            return base64.b64decode(value[9:-2]).decode("utf-8")
+        except Exception:  # pylint: disable=broad-except
+            return value
+    return value
+
+
+def is_modern_request(message: Dict[str, Any], headers: Dict[str, str]) -> bool:
+    """
+    True if *message* is framed per 2026-07-28 (per-request metadata).
+
+    A modern client declares its protocol version in the body ``_meta`` and
+    mirrors it into the ``MCP-Protocol-Version`` header; ``server/discover``
+    exists only in the modern era, so it counts on its own.
+    """
+    if message.get("method") == "server/discover":
+        return True
+    params = message.get("params") or {}
+    meta = params.get("_meta") or {}
+    if isinstance(meta, dict) and meta.get(_META_PROTOCOL_VERSION):
+        return True
+    return headers.get("mcp-protocol-version", "") in _MODERN_PROTOCOL_VERSIONS
+
+
+def validate_modern_request(
+    message: Dict[str, Any], headers: Dict[str, str], mode: str = "auto"
+) -> Optional[Dict[str, Any]]:
+    """
+    Check a modern request's version and mirrored headers.
+
+    Returns ``None`` when the request is acceptable, otherwise a JSON-RPC
+    ``error`` object (the caller sends it with HTTP 400).
+    """
+    method = message.get("method", "")
+    params = message.get("params") or {}
+    meta = params.get("_meta") or {}
+    meta_version = meta.get(_META_PROTOCOL_VERSION) if isinstance(meta, dict) else None
+    header_version = headers.get("mcp-protocol-version")
+
+    # `server/discover` is how a client learns which versions exist, so a bare
+    # probe that claims no version at all is answered rather than rejected.
+    if (
+        method == "server/discover"
+        and not header_version
+        and not meta_version
+        and not headers.get("mcp-method")
+    ):
+        return None
+
+    if not header_version:
+        return {
+            "code": _ERR_HEADER_MISMATCH,
+            "message": "Header mismatch: required header 'MCP-Protocol-Version' is missing.",
+        }
+    if meta_version and meta_version != header_version:
+        return {
+            "code": _ERR_HEADER_MISMATCH,
+            "message": (
+                f"Header mismatch: MCP-Protocol-Version header {header_version!r} "
+                f"does not match body _meta value {meta_version!r}."
+            ),
+        }
+    requested = meta_version or header_version
+    allowed = supported_versions(mode)
+    if requested not in allowed:
+        return {
+            "code": _ERR_UNSUPPORTED_PROTOCOL_VERSION,
+            "message": "Unsupported protocol version",
+            "data": {"supported": allowed, "requested": requested},
+        }
+
+    header_method = headers.get("mcp-method")
+    if not header_method:
+        return {
+            "code": _ERR_HEADER_MISMATCH,
+            "message": "Header mismatch: required header 'Mcp-Method' is missing.",
+        }
+    if header_method != method:
+        return {
+            "code": _ERR_HEADER_MISMATCH,
+            "message": (
+                f"Header mismatch: Mcp-Method header {header_method!r} does not "
+                f"match body method {method!r}."
+            ),
+        }
+
+    if method == "tools/call":
+        header_name = headers.get("mcp-name")
+        if not header_name:
+            return {
+                "code": _ERR_HEADER_MISMATCH,
+                "message": (
+                    "Header mismatch: required header 'Mcp-Name' is missing "
+                    "for tools/call."
+                ),
+            }
+        body_name = params.get("name", "")
+        if decode_header_value(header_name) != body_name:
+            return {
+                "code": _ERR_HEADER_MISMATCH,
+                "message": (
+                    f"Header mismatch: Mcp-Name header {header_name!r} does not "
+                    f"match body params.name {body_name!r}."
+                ),
+            }
+    return None
+
+
+def build_discover_result(
+    mode: str, server_name: str, server_version: str
+) -> Dict[str, Any]:
+    """Build the 2026-07-28 ``server/discover`` result."""
+    return {
+        "supportedVersions": supported_versions(mode),
+        "capabilities": {"tools": {}},
+        "instructions": _SERVER_INSTRUCTIONS,
+        "ttlMs": _DISCOVER_TTL_MS,
+        "cacheScope": "private",
+        "_meta": {
+            _META_SERVER_INFO: {"name": server_name, "version": server_version}
+        },
+    }
+
+
+def negotiate_legacy_version(requested: Any) -> str:
+    """Echo the client's legacy protocol version when we speak it."""
+    if isinstance(requested, str) and requested in _LEGACY_PROTOCOL_VERSIONS:
+        return requested
+    return _PROTOCOL_VERSION
+
+
+# ---------------------------------------------------------------------------
 # HTTP handler
 # ---------------------------------------------------------------------------
 
@@ -1539,14 +2155,23 @@ def dispatch_tool(  # noqa: C901
 class _MCPHandler(BaseHTTPRequestHandler):
     """HTTP request handler implementing MCP Streamable HTTP transport."""
 
-    # Set by MCPHttpServer before starting — shared class-level references.
+    # Class-level defaults. The live values are per-server-instance (set on
+    # the HTTPServer object by MCPHttpServer.start) so two servers in one
+    # process — e.g. one per protocol mode — never overwrite each other.
     bridge: Any = None
     server_name: str = "MoleditPy MCP Server"
     server_version: str = "unknown"
     session_id: str = ""
+    protocol_mode: str = "auto"
 
     def log_message(self, format_str: str, *args: Any) -> None:  # type: ignore[override]
         logger.debug(format_str, *args)
+
+    def _cfg(self, name: str) -> Any:
+        """Read per-server config, falling back to the class default."""
+        return getattr(getattr(self, "server", None), f"mcp_{name}", None) or getattr(
+            type(self), name
+        )
 
     # ------------------------------------------------------------------
     # CORS helpers
@@ -1557,7 +2182,8 @@ class _MCPHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
         self.send_header(
             "Access-Control-Allow-Headers",
-            "Content-Type, Accept, Mcp-Session-Id",
+            "Content-Type, Accept, Mcp-Session-Id, "
+            "MCP-Protocol-Version, Mcp-Method, Mcp-Name",
         )
         self.send_header("Access-Control-Expose-Headers", "Mcp-Session-Id")
 
@@ -1573,7 +2199,13 @@ class _MCPHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # pylint: disable=invalid-name
         if self.path in ("/", "/health"):
             body = json.dumps(
-                {"status": "ok", "server": type(self).server_name}
+                {
+                    "status": "ok",
+                    "server": self._cfg("server_name"),
+                    "version": self._cfg("server_version"),
+                    "protocolMode": self._cfg("protocol_mode"),
+                    "supportedVersions": supported_versions(self._cfg("protocol_mode")),
+                }
             ).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -1581,6 +2213,16 @@ class _MCPHandler(BaseHTTPRequestHandler):
             self._send_cors()
             self.end_headers()
             self.wfile.write(body)
+        elif self.path == "/mcp":
+            # 2026-07-28 has no standalone SSE stream; older revisions used
+            # GET for it, so answer the way the spec prescribes.
+            self.send_error(405, "GET is not supported on the MCP endpoint")
+        else:
+            self.send_error(404)
+
+    def do_DELETE(self) -> None:  # pylint: disable=invalid-name
+        if self.path == "/mcp":
+            self.send_error(405, "Sessions are not used; nothing to delete")
         else:
             self.send_error(404)
 
@@ -1610,6 +2252,9 @@ class _MCPHandler(BaseHTTPRequestHandler):
         msg_id = message.get("id")
         method = message.get("method", "")
         params: Dict[str, Any] = message.get("params") or {}
+        raw_headers = getattr(self, "headers", None)
+        headers = {k.lower(): v for k, v in raw_headers.items()} if raw_headers else {}
+        modern = is_modern_request(message, headers)
 
         # Notifications (no id) — acknowledge with 202
         if msg_id is None:
@@ -1619,54 +2264,140 @@ class _MCPHandler(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
-        try:
-            result = self._handle_method(method, params)
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.exception("Unhandled error processing %r", method)
-            self._send_json(
+        if modern:
+            if self._cfg("protocol_mode") == "legacy":
+                self._send_error(
+                    msg_id,
+                    {
+                        "code": _ERR_UNSUPPORTED_PROTOCOL_VERSION,
+                        "message": "Unsupported protocol version",
+                        "data": {
+                            "supported": supported_versions("legacy"),
+                            "requested": headers.get(
+                                "mcp-protocol-version", _MODERN_PROTOCOL_VERSION
+                            ),
+                        },
+                    },
+                    status=400,
+                    modern=True,
+                )
+                return
+            error = validate_modern_request(message, headers, self._cfg("protocol_mode"))
+            if error is not None:
+                self._send_error(msg_id, error, status=400, modern=True)
+                return
+        elif self._cfg("protocol_mode") == "modern":
+            # A handshake-based client cannot fall forward on its own, so name
+            # the versions we do speak in the error it will surface.
+            self._send_error(
+                msg_id,
                 {
-                    "jsonrpc": "2.0",
-                    "error": {"code": -32603, "message": f"Internal error: {exc}"},
-                    "id": msg_id,
-                }
+                    "code": _ERR_METHOD_NOT_FOUND,
+                    "message": (
+                        f"This server is configured for MCP "
+                        f"{_MODERN_PROTOCOL_VERSION} only and does not implement "
+                        f"the '{method}' handshake. Supported versions: "
+                        f"{', '.join(supported_versions('modern'))}."
+                    ),
+                },
+                status=404,
+                modern=False,
             )
             return
 
-        self._send_json({"jsonrpc": "2.0", "result": result, "id": msg_id})
+        try:
+            result = self._handle_method(method, params, modern)
+        except _MethodNotFound:
+            self._send_error(
+                msg_id,
+                {"code": _ERR_METHOD_NOT_FOUND, "message": f"Method not found: {method}"},
+                status=404 if modern else 200,
+                modern=modern,
+            )
+            return
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.exception("Unhandled error processing %r", method)
+            self._send_error(
+                msg_id,
+                {"code": -32603, "message": f"Internal error: {exc}"},
+                status=200,
+                modern=modern,
+            )
+            return
 
-    def _handle_method(self, method: str, params: Dict[str, Any]) -> Any:
-        cls = type(self)
+        self._send_json(
+            {"jsonrpc": "2.0", "result": result, "id": msg_id}, modern=modern
+        )
+
+    def _handle_method(
+        self, method: str, params: Dict[str, Any], modern: bool = False
+    ) -> Any:
+        if method == "server/discover":
+            return build_discover_result(
+                self._cfg("protocol_mode"), self._cfg("server_name"), self._cfg("server_version")
+            )
         if method == "initialize":
             return {
-                "protocolVersion": _PROTOCOL_VERSION,
+                "protocolVersion": negotiate_legacy_version(
+                    params.get("protocolVersion")
+                ),
                 "capabilities": {"tools": {}},
                 "serverInfo": {
-                    "name": cls.server_name,
-                    "version": cls.server_version,
+                    "name": self._cfg("server_name"),
+                    "version": self._cfg("server_version"),
                 },
+                "instructions": _SERVER_INSTRUCTIONS,
             }
         if method == "ping":
             return {}
         if method == "tools/list":
-            return {"tools": _TOOLS}
+            result: Dict[str, Any] = {"tools": _TOOLS}
+            if modern:
+                result["ttlMs"] = _TOOLS_TTL_MS
+                result["cacheScope"] = "private"
+            return result
         if method == "tools/call":
             tool_name = params.get("name", "")
             arguments: Dict[str, Any] = params.get("arguments") or {}
-            if cls.bridge is None:
+            if self._cfg("bridge") is None:
                 return _tool_err("Bridge not initialized.")
-            return dispatch_tool(cls.bridge, tool_name, arguments)
+            return dispatch_tool(self._cfg("bridge"), tool_name, arguments)
         raise _MethodNotFound(method)
 
     # ------------------------------------------------------------------
     # Response helpers
     # ------------------------------------------------------------------
 
-    def _send_json(self, data: Dict[str, Any]) -> None:
+    def _send_error(
+        self,
+        msg_id: Any,
+        error: Dict[str, Any],
+        status: int = 200,
+        modern: bool = False,
+    ) -> None:
+        self._send_json(
+            {"jsonrpc": "2.0", "error": error, "id": msg_id},
+            status=status,
+            modern=modern,
+        )
+
+    def _send_json(
+        self, data: Dict[str, Any], status: int = 200, modern: bool = False
+    ) -> None:
+        if modern and "result" in data and isinstance(data["result"], dict):
+            meta = data["result"].setdefault("_meta", {})
+            meta.setdefault(
+                _META_SERVER_INFO,
+                {"name": self._cfg("server_name"), "version": self._cfg("server_version")},
+            )
         body = json.dumps(data).encode("utf-8")
-        self.send_response(200)
+        self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Mcp-Session-Id", type(self).session_id)
+        if not modern:
+            # Sessions exist only in the handshake era; 2026-07-28 servers
+            # must not mint or echo a session id.
+            self.send_header("Mcp-Session-Id", self._cfg("session_id"))
         self._send_cors()
         self.end_headers()
         self.wfile.write(body)
@@ -1696,12 +2427,16 @@ class MCPHttpServer:
         server_version: str,
         host: str = "127.0.0.1",
         port: int = 7891,
+        protocol_mode: str = "auto",
     ) -> None:
         self._bridge = bridge
         self._server_name = server_name
         self._server_version = server_version
         self._host = host
         self._port = port
+        self._protocol_mode = (
+            protocol_mode if protocol_mode in PROTOCOL_MODES else "auto"
+        )
         self._httpd: Optional[_ThreadedHTTPServer] = None
 
     # ------------------------------------------------------------------
@@ -1710,11 +2445,12 @@ class MCPHttpServer:
 
     def start(self) -> None:
         """Start the HTTP server in a daemon thread."""
-        _MCPHandler.bridge = self._bridge
-        _MCPHandler.server_name = self._server_name
-        _MCPHandler.server_version = self._server_version
-        _MCPHandler.session_id = uuid.uuid4().hex
         self._httpd = _ThreadedHTTPServer((self._host, self._port), _MCPHandler)
+        self._httpd.mcp_bridge = self._bridge
+        self._httpd.mcp_server_name = self._server_name
+        self._httpd.mcp_server_version = self._server_version
+        self._httpd.mcp_session_id = uuid.uuid4().hex
+        self._httpd.mcp_protocol_mode = self._protocol_mode
         t = threading.Thread(
             target=self._httpd.serve_forever,
             name="mcp-http-server",
@@ -1749,3 +2485,7 @@ class MCPHttpServer:
     @property
     def port(self) -> int:
         return self._port
+
+    @property
+    def protocol_mode(self) -> str:
+        return self._protocol_mode

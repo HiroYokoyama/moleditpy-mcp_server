@@ -24,7 +24,7 @@ import logging
 from typing import Any, Optional
 
 PLUGIN_NAME = "MCP Server"
-PLUGIN_VERSION = "1.4.3"
+PLUGIN_VERSION = "1.5.0"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Expose MoleditPy via Model Context Protocol (MCP) "
@@ -74,6 +74,7 @@ class MCPServerPlugin:
                 server_name=PLUGIN_NAME,
                 server_version=PLUGIN_VERSION,
                 port=port,
+                protocol_mode=self.context.get_setting("protocol_mode", "auto"),
             )
             self._server.start()
             self.context.show_status_message(

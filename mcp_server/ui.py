@@ -122,6 +122,32 @@ url = "http://127.0.0.1:{PORT}/mcp\"""",
 }
 
 
+# Protocol mode choices: label -> (setting value, tooltip).
+_PROTOCOL_MODES = (
+    (
+        "Auto — legacy handshake + MCP 2026-07-28",
+        "auto",
+        "Serve both eras on the same port: clients that send an 'initialize' "
+        "handshake get the classic session protocol, clients that send "
+        "per-request metadata get the stateless 2026-07-28 protocol. "
+        "Recommended.",
+    ),
+    (
+        "Legacy only (2024-11-05 … 2025-11-25)",
+        "legacy",
+        "Only the handshake-based protocol. Modern requests are rejected with "
+        "an UnsupportedProtocolVersion error listing the legacy versions.",
+    ),
+    (
+        "MCP 2026-07-28 only (stateless)",
+        "modern",
+        "Only the stateless 2026-07-28 protocol: no session id, mirrored "
+        "MCP-Protocol-Version / Mcp-Method / Mcp-Name headers are required "
+        "and validated, and 'initialize' is refused.",
+    ),
+)
+
+
 def render_client_config(client: str, port: int) -> str:
     """Return the configuration snippet for *client* with *port* filled in."""
     template = _CLIENT_TEMPLATES[client][0]
@@ -173,6 +199,26 @@ class MCPStatusDialog(QDialog):
         port_row.addWidget(self._port_spin)
         port_row.addStretch()
         layout.addLayout(port_row)
+
+        # Protocol version row
+        proto_row = QHBoxLayout()
+        proto_row.addWidget(QLabel("MCP protocol:"))
+        self._protocol_combo = QComboBox()
+        saved_mode = self._plugin.context.get_setting("protocol_mode", "auto")
+        for label, value, tip in _PROTOCOL_MODES:
+            self._protocol_combo.addItem(label, value)
+            self._protocol_combo.setItemData(
+                self._protocol_combo.count() - 1, tip, Qt.ItemDataRole.ToolTipRole
+            )
+        index = self._protocol_combo.findData(saved_mode)
+        self._protocol_combo.setCurrentIndex(index if index >= 0 else 0)
+        self._protocol_combo.setToolTip(
+            "Which MCP protocol era the server speaks. "
+            "Restart the server after changing."
+        )
+        self._protocol_combo.currentIndexChanged.connect(self._on_protocol_changed)
+        proto_row.addWidget(self._protocol_combo, 1)
+        layout.addLayout(proto_row)
 
         # Auto-start checkbox
         self._auto_start_chk = QCheckBox("Auto-start server on launch")
@@ -250,11 +296,13 @@ class MCPStatusDialog(QDialog):
             self._status_lbl.setStyleSheet("color: #00cc44; font-size: 13px;")
             self._toggle_btn.setText("Stop Server")
             self._port_spin.setEnabled(False)
+            self._protocol_combo.setEnabled(False)
         else:
             self._status_lbl.setText("○ Server Stopped")
             self._status_lbl.setStyleSheet("color: #cc4444; font-size: 13px;")
             self._toggle_btn.setText("Start Server")
             self._port_spin.setEnabled(True)
+            self._protocol_combo.setEnabled(True)
 
         url = self._plugin.url
         self._url_lbl.setText(url)
@@ -286,6 +334,14 @@ class MCPStatusDialog(QDialog):
             self._plugin.context.set_setting("port", port)
             self._plugin.start(port=port)
         self.refresh()
+
+    def _on_protocol_changed(self, _index: int) -> None:
+        mode = self._protocol_combo.currentData()
+        self._plugin.context.set_setting("protocol_mode", mode)
+        if self._plugin.is_running:
+            self._plugin.context.show_status_message(
+                "MCP protocol changed — restart the server to apply it.", 5000
+            )
 
     def _on_auto_start_toggled(self, checked: bool) -> None:
         self._plugin.context.set_setting("auto_start", checked)

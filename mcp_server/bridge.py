@@ -177,6 +177,9 @@ def execute_operation(ctx: Any, operation: str, args: Dict[str, Any]) -> Any:  #
     if operation == "get_app_source":
         return _get_app_source(args)
 
+    if operation == "get_app_source_root":
+        return _get_app_source_root()
+
     if operation == "reset_cpk_color_override":
         return _reset_cpk_color_override(ctx, args)
 
@@ -676,6 +679,14 @@ def _append_tree(directory: Any, prefix: str, lines: List[str]) -> None:
             lines.append(
                 f"{prefix}{connector}{entry.name}  ({entry.stat().st_size:,} bytes)"
             )
+
+
+def _get_app_source_root() -> Dict[str, Any]:
+    from pathlib import Path  # pylint: disable=import-outside-toplevel
+    spec = _find_moleditpy_spec()
+    if spec is None or not spec.submodule_search_locations:
+        raise ValueError("moleditpy package not found in the current Python environment")
+    return {"root": str(Path(spec.submodule_search_locations[0]).resolve())}
 
 
 def _get_app_source(args: Dict[str, Any]) -> Dict[str, Any]:
