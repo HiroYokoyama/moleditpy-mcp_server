@@ -25,12 +25,14 @@ pip install mcp-gui-tester
 ```bash
 mcp-gui-tester                                  # defaults to http://127.0.0.1:7891/mcp
 mcp-gui-tester --url http://localhost:9000/mcp  # any MCP HTTP endpoint
+mcp-gui-tester --protocol modern                # force MCP 2026-07-28 (stateless)
 python -m mcp_gui_tester                        # equivalent
 ```
 
-1. Adjust **Host / Port / Path** (and optional **Headers**, a JSON object
-   like `{"Authorization": "Bearer ..."}`) and click **Connect** — the status
-   bar shows the server name, version, and tool count.
+1. Adjust **Host / Port / Path / Protocol** (and optional **Headers**, a JSON
+   object like `{"Authorization": "Bearer ..."}`) and click **Connect** — the
+   status bar shows the server name, version, negotiated protocol era, and
+   tool count, and the **Server** tab shows the full handshake result.
 2. Select a tool from the filterable list. If you've called it before, the
    form is prefilled with the last arguments you sent; click **Reset form**
    to clear back to the schema defaults.
@@ -42,9 +44,20 @@ python -m mcp_gui_tester                        # equivalent
 
 ## Features
 
+- **Both protocol eras** — `2026-07-28` (stateless: per-request `_meta`, mirrored
+  `MCP-Protocol-Version` / `Mcp-Method` / `Mcp-Name` headers with Base64 sentinel
+  encoding, `server/discover`) and the `initialize` handshake era (with
+  `Mcp-Session-Id` echo). **Auto-detect** probes with `server/discover` and falls
+  back to the handshake; an `UnsupportedProtocolVersion` error is honoured by
+  retrying with a version the server advertises.
+- **Server tab** — negotiated era and version, supported versions, session id,
+  `serverInfo`, capabilities, and the server's natural-language `instructions`
 - **Tool browser** — lists every tool from `tools/list` with its description;
   filter by name or description text; **Refresh tools** re-fetches the list
   on the existing connection, preserving the current selection
+- **Annotation-aware** — tools are coloured and labelled by their
+  `annotations` (read-only / destructive / idempotent / network), and a
+  destructive tool asks for confirmation before it is called (toggleable)
 - **Schema-driven parameter forms**, generated from each tool's `inputSchema`:
   - strings → line edit (multi-line editor for code / file-content / XYZ / MOL
     block parameters)
@@ -67,15 +80,20 @@ python -m mcp_gui_tester                        # equivalent
   rejected with a clear error instead of crashing
 - **Result view** — formatted text (tool errors flagged with `[TOOL ERROR]`),
   inline rendering of `image` content blocks, pretty-printed JSON for
-  `resource` and other content types, plus the raw JSON-RPC response
+  `resource` and other content types, plus the raw JSON-RPC response and the
+  round-trip time of the call
+- **Real error reporting** — JSON-RPC errors returned with an HTTP error status
+  (e.g. `400` header/version failures in the 2026-07-28 era) are shown with
+  their code, message, and `data` instead of a bare "HTTP Error 400"
 - **Responsive** — calls run on a background thread, so slow tools never
   freeze the GUI
 
 ## Scope
 
 This is deliberately a small tool. It supports the Streamable HTTP transport
-and the `tools/*` capability (`initialize`, `tools/list`, `tools/call`), plus
-static bearer/custom headers for simple authentication schemes.
+and the `tools/*` capability (`server/discover` / `initialize`, `tools/list`,
+`tools/call`, `ping`), plus static bearer/custom headers for simple
+authentication schemes.
 It does not currently speak stdio transport, SSE streaming, OAuth, or the
 resources/prompts capabilities. For a full-featured inspector, see the
 official [MCP Inspector](https://github.com/modelcontextprotocol/inspector).

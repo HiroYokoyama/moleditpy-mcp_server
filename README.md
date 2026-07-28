@@ -78,11 +78,23 @@ Open **Plugins → MCP Server → Status & Settings…**, set the port (default 
 
 The dialog shows the live server URL and a ready-to-paste configuration snippet.
 
+### Protocol version
+
+The **MCP protocol** selector in the same dialog chooses which revision of the protocol the server speaks:
+
+| Setting | Meaning |
+|---|---|
+| **Auto** (default) | Serves both eras on one port — an `initialize` handshake gets the classic session protocol, per-request metadata gets stateless **2026-07-28** |
+| **Legacy only** | `2024-11-05` … `2025-11-25` handshake protocol; modern requests are refused with an `UnsupportedProtocolVersion` error |
+| **2026-07-28 only** | Stateless protocol exclusively: no session id, mirrored `MCP-Protocol-Version` / `Mcp-Method` / `Mcp-Name` headers are required and validated, `initialize` is refused |
+
+Restart the server after changing it. In the 2026-07-28 era the server implements `server/discover` (supported versions, capabilities, and natural-language usage instructions), returns `ttlMs` / `cacheScope` cache hints on `tools/list`, and reports header or version problems as `400` with JSON-RPC error codes `-32020` / `-32022`.
+
 ---
 
 ## Connecting MCP clients
 
-The server implements **MCP Streamable HTTP** (`POST /mcp`, protocol version `2024-11-05`).
+The server implements **MCP Streamable HTTP** (`POST /mcp`) for both protocol eras: `2026-07-28` (stateless) and `2024-11-05` … `2025-11-25` (handshake).
 
 ### Claude Desktop
 
@@ -236,7 +248,7 @@ mcp-gui-tester                    # defaults to http://127.0.0.1:7891/mcp
 mcp-gui-tester --url http://localhost:9000/mcp
 ```
 
-Host, port, and endpoint path are editable in the GUI, so it can be pointed at other MCP HTTP servers too. See [`mcp_gui_tester/README.md`](mcp_gui_tester/README.md) for details.
+Host, port, endpoint path, and the **protocol era** (auto-detect / 2026-07-28 / legacy handshake) are editable in the GUI, so it can be pointed at other MCP HTTP servers too. It also shows each tool's behaviour annotations (read-only / destructive / network), asks for confirmation before calling a destructive tool, and has a **Server** tab with the negotiated version, capabilities, and the server's usage instructions. See [`mcp_gui_tester/README.md`](mcp_gui_tester/README.md) for details.
 
 ### Auto-start
 
@@ -303,7 +315,9 @@ Claude loads it automatically whenever a task involves the MoleditPy MCP tools. 
 |------|-------------|
 | `get_plugin_dev_manual` | Fetch the Plugin Development Manual V4 from the web |
 | `list_app_source_tree` | Recursive file tree of the installed moleditpy package (with sizes) |
-| `get_app_source` | Read a source file or list a directory within the package |
+| `get_app_source` | Read a source file (optionally a `start_line`–`end_line` slice) or list a directory within the package |
+| `grep_files` | Regex search across the app source, the plugin directory, or the file sandbox — returns `path:line: text`, with `glob`, `ignore_case`, `fixed_string`, and `context` options |
+| `find_files` | List files matching a name glob in any of those trees |
 | `get_plugin_dir` | Return the absolute path to the plugin directory |
 | `reload_plugins` | Re-scan and reload all plugins (activates freshly written plugins) |
 | `list_available_plugins` | Fetch the official plugin registry and list installable plugins (optional `search` filter) |
@@ -315,7 +329,7 @@ Claude loads it automatically whenever a task involves the MoleditPy MCP tools. 
 |------|-------------|
 | `write_file_with_xyz_block` | **Preferred for QM input generation** — write a file composed as header + live XYZ coordinate block + footer, with `element_style`, `atom_order`, `precision`, and standard-XYZ-header options |
 | `write_text_file` | Write text to a file; auto-creates parent dirs; `overwrite=false` by default |
-| `read_text_file` | Read a file's UTF-8 text content (≤ 4 MB) |
+| `read_text_file` | Read a file's UTF-8 text content (≤ 4 MB); optional `start_line` / `end_line` slice |
 | `list_directory` | List files and subdirectories with sizes |
 | `delete_file` | Delete a file; requires explicit `confirm=true` |
 | `get_file_io_config` | Show current base directory and allowed extension list |
@@ -415,6 +429,6 @@ Tests run fully headlessly — no GUI, no RDKit, no MoleditPy installation requi
 |-------------|---------|
 | MoleditPy | ≥ 4.0.0, < 5.0.0 |
 | Python | 3.11+ |
-| MCP protocol | 2024-11-05 (Streamable HTTP) |
+| MCP protocol | 2026-07-28 and 2024-11-05 … 2025-11-25 (Streamable HTTP, selectable) |
 
 No extra pip dependencies — uses Python's built-in `http.server` and `threading`.
