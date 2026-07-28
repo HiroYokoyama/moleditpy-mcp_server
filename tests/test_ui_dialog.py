@@ -282,3 +282,79 @@ def test_browse_base_dir_cancel_leaves_unchanged(ui_module):
     dlg._browse_base_dir()
     assert dlg._base_dir_edit.text() == "/unchanged"
     assert "file_io_base_dir" not in settings
+
+
+# ---------------------------------------------------------------------------
+# Protocol mode combo
+# ---------------------------------------------------------------------------
+
+
+def test_protocol_combo_lists_all_modes(ui_module):
+    plugin, _ = make_plugin()
+    dlg = ui_module.MCPStatusDialog(plugin)
+    values = [dlg._protocol_combo.itemData(i) for i in range(dlg._protocol_combo.count())]
+    assert values == ["auto", "legacy", "modern"]
+
+
+def test_protocol_combo_defaults_to_auto(ui_module):
+    plugin, _ = make_plugin()
+    dlg = ui_module.MCPStatusDialog(plugin)
+    assert dlg._protocol_combo.currentData() == "auto"
+
+
+def test_protocol_combo_shows_saved_mode(ui_module):
+    plugin, _ = make_plugin(settings={"protocol_mode": "modern"})
+    dlg = ui_module.MCPStatusDialog(plugin)
+    assert dlg._protocol_combo.currentData() == "modern"
+
+
+def test_protocol_combo_ignores_unknown_saved_mode(ui_module):
+    plugin, _ = make_plugin(settings={"protocol_mode": "bogus"})
+    dlg = ui_module.MCPStatusDialog(plugin)
+    assert dlg._protocol_combo.currentData() == "auto"
+
+
+def test_protocol_combo_has_per_item_tooltips(ui_module):
+    plugin, _ = make_plugin()
+    dlg = ui_module.MCPStatusDialog(plugin)
+    tips = [
+        dlg._protocol_combo.itemData(i, ui_module.Qt.ItemDataRole.ToolTipRole)
+        for i in range(dlg._protocol_combo.count())
+    ]
+    assert all(tips)
+    assert "2026-07-28" in tips[2]
+
+
+def test_protocol_change_persists_setting(ui_module):
+    plugin, settings = make_plugin()
+    dlg = ui_module.MCPStatusDialog(plugin)
+    dlg._protocol_combo.setCurrentIndex(2)
+    assert settings["protocol_mode"] == "modern"
+
+
+def test_protocol_change_warns_while_running(ui_module):
+    plugin, _ = make_plugin(running=True)
+    dlg = ui_module.MCPStatusDialog(plugin)
+    dlg._protocol_combo.setCurrentIndex(1)
+    message = plugin.context.show_status_message.call_args[0][0]
+    assert "restart" in message.lower()
+
+
+def test_protocol_change_is_quiet_while_stopped(ui_module):
+    plugin, _ = make_plugin(running=False)
+    dlg = ui_module.MCPStatusDialog(plugin)
+    plugin.context.show_status_message.reset_mock()
+    dlg._protocol_combo.setCurrentIndex(1)
+    plugin.context.show_status_message.assert_not_called()
+
+
+def test_protocol_combo_disabled_while_running(ui_module):
+    plugin, _ = make_plugin(running=True)
+    dlg = ui_module.MCPStatusDialog(plugin)
+    assert dlg._protocol_combo.isEnabled() is False
+
+
+def test_protocol_combo_enabled_while_stopped(ui_module):
+    plugin, _ = make_plugin(running=False)
+    dlg = ui_module.MCPStatusDialog(plugin)
+    assert dlg._protocol_combo.isEnabled() is True

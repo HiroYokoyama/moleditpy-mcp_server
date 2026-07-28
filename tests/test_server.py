@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -541,7 +541,7 @@ def test_process_success_sends_result(srv):
     assert body == {"jsonrpc": "2.0", "result": {}, "id": 1}
 
 
-def test_process_method_exception_sends_internal_error(srv):
+def test_process_unknown_method_sends_method_not_found(srv):
     handler = _make_handler(srv)
     handler.send_response = MagicMock()
     handler.send_header = MagicMock()
@@ -549,7 +549,23 @@ def test_process_method_exception_sends_internal_error(srv):
     handler.wfile = MagicMock()
     handler._process({"id": 7, "method": "unknown/method", "params": {}})
     body = json.loads(handler.wfile.write.call_args[0][0])
+    assert body["error"]["code"] == -32601
+    assert body["id"] == 7
+    # Legacy era keeps HTTP 200 for JSON-RPC-level errors.
+    handler.send_response.assert_called_once_with(200)
+
+
+def test_process_method_exception_sends_internal_error(srv):
+    handler = _make_handler(srv)
+    handler.send_response = MagicMock()
+    handler.send_header = MagicMock()
+    handler.end_headers = MagicMock()
+    handler.wfile = MagicMock()
+    handler._handle_method = MagicMock(side_effect=RuntimeError("boom"))
+    handler._process({"id": 7, "method": "ping", "params": {}})
+    body = json.loads(handler.wfile.write.call_args[0][0])
     assert body["error"]["code"] == -32603
+    assert "boom" in body["error"]["message"]
     assert body["id"] == 7
 
 

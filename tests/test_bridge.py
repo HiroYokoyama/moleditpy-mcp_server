@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import types
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -1439,3 +1440,25 @@ def test_reset_cpk_override_no_v3d_raises(bridge_mod, ctx):
     ctx.get_main_window.return_value = mw
     with pytest.raises(ValueError, match="3D view"):
         bridge_mod.execute_operation(ctx, "reset_cpk_color_override", {})
+
+
+def test_execute_get_app_source_root(bridge_mod, ctx, tmp_path):
+    fake_spec = MagicMock()
+    fake_spec.submodule_search_locations = [str(tmp_path)]
+    original = bridge_mod._find_moleditpy_spec
+    bridge_mod._find_moleditpy_spec = lambda: fake_spec
+    try:
+        result = bridge_mod.execute_operation(ctx, "get_app_source_root", {})
+    finally:
+        bridge_mod._find_moleditpy_spec = original
+    assert Path(result["root"]) == tmp_path.resolve()
+
+
+def test_get_app_source_root_without_package_raises(bridge_mod):
+    original = bridge_mod._find_moleditpy_spec
+    bridge_mod._find_moleditpy_spec = lambda: None
+    try:
+        with pytest.raises(ValueError, match="not found"):
+            bridge_mod._get_app_source_root()
+    finally:
+        bridge_mod._find_moleditpy_spec = original

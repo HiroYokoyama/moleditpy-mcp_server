@@ -276,3 +276,55 @@ def test_url_uses_running_server_url(pkg, ctx):
         plugin.start(port=12345)
         assert plugin.url == "http://127.0.0.1:12345/mcp"
         plugin.stop()
+
+
+# ---------------------------------------------------------------------------
+# Protocol mode wiring
+# ---------------------------------------------------------------------------
+
+
+def _capture_server_kwargs():
+    """Fake server module that records the kwargs MCPServerPlugin passes."""
+    recorded = {}
+
+    class _RecordingServer:
+        def __init__(self, *args, **kwargs):
+            recorded.update(kwargs)
+
+        def start(self):
+            pass
+
+        def stop(self):
+            pass
+
+        @property
+        def is_running(self):
+            return True
+
+        @property
+        def url(self):
+            return "http://127.0.0.1:0/mcp"
+
+    return recorded, _RecordingServer
+
+
+def test_start_passes_saved_protocol_mode(pkg, ctx):
+    ctx.get_setting.side_effect = lambda key, default=None: {
+        "port": 0,
+        "protocol_mode": "modern",
+    }.get(key, default)
+    recorded, server_cls = _capture_server_kwargs()
+    with _mock_server_modules():
+        sys.modules["mcp_server.server"].MCPHttpServer = server_cls
+        pkg.MCPServerPlugin(ctx).start(port=0)
+    assert recorded["protocol_mode"] == "modern"
+    assert recorded["server_version"] == pkg.PLUGIN_VERSION
+
+
+def test_start_defaults_protocol_mode_to_auto(pkg, ctx):
+    ctx.get_setting.side_effect = lambda key, default=None: default
+    recorded, server_cls = _capture_server_kwargs()
+    with _mock_server_modules():
+        sys.modules["mcp_server.server"].MCPHttpServer = server_cls
+        pkg.MCPServerPlugin(ctx).start(port=0)
+    assert recorded["protocol_mode"] == "auto"
