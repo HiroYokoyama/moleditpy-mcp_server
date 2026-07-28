@@ -67,7 +67,13 @@ and follow-up coordinate reads work without an extra conversion step.
 4. **Loading adds, it does not replace.** `load_molecule_from_smiles`
    and friends add to the existing canvas. Call `clear_canvas` first
    when the user means "replace the molecule".
-5. **File I/O is sandboxed.** All file tools need a base directory. If a
+5. **Search before reading.** `grep_files` answers "where is this
+   defined / used" in one call — the app source (`root: "app_source"`),
+   the user's plugins (`root: "plugins"`), or the sandbox
+   (`root: "files"`). Read the hit with `get_app_source` /
+   `read_text_file` and `start_line`/`end_line` rather than pulling in
+   whole files.
+6. **File I/O is sandboxed.** All file tools need a base directory. If a
    file tool errors with "base directory is not configured", ask the
    user for a directory and call `set_file_io_config` — do not guess a
    path. Extensions are allowlisted; add new ones via the same tool.
@@ -80,7 +86,8 @@ and follow-up coordinate reads work without an extra conversion step.
 | Load molecules | `load_molecule_by_name` (PubChem), `load_molecule_from_smiles`, `load_from_mol_block`, `show_xyz_in_viewer`, `clear_canvas` |
 | Edit | `apply_reaction_smarts` (SMARTS transforms), `run_python` (arbitrary RDKit / PluginContext code), `push_undo_checkpoint`, `check_chemistry` |
 | 3D view | `trigger_3d_conversion`, `enter_3d_mode` / `exit_3d_mode`, `set_cpk_color_override` (persists across redraws), `set_bond_color_override` (by bond index or `"i-j"` atom pairs), `reset_cpk_color_override`, `reset_3d_camera`, `refresh_3d_view`, `fit_2d_view`, `refresh_ui` |
-| Files (sandboxed) | `write_file_with_xyz_block` (**preferred for inputs**), `write_text_file`, `read_text_file`, `list_directory`, `delete_file`, `get_file_io_config`, `set_file_io_config` |
+| Files (sandboxed) | `write_file_with_xyz_block` (**preferred for inputs**), `write_text_file`, `read_text_file` (`start_line`/`end_line`), `list_directory`, `delete_file`, `get_file_io_config`, `set_file_io_config` |
+| Search | `grep_files` (regex over `app_source` / `plugins` / `files`), `find_files` (name glob over the same roots) |
 | Plugin authoring | `get_plugin_dev_manual`, `list_app_source_tree`, `get_app_source`, `get_plugin_dir`, `reload_plugins` |
 | Plugin discovery | `list_available_plugins` (official registry, optional `search`), `open_plugin_installer` |
 
@@ -118,7 +125,10 @@ when the user asked to replace.
 
 1. `get_plugin_dev_manual` for the V4 API contract.
 2. `get_app_source` on `plugins/plugin_interface.py` for exact
-   `PluginContext` signatures — do not invent API from memory.
+   `PluginContext` signatures — do not invent API from memory. When you
+   need a method or signal the manual doesn't cover, `grep_files` the
+   app source for it (e.g. `pattern: "def add_menu_action"`) instead of
+   guessing; `find_files` locates the module first if you don't know it.
 3. `get_plugin_dir`, then point `set_file_io_config` at it and
    `write_text_file` the plugin (single `.py` with `initialize(context)`
    and the `PLUGIN_*` constants).

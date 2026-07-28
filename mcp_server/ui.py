@@ -289,7 +289,6 @@ class MCPStatusDialog(QDialog):
     def refresh(self) -> None:
         """Update all controls to reflect the current server state."""
         running = self._plugin.is_running
-        port = self._port_spin.value()
 
         if running:
             self._status_lbl.setText("● Server Running")

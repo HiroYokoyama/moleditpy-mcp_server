@@ -32,7 +32,7 @@ All tests run headlessly. `tests/conftest.py` mocks PyQt6, RDKit, pyvista, and `
 |---|---|
 | `mcp_server/__init__.py` | Plugin entry point — `initialize(context)`, `MCPServerPlugin` lifecycle (start/stop) |
 | `mcp_server/bridge.py` | `MCPBridge` — routes MCP tool calls to MoleditPy operations via `PluginContext`; all tool handlers live here |
-| `mcp_server/server.py` | `MCPHttpServer` — `starlette` / SSE transport; runs on a `QThread` |
+| `mcp_server/server.py` | `MCPHttpServer` — Streamable HTTP transport (stdlib `http.server`) on a daemon thread; speaks both the 2026-07-28 stateless protocol and the `initialize` handshake era, selected by `protocol_mode` |
 | `mcp_server/ui.py` | `MCPStatusDialog` — Qt settings dialog (port, auto-start, file I/O base dir) |
 
 The plugin follows the standard MoleditPy plugin contract: `initialize(context: PluginContext)` registers menu items and reads/writes settings through `context.get_setting` / `context.set_setting`.
@@ -47,6 +47,19 @@ All settings are stored under `plugin.mcp_server.<key>` in the app's persistent 
 | `port` | int | `7891` | GUI port spinner |
 | `file_io_base_dir` | str or None | `None` (unrestricted) | GUI browse field or `set_file_io_config` MCP tool |
 | `file_io_allowed_extensions` | list[str] | see `_DEFAULT_EXTENSIONS` | `set_file_io_config` MCP tool |
+| `protocol_mode` | str (`auto`/`legacy`/`modern`) | `auto` | GUI combo (Status & Settings dialog) |
+
+## Protocol Eras
+
+`server.py` serves two revisions on one endpoint. A request is "modern"
+(2026-07-28) when it declares `io.modelcontextprotocol/protocolVersion` in
+`params._meta`, sends `MCP-Protocol-Version: 2026-07-28`, or calls
+`server/discover`; otherwise it is handshake-era. Modern requests are
+validated (`validate_modern_request`) against their mirrored `Mcp-Method` /
+`Mcp-Name` headers and answered with `_meta.serverInfo`, no session id, and
+HTTP 400/404 for `-32020` / `-32022` / `-32601`. Per-connection config lives
+on the `HTTPServer` instance (`mcp_*` attributes), not on `_MCPHandler`, so
+multiple servers can run in one process.
 
 ## Adding New MCP Tools
 
@@ -55,6 +68,9 @@ All settings are stored under `plugin.mcp_server.<key>` in the app's persistent 
 3. Add a dispatch branch in `dispatch_tool()` in `server.py` that calls `bridge.call("my_tool", ...)` and formats the result via `_tool_ok`/`_tool_err`.
 4. Add tests in `tests/test_bridge.py` (operation) and `tests/test_server.py` (schema + dispatch).
 5. Multi-line string arguments should also accept a JSON array of lines — pass them through `_text_arg()` in `server.py`.
+6. Add the tool name to the right annotation set (`_READ_ONLY_TOOLS`,
+   `_DESTRUCTIVE_TOOLS`, `_IDEMPOTENT_TOOLS`, `_OPEN_WORLD_TOOLS`) —
+   `test_annotation_name_sets_reference_real_tools` guards typos.
 
 ## CI
 

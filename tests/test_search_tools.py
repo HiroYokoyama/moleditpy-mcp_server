@@ -477,3 +477,27 @@ def test_annotation_name_sets_reference_real_tools(srv):
 def test_read_only_and_destructive_sets_are_disjoint(srv):
     assert not (srv._READ_ONLY_TOOLS & srv._DESTRUCTIVE_TOOLS)
     assert not (srv._READ_ONLY_TOOLS & srv._IDEMPOTENT_TOOLS)
+
+
+def test_grep_stops_scanning_further_files_once_truncated(srv, tree):
+    (tree / "core" / "another.py").write_text("class Molecule2:\n", encoding="utf-8")
+    out = srv.run_grep(tree, tree, "class Molecule", max_matches=1)
+    assert "truncated" in out
+    # another.py sorts first, so molecule.py must never be opened.
+    assert "core/another.py:1:" in out and "molecule.py" not in out
+
+
+def test_grep_skips_binary_content_with_text_suffix(srv, tree):
+    (tree / "core" / "blob.py").write_bytes(b"class Molecule3:\x00\x01\x02")
+    out = srv.run_grep(tree, tree, "class Molecule3")
+    assert "No matches" in out
+
+
+def test_grep_does_not_repeat_overlapping_context_lines(srv, tree):
+    (tree / "core" / "pair.py").write_text(
+        "hit one\nmiddle\nhit two\n", encoding="utf-8"
+    )
+    out = srv.run_grep(tree, tree, "^hit", context=1)
+    body = [line for line in out.splitlines() if "pair.py" in line]
+    assert len(body) == 3  # 3 distinct lines, not 4 with 'middle' twice
+    assert sum("middle" in line for line in body) == 1
