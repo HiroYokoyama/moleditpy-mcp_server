@@ -777,18 +777,32 @@ def _plugin_version() -> str:
         return "unknown"
 
 
-def _get_app_info(ctx: Any) -> Dict[str, Any]:
-    mw = ctx.get_main_window()
-    version = "unknown"
+def _app_version(mw: Any) -> str:
+    """MoleditPy version — the main window exposes none, so fall back to the package."""
     if mw is not None:
-        version = getattr(mw, "VERSION", None) or (
-            getattr(mw.init_manager, "settings", {}).get("app_version", "unknown")
-            if hasattr(mw, "init_manager")
-            else "unknown"
-        )
+        version = getattr(mw, "VERSION", None)
+        if isinstance(version, str) and version:
+            return version
+        settings = getattr(getattr(mw, "init_manager", None), "settings", None)
+        if isinstance(settings, dict):
+            version = settings.get("app_version")
+            if isinstance(version, str) and version:
+                return version
+    try:
+        # Canonical source: moleditpy.utils.constants.VERSION
+        from moleditpy import __version__  # pylint: disable=import-outside-toplevel
+
+        if isinstance(__version__, str) and __version__:
+            return __version__
+    except ImportError:
+        pass
+    return "unknown"
+
+
+def _get_app_info(ctx: Any) -> Dict[str, Any]:
     return {
         "app": "MoleditPy",
-        "version": version,
+        "version": _app_version(ctx.get_main_window()),
         "mcp_plugin_version": _plugin_version(),
     }
 

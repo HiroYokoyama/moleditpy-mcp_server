@@ -1290,6 +1290,49 @@ def test_execute_get_app_info_with_version(bridge_mod, ctx):
     assert result["mcp_plugin_version"] == "0.1.0"
 
 
+def test_app_version_from_init_manager_settings(bridge_mod, ctx):
+    mw = ctx.get_main_window.return_value
+    mw.VERSION = None
+    mw.init_manager.settings = {"app_version": "4.4.2"}
+    result = bridge_mod.execute_operation(ctx, "get_app_info", {})
+    assert result["version"] == "4.4.2"
+
+
+def test_app_version_falls_back_to_moleditpy_package(bridge_mod, ctx):
+    """The main window exposes no VERSION attribute — the package is the real source."""
+    mw = ctx.get_main_window.return_value
+    mw.VERSION = None
+    mw.init_manager.settings = {}
+    fake = types.ModuleType("moleditpy")
+    fake.__version__ = "4.5.0"
+    saved = sys.modules.get("moleditpy")
+    sys.modules["moleditpy"] = fake
+    try:
+        result = bridge_mod.execute_operation(ctx, "get_app_info", {})
+    finally:
+        if saved is None:
+            sys.modules.pop("moleditpy", None)
+        else:
+            sys.modules["moleditpy"] = saved
+
+    assert result["version"] == "4.5.0"
+
+
+def test_app_version_unknown_without_main_window(bridge_mod, ctx):
+    ctx.get_main_window.return_value = None
+    saved = sys.modules.get("moleditpy")
+    sys.modules["moleditpy"] = None  # a None entry makes the import raise ImportError
+    try:
+        result = bridge_mod.execute_operation(ctx, "get_app_info", {})
+    finally:
+        if saved is None:
+            sys.modules.pop("moleditpy", None)
+        else:
+            sys.modules["moleditpy"] = saved
+
+    assert result["version"] == "unknown"
+
+
 def test_plugin_version_uses_own_package(bridge_mod):
     """A subfolder install (AI.mcp_server) has no importable top-level mcp_server."""
     pkg = types.ModuleType("AI.mcp_server")
