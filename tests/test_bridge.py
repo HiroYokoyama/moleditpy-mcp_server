@@ -1290,6 +1290,56 @@ def test_execute_get_app_info_with_version(bridge_mod, ctx):
     assert result["mcp_plugin_version"] == "0.1.0"
 
 
+def test_plugin_version_uses_own_package(bridge_mod):
+    """A subfolder install (AI.mcp_server) has no importable top-level mcp_server."""
+    pkg = types.ModuleType("AI.mcp_server")
+    pkg.__path__ = []
+    pkg.PLUGIN_VERSION = "9.9.9"
+    saved_pkg = bridge_mod.__package__
+    saved_name = bridge_mod.__spec__.name  # spec.parent derives from spec.name
+    saved_abs = sys.modules.pop("mcp_server", None)
+    sys.modules["AI.mcp_server"] = pkg
+    bridge_mod.__package__ = "AI.mcp_server"
+    bridge_mod.__spec__.name = "AI.mcp_server.bridge"
+    try:
+        assert bridge_mod._plugin_version() == "9.9.9"
+    finally:
+        bridge_mod.__package__ = saved_pkg
+        bridge_mod.__spec__.name = saved_name
+        sys.modules.pop("AI.mcp_server", None)
+        if saved_abs is not None:
+            sys.modules["mcp_server"] = saved_abs
+
+
+def test_plugin_version_unknown_when_unresolvable(bridge_mod):
+    saved_abs = sys.modules.pop("mcp_server", None)
+    saved_path = list(sys.path)
+    sys.path[:] = []
+    try:
+        assert bridge_mod._plugin_version() == "unknown"
+    finally:
+        sys.path[:] = saved_path
+        if saved_abs is not None:
+            sys.modules["mcp_server"] = saved_abs
+
+
+def test_get_app_info_survives_missing_mcp_server_module(bridge_mod, ctx):
+    """Regression: _get_app_info raised ModuleNotFoundError on subfolder installs."""
+    ctx.get_main_window.return_value.VERSION = "4.5.0"
+    saved_abs = sys.modules.pop("mcp_server", None)
+    saved_path = list(sys.path)
+    sys.path[:] = []
+    try:
+        result = bridge_mod.execute_operation(ctx, "get_app_info", {})
+    finally:
+        sys.path[:] = saved_path
+        if saved_abs is not None:
+            sys.modules["mcp_server"] = saved_abs
+
+    assert result["version"] == "4.5.0"
+    assert result["mcp_plugin_version"] == "unknown"
+
+
 # ---------------------------------------------------------------------------
 # get_file_io_config
 # ---------------------------------------------------------------------------

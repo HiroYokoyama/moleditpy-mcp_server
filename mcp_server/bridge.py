@@ -759,8 +759,25 @@ def _set_file_io_config(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     return {"success": True}
 
 
+def _plugin_version() -> str:
+    """Plugin version, resolved without assuming the package's mounted name."""
+    # The loader may mount this package as e.g. ``AI.mcp_server`` (subfolder install),
+    # so a plain ``import mcp_server`` is not guaranteed to resolve.
+    try:
+        from . import PLUGIN_VERSION  # pylint: disable=import-outside-toplevel
+
+        return PLUGIN_VERSION
+    except ImportError:
+        pass
+    try:
+        from mcp_server import PLUGIN_VERSION  # pylint: disable=import-outside-toplevel
+
+        return PLUGIN_VERSION
+    except ImportError:
+        return "unknown"
+
+
 def _get_app_info(ctx: Any) -> Dict[str, Any]:
-    from mcp_server import PLUGIN_VERSION  # pylint: disable=import-outside-toplevel
     mw = ctx.get_main_window()
     version = "unknown"
     if mw is not None:
@@ -772,7 +789,7 @@ def _get_app_info(ctx: Any) -> Dict[str, Any]:
     return {
         "app": "MoleditPy",
         "version": version,
-        "mcp_plugin_version": PLUGIN_VERSION,
+        "mcp_plugin_version": _plugin_version(),
     }
 
 
