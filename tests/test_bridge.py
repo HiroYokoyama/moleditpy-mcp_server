@@ -1567,17 +1567,72 @@ def test_get_app_source_root_without_package_raises(bridge_mod):
 # ---------------------------------------------------------------------------
 
 
+_MISSING = object()
+
+
+def _qt_stub_if_missing():
+    """Put a minimal PyQt6.QtCore in sys.modules when PyQt6 is absent.
+
+    bridge.py imports QtCore at module level and MCPBridge subclasses QObject,
+    so a blanket MagicMock cannot stand in -- it is not subclassable. Returns a
+    snapshot for the caller to restore, so this never leaks into other modules.
+    """
+    import sys
+    import types
+    from unittest.mock import MagicMock
+
+    try:
+        import PyQt6.QtCore  # noqa: F401  pylint: disable=unused-import
+
+        return {}
+    except ImportError:
+        pass
+
+    class _QObject:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class _Signal:
+        def __get__(self, obj, owner=None):
+            return MagicMock()
+
+    qtcore = types.ModuleType("PyQt6.QtCore")
+    qtcore.QObject = _QObject
+    qtcore.pyqtSignal = lambda *a, **k: _Signal()
+    qtcore.QTimer = MagicMock()
+    qtcore.Qt = MagicMock()
+    pyqt6 = types.ModuleType("PyQt6")
+    pyqt6.QtCore = qtcore
+
+    saved = {}
+    for name, module in (("PyQt6", pyqt6), ("PyQt6.QtCore", qtcore)):
+        # None is a real sys.modules value meaning "blocked", so absence has to
+        # be recorded with a sentinel rather than via .get().
+        saved[name] = sys.modules[name] if name in sys.modules else _MISSING
+        sys.modules[name] = module
+    return saved
+
+
 def _real_bridge():
     """The bridge module with real RDKit (its rdkit imports are lazy)."""
     import importlib.util
+    import sys
     from pathlib import Path
 
     pytest.importorskip("rdkit")
-    path = Path(__file__).resolve().parents[1] / "mcp_server" / "bridge.py"
-    spec = importlib.util.spec_from_file_location("_bridge_real_rdkit", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    saved = _qt_stub_if_missing()
+    try:
+        path = Path(__file__).resolve().parents[1] / "mcp_server" / "bridge.py"
+        spec = importlib.util.spec_from_file_location("_bridge_real_rdkit", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        for name, old in saved.items():
+            if old is _MISSING:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = old
 
 
 def _apply(smarts, smiles):
@@ -1621,3 +1676,44 @@ def test_unmatched_pattern_still_reports_no_match():
 def test_genuinely_invalid_product_still_reports_sanitization():
     with pytest.raises(ValueError, match="invalid molecule"):
         _apply("[C:1][O:2]>>[C:1][O:2]([H])([H])([H])", "CCO")
+
+
+def test_reaction_tests_work_without_pyqt6(monkeypatch):
+    """CI has RDKit but no PyQt6, and bridge.py imports QtCore at module level.
+
+    Setting the sys.modules entries to None makes `import PyQt6.QtCore` raise
+    ImportError, which is exactly what CI sees, so this exercises the stub path
+    the CI run depends on. Without the stub the whole group failed there with
+    ModuleNotFoundError while passing locally.
+    """
+    import sys
+
+    pytest.importorskip("rdkit")
+    monkeypatch.setitem(sys.modules, "PyQt6", None)
+    monkeypatch.setitem(sys.modules, "PyQt6.QtCore", None)
+
+    module = _real_bridge()
+    assert hasattr(module, "_apply_reaction_smarts")
+    assert hasattr(module, "MCPBridge")  # the QObject subclass built on the stub
+
+    from rdkit import Chem
+
+    ctx = MagicMock()
+    ctx.current_molecule = Chem.MolFromSmiles("CCO")
+    result = module._apply_reaction_smarts(
+        ctx,
+        {"reaction_smarts": "[CH2:1][OH:2]>>[CH:1]=[O:2]", "convert_to_3d": False},
+    )
+    assert result["smiles"] == "CC=O"
+
+
+def test_qt_stub_is_not_left_behind(monkeypatch):
+    """The stub must not leak into sys.modules and poison later test modules."""
+    import sys
+
+    pytest.importorskip("rdkit")
+    monkeypatch.setitem(sys.modules, "PyQt6", None)
+    monkeypatch.setitem(sys.modules, "PyQt6.QtCore", None)
+    _real_bridge()
+    assert sys.modules["PyQt6"] is None
+    assert sys.modules["PyQt6.QtCore"] is None
