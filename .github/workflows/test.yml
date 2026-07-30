@@ -25,7 +25,10 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install test dependencies
-        run: pip install pytest pytest-cov
+        # rdkit so the real-RDKit apply_reaction_smarts regression tests run
+        # instead of skipping: the rest of the suite mocks RDKit and cannot
+        # express a valence violation.
+        run: pip install pytest pytest-cov rdkit
 
       - name: Run tests
         run: pytest tests/ -v --tb=short --cov=mcp_server --cov-report=term-missing

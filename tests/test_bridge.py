@@ -1581,6 +1581,9 @@ def _real_bridge():
 
 
 def _apply(smarts, smiles):
+    # importorskip BEFORE the rdkit import, or a missing RDKit fails the
+    # test instead of skipping it.
+    pytest.importorskip("rdkit")
     from rdkit import Chem
 
     mod = _real_bridge()
