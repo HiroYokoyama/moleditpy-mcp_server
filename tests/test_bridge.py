@@ -1555,3 +1555,66 @@ def test_get_app_source_root_without_package_raises(bridge_mod):
             bridge_mod._get_app_source_root()
     finally:
         bridge_mod._find_moleditpy_spec = original
+
+
+# ---------------------------------------------------------------------------
+# apply_reaction_smarts with REAL RDKit.
+#
+# The rest of this file mocks RDKit, which cannot express the bug these cover:
+# AddHs makes hydrogens real atoms, so a product that lowers a mapped atom's
+# hydrogen count is over-valent and fails sanitization. The reactant fallback
+# has to trigger on an invalid product, not only on "no match".
+# ---------------------------------------------------------------------------
+
+
+def _real_bridge():
+    """The bridge module with real RDKit (its rdkit imports are lazy)."""
+    import importlib.util
+    from pathlib import Path
+
+    pytest.importorskip("rdkit")
+    path = Path(__file__).resolve().parents[1] / "mcp_server" / "bridge.py"
+    spec = importlib.util.spec_from_file_location("_bridge_real_rdkit", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _apply(smarts, smiles):
+    from rdkit import Chem
+
+    mod = _real_bridge()
+    ctx = MagicMock()
+    ctx.current_molecule = Chem.MolFromSmiles(smiles)
+    return mod._apply_reaction_smarts(
+        ctx, {"reaction_smarts": smarts, "convert_to_3d": False}
+    )
+
+
+@pytest.mark.parametrize(
+    "label,smiles,smarts,expected",
+    [
+        ("alcohol to aldehyde", "CCO", "[CH2:1][OH:2]>>[CH:1]=[O:2]", "CC=O"),
+        ("longer chain", "CCCO", "[CH2:1][OH:2]>>[CH:1]=[O:2]", "CCC=O"),
+        ("alcohol to ketone", "CC(O)C", "[CH:1][OH:2]>>[C:1]=[O:2]", "CC(C)=O"),
+        ("amine to imine", "CCN", "[CH2:1][NH2:2]>>[CH:1]=[N:2]", "CC=N"),
+    ],
+)
+def test_hydrogen_lowering_smarts_applies(label, smiles, smarts, expected):
+    """These all failed with "refine the SMARTS" while the SMARTS was correct."""
+    assert _apply(smarts, smiles)["smiles"] == expected
+
+
+def test_explicit_h_smarts_still_needs_the_addhs_attempt():
+    """The AddHs attempt must stay first: this pattern matches [H] directly."""
+    assert _apply("[cH:1][H]>>[c:1]O", "c1ccccc1")["smiles"] == "Oc1ccccc1"
+
+
+def test_unmatched_pattern_still_reports_no_match():
+    with pytest.raises(ValueError, match="did not match"):
+        _apply("[N:1]>>[O:1]", "CCO")
+
+
+def test_genuinely_invalid_product_still_reports_sanitization():
+    with pytest.raises(ValueError, match="invalid molecule"):
+        _apply("[C:1][O:2]>>[C:1][O:2]([H])([H])([H])", "CCO")

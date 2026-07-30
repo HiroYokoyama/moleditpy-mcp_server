@@ -473,6 +473,37 @@ def _select_product_by_anchor(
     return 0
 
 
+def _clean_reaction_product(new_mol: Any) -> Any:
+    """Sanitize a raw reaction product, or return None if it is not a molecule.
+
+    Returning None rather than raising lets the caller retry the reaction on a
+    differently prepared reactant.
+    """
+    from rdkit import Chem  # pylint: disable=import-outside-toplevel
+
+    try:
+        new_mol.UpdatePropertyCache(strict=False)
+        Chem.SanitizeMol(new_mol)
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning("Product sanitization warning: %s", exc)
+    try:
+        new_mol = Chem.RemoveHs(
+            new_mol, implicitOnly=False, updateExplicitCount=True, sanitize=True
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning("RemoveHs failed on product: %s", exc)
+
+    # Template atom maps leak into the product; strip them before export.
+    for atom in new_mol.GetAtoms():
+        atom.SetAtomMapNum(0)
+
+    try:
+        return Chem.MolFromSmiles(Chem.MolToSmiles(new_mol))
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning("Product SMILES round-trip failed: %s", exc)
+        return None
+
+
 def _apply_reaction_smarts(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     """
     Apply a Reaction SMARTS transformation to the current molecule and load
@@ -499,42 +530,37 @@ def _apply_reaction_smarts(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as exc:
         raise ValueError(f"Invalid reaction SMARTS: {exc}") from exc
 
-    reactant = Chem.AddHs(mol)
-    products = rxn.RunReactants((reactant,))
-    if not products:
-        reactant = mol
-        products = rxn.RunReactants((reactant,))
-    if not products:
-        raise ValueError(
-            "The reaction pattern did not match the current molecule. "
-            "Check the SMARTS (explicit [H] atoms are available for matching)."
+    # Try with explicit hydrogens first so a SMARTS can match [H], then without.
+    # Both attempts are needed: AddHs turns hydrogens into real atoms, so a
+    # product that lowers a mapped atom's hydrogen count ([CH2:1] -> [CH:1]=)
+    # leaves those atoms bonded and the product is over-valent. Retrying only on
+    # "no match" missed that -- every oxidation-style pattern (alcohol to
+    # aldehyde or ketone, amine to imine) failed with "refine the SMARTS" even
+    # though the SMARTS was right.
+    attempt = None
+    for candidate in (Chem.AddHs(mol), mol):
+        products = rxn.RunReactants((candidate,))
+        if not products:
+            continue
+        selected = _select_product_by_anchor(
+            rxn, candidate, products, args.get("atom_index")
         )
+        clean_mol = _clean_reaction_product(products[selected][0])
+        if clean_mol is not None:
+            attempt = (products, selected, clean_mol)
+            break
 
-    selected = _select_product_by_anchor(rxn, reactant, products, args.get("atom_index"))
-    new_mol = products[selected][0]
-
-    try:
-        new_mol.UpdatePropertyCache(strict=False)
-        Chem.SanitizeMol(new_mol)
-    except Exception as exc:  # pylint: disable=broad-except
-        logger.warning("Product sanitization warning: %s", exc)
-    try:
-        new_mol = Chem.RemoveHs(
-            new_mol, implicitOnly=False, updateExplicitCount=True, sanitize=True
-        )
-    except Exception as exc:  # pylint: disable=broad-except
-        logger.warning("RemoveHs failed on product: %s", exc)
-
-    # Template atom maps leak into the product; strip them before export.
-    for atom in new_mol.GetAtoms():
-        atom.SetAtomMapNum(0)
-
-    clean_mol = Chem.MolFromSmiles(Chem.MolToSmiles(new_mol))
-    if clean_mol is None:
+    if attempt is None:
+        if not products:
+            raise ValueError(
+                "The reaction pattern did not match the current molecule. "
+                "Check the SMARTS (explicit [H] atoms are available for matching)."
+            )
         raise ValueError(
             "Transformation produced an invalid molecule (failed sanitization). "
             "Refine the reaction SMARTS."
         )
+    products, selected, clean_mol = attempt
 
     # Compare heavy atoms on both sides: the editor molecule may carry
     # explicit hydrogens (e.g. after 3D conversion) while clean_mol is
