@@ -11,6 +11,8 @@ Once running, any MCP-compatible client — **Claude Desktop**, **Claude Code**,
 [![PyPI - mcp-gui-tester](https://img.shields.io/pypi/v/mcp-gui-tester?label=mcp-gui-tester)](https://pypi.org/project/mcp-gui-tester/)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21289092.svg)](https://doi.org/10.5281/zenodo.21289092)
 
+Repo: [https://github.com/HiroYokoyama/moleditpy-mcp_server/](https://github.com/HiroYokoyama/moleditpy-mcp_server/)
+
 ![main](img/main.png)
 
 ---
