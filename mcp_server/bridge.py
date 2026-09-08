@@ -872,12 +872,16 @@ def _get_molecule_image(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
 
 def _render_2d_png(ctx: Any, width: int, height: int) -> Optional[bytes]:
     """The 2D canvas, rendered to PNG bytes via QGraphicsScene.render()."""
-    from PyQt6.QtCore import QBuffer, QIODevice, QRectF  # pylint: disable=import-outside-toplevel
-    from PyQt6.QtGui import QColor, QImage, QPainter  # pylint: disable=import-outside-toplevel
-
+    # Before the Qt imports: "there is no canvas" is answerable without them,
+    # and the environment that has no PyQt6 at all is exactly the one that
+    # reaches this function with no scene.
     scene = ctx.scene
     if scene is None:
         return None
+
+    from PyQt6.QtCore import QBuffer, QIODevice, QRectF  # pylint: disable=import-outside-toplevel
+    from PyQt6.QtGui import QColor, QImage, QPainter  # pylint: disable=import-outside-toplevel
+
     source = scene.itemsBoundingRect()
     if source is None or source.isEmpty():
         return None
