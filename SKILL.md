@@ -82,7 +82,9 @@ and follow-up coordinate reads work without an extra conversion step.
 
 | Goal | Tools |
 |---|---|
-| Inspect state | `get_current_molecule`, `get_molecule_xyz`, `get_atom_properties`, `get_bond_info`, `get_selected_atoms`, `get_mapped_smiles`, `get_app_info` |
+| Inspect state | `get_current_molecule`, `get_molecule_xyz`, `get_atom_properties`, `get_bond_info`, `get_selected_atoms`, `get_mapped_smiles`, `get_app_info`, `get_molecule_descriptors` (MW / LogP / TPSA / HBD / HBA / rings in one call), `substructure_search` (SMARTS → atom indices), `compute_partial_charges` (Gasteiger) |
+| See it | `get_molecule_image` — returns a real PNG of the 2D canvas or 3D viewer. Use it to *check* a structure, a highlight or a reaction result yourself instead of asking the user what they see. |
+| Edit with RDKit | `add_hydrogens` / `remove_hydrogens`, `set_atom_charge` (index from `get_mapped_smiles`), `delete_atoms`, `optimize_geometry` (MMFF/UFF, refines an **existing** conformer — `trigger_3d_conversion` generates one). Each pushes its own undo checkpoint. Prefer these over hand-written `run_python`. |
 | Load molecules | `load_molecule_by_name` (PubChem), `load_molecule_from_smiles`, `load_from_mol_block`, `show_xyz_in_viewer`, `clear_canvas` |
 | Edit | `apply_reaction_smarts` (SMARTS transforms), `run_python` (arbitrary RDKit / PluginContext code), `push_undo_checkpoint`, `check_chemistry` |
 | 3D view | `trigger_3d_conversion`, `enter_3d_mode` / `exit_3d_mode`, `set_cpk_color_override` (persists across redraws), `set_bond_color_override` (by bond index or `"i-j"` atom pairs), `reset_cpk_color_override`, `reset_3d_camera`, `refresh_3d_view`, `fit_2d_view`, `refresh_ui` |

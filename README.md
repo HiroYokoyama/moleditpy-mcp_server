@@ -297,6 +297,15 @@ Claude loads it automatically whenever a task involves the MoleditPy MCP tools. 
 | `get_mapped_smiles` | SMILES with atom indices embedded as map numbers + legend (find atom_index targets) |
 | `apply_reaction_smarts` | Modify the 2D molecule with a Reaction SMARTS transformation (optional anchor atom) |
 | `trigger_3d_conversion` | Run MoleditPy's built-in 2D→3D optimizer (ETKDG/MMFF) |
+| `get_molecule_image` | Render the molecule to a **PNG returned as an actual image** — the 2D canvas or the 3D viewer (`view`: auto / 2d / 3d, `width`, `height`) |
+| `get_molecule_descriptors` | RDKit's standard descriptor set in one call: canonical SMILES, formula, MW, exact mass, LogP, TPSA, formal charge, HBD/HBA, rotatable bonds, ring and atom/bond counts |
+| `add_hydrogens` | Add explicit hydrogens (RDKit `AddHs`); 3D coordinates are generated for them when the molecule already has a conformer |
+| `remove_hydrogens` | Strip explicit hydrogens back to implicit (RDKit `RemoveHs`) |
+| `optimize_geometry` | Minimize the **existing** 3D conformer with MMFF94 or UFF — refines coordinates rather than generating them (`force_field`, `max_iters`) |
+| `set_atom_charge` | Set one atom's formal charge by index; re-sanitized, and rejected if the result is not a valid structure |
+| `delete_atoms` | Delete atoms by index (highest first, so the caller's other indices stay valid); re-sanitized |
+| `substructure_search` | Every SMARTS match in the molecule, as atom-index tuples (`unique_matches` to keep or collapse symmetry-equivalent hits) |
+| `compute_partial_charges` | Gasteiger partial charges per atom, computed on a private copy so the canvas is untouched (optional `atom_indices` filter) |
 | `set_cpk_color_override` | Override atom CPK colors in the 3D viewer (hex per atom index); persists across redraws (formerly `highlight_atoms`, still accepted) |
 | `reset_cpk_color_override` | Clear atom/bond color overrides (`scope`: atoms / bonds / all) and restore default colors |
 | `set_bond_color_override` | Override bond colors in the 3D viewer by bond index or `"atom1-atom2"` pairs; persists across redraws (formerly `highlight_bonds`, still accepted) |
