@@ -192,6 +192,33 @@ def execute_operation(ctx: Any, operation: str, args: Dict[str, Any]) -> Any:  #
     if operation == "set_file_io_config":
         return _set_file_io_config(ctx, args)
 
+    if operation == "get_molecule_image":
+        return _get_molecule_image(ctx, args)
+
+    if operation == "get_molecule_descriptors":
+        return _get_molecule_descriptors(ctx)
+
+    if operation == "add_hydrogens":
+        return _add_hydrogens(ctx, args)
+
+    if operation == "remove_hydrogens":
+        return _remove_hydrogens(ctx)
+
+    if operation == "optimize_geometry":
+        return _optimize_geometry(ctx, args)
+
+    if operation == "set_atom_charge":
+        return _set_atom_charge(ctx, args)
+
+    if operation == "delete_atoms":
+        return _delete_atoms(ctx, args)
+
+    if operation == "substructure_search":
+        return _substructure_search(ctx, args)
+
+    if operation == "compute_partial_charges":
+        return _compute_partial_charges(ctx, args)
+
     raise ValueError(f"Unknown operation: {operation!r}")
 
 
@@ -783,6 +810,340 @@ def _set_file_io_config(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
         exts = [e if e.startswith(".") else f".{e}" for e in args["allowed_extensions"]]
         ctx.set_setting("file_io_allowed_extensions", exts)
     return {"success": True}
+
+
+# ---------------------------------------------------------------------------
+# Molecule image
+# ---------------------------------------------------------------------------
+
+
+def _clamp_dimension(value: Any, default: int = 900) -> int:
+    """Pixel dimensions are clamped, not validated away: a client guessing a
+    huge canvas is far more likely than one trying to abuse the renderer, and
+    clamping keeps the call useful instead of just failing it."""
+    try:
+        pixels = int(value)
+    except (TypeError, ValueError):
+        pixels = default
+    return max(128, min(pixels, 2048))
+
+
+def _get_molecule_image(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Render the current molecule to a PNG, base64-encoded for the MCP
+    ``image`` content type.
+
+    Both views are read straight off the public ``PluginContext`` API
+    (``ctx.scene`` for the 2D canvas, ``ctx.plotter`` for the 3D viewer), so
+    this never reaches past what a plugin is already allowed to touch.
+    """
+    view = (args.get("view") or "auto").strip().lower()
+    if view not in ("auto", "2d", "3d"):
+        raise ValueError("'view' must be 'auto', '2d', or '3d'")
+    width = _clamp_dimension(args.get("width", 900))
+    height = _clamp_dimension(args.get("height", 700))
+
+    if view == "auto":
+        mol = ctx.current_molecule
+        has_3d = (
+            ctx.plotter is not None and mol is not None and mol.GetNumConformers() > 0
+        )
+        view = "3d" if has_3d else "2d"
+
+    png_bytes = _render_3d_png(ctx, width, height) if view == "3d" else _render_2d_png(
+        ctx, width, height
+    )
+    if not png_bytes:
+        empty = "3D viewer" if view == "3d" else "2D canvas"
+        raise ValueError(
+            f"Nothing to render: the {empty} is empty. Load a molecule first "
+            + ("(trigger_3d_conversion may also be needed)." if view == "3d" else ".")
+        )
+
+    import base64  # pylint: disable=import-outside-toplevel
+
+    return {
+        "view": view,
+        "width": width,
+        "height": height,
+        "mime_type": "image/png",
+        "image_base64": base64.b64encode(png_bytes).decode("ascii"),
+    }
+
+
+def _render_2d_png(ctx: Any, width: int, height: int) -> Optional[bytes]:
+    """The 2D canvas, rendered to PNG bytes via QGraphicsScene.render()."""
+    from PyQt6.QtCore import QBuffer, QIODevice, QRectF  # pylint: disable=import-outside-toplevel
+    from PyQt6.QtGui import QColor, QImage, QPainter  # pylint: disable=import-outside-toplevel
+
+    scene = ctx.scene
+    if scene is None:
+        return None
+    source = scene.itemsBoundingRect()
+    if source is None or source.isEmpty():
+        return None
+    # A small margin so atoms at the very edge of the bounding rect are not
+    # clipped against the image border.
+    margin = max(source.width(), source.height()) * 0.08 or 10.0
+    source = source.adjusted(-margin, -margin, margin, margin)
+
+    image = QImage(width, height, QImage.Format.Format_ARGB32)
+    image.fill(QColor("white"))
+    painter = QPainter(image)
+    try:
+        scene.render(painter, QRectF(0, 0, width, height), source)
+    finally:
+        painter.end()
+
+    buffer = QBuffer()
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    image.save(buffer, "PNG")
+    data = bytes(buffer.data())
+    buffer.close()
+    return data or None
+
+
+def _render_3d_png(ctx: Any, width: int, height: int) -> Optional[bytes]:
+    """The 3D viewer, rendered to PNG bytes via the PyVista plotter.
+
+    Through a temp file rather than ``return_img``: PyVista's in-memory array
+    path returns RGB(A) pixels this function would then have to encode to PNG
+    itself, while ``screenshot(path)`` already writes real PNG bytes -- one
+    less place for a color-channel or byte-order mistake to hide.
+    """
+    import os  # pylint: disable=import-outside-toplevel
+    import tempfile  # pylint: disable=import-outside-toplevel
+
+    plotter = ctx.plotter
+    if plotter is None:
+        return None
+    handle, path = tempfile.mkstemp(suffix=".png")
+    os.close(handle)
+    try:
+        plotter.screenshot(path, window_size=[width, height])
+        with open(path, "rb") as file_obj:
+            return file_obj.read() or None
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            logging.debug("MCP Server: temp screenshot not removed: %s", path)
+
+
+# ---------------------------------------------------------------------------
+# Molecule manipulation (direct RDKit access)
+# ---------------------------------------------------------------------------
+
+
+def _get_molecule_descriptors(ctx: Any) -> Dict[str, Any]:
+    """Common RDKit descriptors for the current molecule, in one call."""
+    mol = ctx.current_molecule
+    if mol is None:
+        return {"loaded": False}
+    from rdkit import Chem  # pylint: disable=import-outside-toplevel
+    from rdkit.Chem import Crippen, Descriptors, rdMolDescriptors  # pylint: disable=import-outside-toplevel
+
+    return {
+        "loaded": True,
+        "canonical_smiles": Chem.MolToSmiles(mol),
+        "formula": rdMolDescriptors.CalcMolFormula(mol),
+        "molecular_weight": round(Descriptors.MolWt(mol), 4),
+        "exact_mass": round(Descriptors.ExactMolWt(mol), 4),
+        "logp": round(Crippen.MolLogP(mol), 4),
+        "tpsa": round(rdMolDescriptors.CalcTPSA(mol), 4),
+        "formal_charge": Chem.GetFormalCharge(mol),
+        "num_h_donors": rdMolDescriptors.CalcNumHBD(mol),
+        "num_h_acceptors": rdMolDescriptors.CalcNumHBA(mol),
+        "num_rotatable_bonds": rdMolDescriptors.CalcNumRotatableBonds(mol),
+        "num_rings": rdMolDescriptors.CalcNumRings(mol),
+        "num_aromatic_rings": rdMolDescriptors.CalcNumAromaticRings(mol),
+        "num_atoms": mol.GetNumAtoms(),
+        "num_heavy_atoms": mol.GetNumHeavyAtoms(),
+        "num_bonds": mol.GetNumBonds(),
+    }
+
+
+def _add_hydrogens(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Add explicit hydrogens to the current molecule (RDKit AddHs)."""
+    mol = ctx.current_molecule
+    if mol is None:
+        raise ValueError("No molecule loaded")
+    from rdkit import Chem  # pylint: disable=import-outside-toplevel
+
+    explicit_only = bool(args.get("explicit_only", False))
+    mol_h = Chem.AddHs(
+        mol, explicitOnly=explicit_only, addCoords=mol.GetNumConformers() > 0
+    )
+    ctx.current_molecule = mol_h
+    ctx.push_undo_checkpoint()
+    ctx.refresh_ui()
+    return {"success": True, "num_atoms": mol_h.GetNumAtoms()}
+
+
+def _remove_hydrogens(ctx: Any) -> Dict[str, Any]:
+    """Strip explicit hydrogens from the current molecule (RDKit RemoveHs)."""
+    mol = ctx.current_molecule
+    if mol is None:
+        raise ValueError("No molecule loaded")
+    from rdkit import Chem  # pylint: disable=import-outside-toplevel
+
+    mol_no_h = Chem.RemoveHs(mol)
+    ctx.current_molecule = mol_no_h
+    ctx.push_undo_checkpoint()
+    ctx.refresh_ui()
+    return {"success": True, "num_atoms": mol_no_h.GetNumAtoms()}
+
+
+def _optimize_geometry(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Minimize the current 3D conformer with MMFF94 or UFF.
+
+    Distinct from trigger_3d_conversion, which *generates* a fresh conformer:
+    this refines coordinates the molecule already has, so it errors rather
+    than silently embedding new ones when there is nothing to refine.
+    """
+    mol = ctx.current_molecule
+    if mol is None:
+        raise ValueError("No molecule loaded")
+    if mol.GetNumConformers() == 0:
+        raise ValueError(
+            "Molecule has no 3D coordinates to optimize. Run trigger_3d_conversion first."
+        )
+    force_field = (args.get("force_field") or "mmff").strip().lower()
+    if force_field not in ("mmff", "uff"):
+        raise ValueError("'force_field' must be 'mmff' or 'uff'")
+    max_iters = int(args.get("max_iters", 500))
+
+    from rdkit import Chem  # pylint: disable=import-outside-toplevel
+    from rdkit.Chem import AllChem  # pylint: disable=import-outside-toplevel
+
+    working = Chem.Mol(mol)
+    if force_field == "mmff":
+        status = AllChem.MMFFOptimizeMolecule(working, maxIters=max_iters)
+    else:
+        status = AllChem.UFFOptimizeMolecule(working, maxIters=max_iters)
+    ctx.current_molecule = working
+    ctx.push_undo_checkpoint()
+    ctx.refresh_3d_view()
+    ctx.refresh_ui()
+    return {"success": True, "force_field": force_field, "converged": status == 0}
+
+
+def _set_atom_charge(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Set one atom's formal charge, re-sanitizing before it is accepted."""
+    mol = ctx.current_molecule
+    if mol is None:
+        raise ValueError("No molecule loaded")
+    if "atom_index" not in args:
+        raise ValueError("'atom_index' argument is required")
+    if "charge" not in args:
+        raise ValueError("'charge' argument is required")
+    atom_index = int(args["atom_index"])
+    charge = int(args["charge"])
+    num_atoms = mol.GetNumAtoms()
+    if atom_index < 0 or atom_index >= num_atoms:
+        raise ValueError(f"atom_index {atom_index} is out of range (0-{num_atoms - 1})")
+
+    from rdkit import Chem  # pylint: disable=import-outside-toplevel
+
+    working = Chem.RWMol(mol)
+    working.GetAtomWithIdx(atom_index).SetFormalCharge(charge)
+    new_mol = working.GetMol()
+    try:
+        Chem.SanitizeMol(new_mol)
+    except Exception as exc:  # pylint: disable=broad-except
+        raise ValueError(
+            f"Setting charge {charge} on atom {atom_index} produced an invalid "
+            f"molecule: {exc}"
+        ) from exc
+    ctx.current_molecule = new_mol
+    ctx.push_undo_checkpoint()
+    ctx.refresh_ui()
+    return {"success": True, "atom_index": atom_index, "charge": charge}
+
+
+def _delete_atoms(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Remove one or more atoms by index, highest index first.
+
+    Highest-first matters: removing a lower index first would shift every
+    atom above it down by one, so the caller's remaining indices would no
+    longer name the atoms they were chosen against.
+    """
+    mol = ctx.current_molecule
+    if mol is None:
+        raise ValueError("No molecule loaded")
+    atom_indices = args.get("atom_indices")
+    if not atom_indices:
+        raise ValueError("'atom_indices' argument is required")
+    num_atoms = mol.GetNumAtoms()
+    indices = sorted({int(i) for i in atom_indices}, reverse=True)
+    for idx in indices:
+        if idx < 0 or idx >= num_atoms:
+            raise ValueError(f"atom_index {idx} is out of range (0-{num_atoms - 1})")
+
+    from rdkit import Chem  # pylint: disable=import-outside-toplevel
+
+    working = Chem.RWMol(mol)
+    for idx in indices:
+        working.RemoveAtom(idx)
+    new_mol = working.GetMol()
+    try:
+        Chem.SanitizeMol(new_mol)
+    except Exception as exc:  # pylint: disable=broad-except
+        raise ValueError(f"Deleting atom(s) {indices} produced an invalid molecule: {exc}") from exc
+    ctx.current_molecule = new_mol
+    ctx.push_undo_checkpoint()
+    ctx.refresh_ui()
+    return {
+        "success": True,
+        "deleted": sorted(indices),
+        "remaining_atoms": new_mol.GetNumAtoms(),
+    }
+
+
+def _substructure_search(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+    """SMARTS substructure matches against the current molecule (read-only)."""
+    mol = ctx.current_molecule
+    if mol is None:
+        return {"loaded": False, "matches": []}
+    smarts = (args.get("smarts") or "").strip()
+    if not smarts:
+        raise ValueError("'smarts' argument is required")
+
+    from rdkit import Chem  # pylint: disable=import-outside-toplevel
+
+    pattern = Chem.MolFromSmarts(smarts)
+    if pattern is None:
+        raise ValueError(f"Invalid SMARTS pattern: {smarts!r}")
+    unique = bool(args.get("unique_matches", True))
+    matches = mol.GetSubstructMatches(pattern, uniquify=unique)
+    return {
+        "loaded": True,
+        "smarts": smarts,
+        "num_matches": len(matches),
+        "matches": [list(match) for match in matches],
+    }
+
+
+def _compute_partial_charges(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Gasteiger partial charges per atom. Never mutates the live molecule."""
+    mol = ctx.current_molecule
+    if mol is None:
+        raise ValueError("No molecule loaded")
+    atom_indices = args.get("atom_indices") or []
+
+    from rdkit import Chem  # pylint: disable=import-outside-toplevel
+    from rdkit.Chem import AllChem  # pylint: disable=import-outside-toplevel
+
+    working = Chem.Mol(mol)
+    AllChem.ComputeGasteigerCharges(working)
+    wanted = set(int(i) for i in atom_indices) if atom_indices else None
+    charges = []
+    for atom in working.GetAtoms():
+        idx = atom.GetIdx()
+        if wanted is not None and idx not in wanted:
+            continue
+        raw = atom.GetDoubleProp("_GasteigerCharge") if atom.HasProp("_GasteigerCharge") else 0.0
+        charges.append({"index": idx, "symbol": atom.GetSymbol(), "charge": round(raw, 4)})
+    return {"charges": charges}
 
 
 def _plugin_version() -> str:

@@ -285,6 +285,191 @@ _TOOLS: List[Dict[str, Any]] = [
         ),
         "inputSchema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "get_molecule_image",
+        "description": (
+            "Render the current molecule to a PNG image and return it as an "
+            "actual image (not text) — the 2D editor canvas or the 3D viewer. "
+            "view='auto' (default) picks 3D when the molecule has 3D "
+            "coordinates and the 3D viewer is available, otherwise 2D. "
+            "Useful for visually checking a structure, a highlight, or a "
+            "reaction result without asking the user to look at the screen."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "view": {
+                    "type": "string",
+                    "enum": ["auto", "2d", "3d"],
+                    "description": "Which view to capture (default 'auto').",
+                },
+                "width": {
+                    "type": "integer",
+                    "description": "Image width in pixels, 128-2048 (default 900).",
+                },
+                "height": {
+                    "type": "integer",
+                    "description": "Image height in pixels, 128-2048 (default 700).",
+                },
+            },
+        },
+    },
+    # ------------------------------------------------------------------
+    # Molecule manipulation (direct RDKit access)
+    # ------------------------------------------------------------------
+    {
+        "name": "get_molecule_descriptors",
+        "description": (
+            "Get RDKit's standard descriptor set for the current molecule in one "
+            "call: canonical SMILES, formula, molecular weight, exact mass, "
+            "LogP (Crippen), TPSA, formal charge, H-bond donor/acceptor counts, "
+            "rotatable bond count, ring counts, and atom/bond counts."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "add_hydrogens",
+        "description": (
+            "Add explicit hydrogens to the current molecule (RDKit AddHs). "
+            "If 3D coordinates are already present, new H positions are "
+            "generated along with them. An undo checkpoint is pushed."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "explicit_only": {
+                    "type": "boolean",
+                    "description": (
+                        "If true, only add Hs to atoms that already declare "
+                        "explicit Hs, rather than every atom (default false)."
+                    ),
+                },
+            },
+        },
+    },
+    {
+        "name": "remove_hydrogens",
+        "description": (
+            "Strip explicit hydrogens from the current molecule (RDKit RemoveHs), "
+            "leaving them implicit. An undo checkpoint is pushed."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "optimize_geometry",
+        "description": (
+            "Minimize the current molecule's existing 3D conformer with a force "
+            "field (MMFF94 or UFF). Unlike trigger_3d_conversion, this refines "
+            "coordinates the molecule already has rather than generating new "
+            "ones — call trigger_3d_conversion first if there is no conformer yet. "
+            "An undo checkpoint is pushed and the 3D view is refreshed."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "force_field": {
+                    "type": "string",
+                    "enum": ["mmff", "uff"],
+                    "description": "Which force field to minimize with (default 'mmff').",
+                },
+                "max_iters": {
+                    "type": "integer",
+                    "description": "Maximum optimizer iterations (default 500).",
+                },
+            },
+        },
+    },
+    {
+        "name": "set_atom_charge",
+        "description": (
+            "Set the formal charge of one atom by its 0-based RDKit index. "
+            "The molecule is re-sanitized after the change and the call fails "
+            "if that produces an invalid structure. Call get_mapped_smiles first "
+            "to find the right atom_index. An undo checkpoint is pushed."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "atom_index": {
+                    "type": "integer",
+                    "description": "0-based RDKit atom index.",
+                },
+                "charge": {
+                    "type": "integer",
+                    "description": "New formal charge, e.g. -1, 0, 1.",
+                },
+            },
+            "required": ["atom_index", "charge"],
+        },
+    },
+    {
+        "name": "delete_atoms",
+        "description": (
+            "Delete one or more atoms from the current molecule by their 0-based "
+            "RDKit indices. The molecule is re-sanitized after the deletion, and "
+            "the call fails if that produces an invalid structure. Call "
+            "get_mapped_smiles first to find the right indices. An undo "
+            "checkpoint is pushed."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "atom_indices": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "0-based RDKit atom indices to remove.",
+                },
+            },
+            "required": ["atom_indices"],
+        },
+    },
+    {
+        "name": "substructure_search",
+        "description": (
+            "Find every match of a SMARTS substructure pattern in the current "
+            "molecule (RDKit GetSubstructMatches). Returns, for each match, the "
+            "list of atom indices in pattern order. Read-only — nothing is changed."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "smarts": {
+                    "type": "string",
+                    "description": "SMARTS pattern to search for, e.g. '[OH]' or 'c1ccccc1'.",
+                },
+                "unique_matches": {
+                    "type": "boolean",
+                    "description": (
+                        "If true (default), matches that are symmetry-equivalent "
+                        "are collapsed to one; if false, every match RDKit finds "
+                        "is returned."
+                    ),
+                },
+            },
+            "required": ["smarts"],
+        },
+    },
+    {
+        "name": "compute_partial_charges",
+        "description": (
+            "Compute Gasteiger partial charges for the current molecule. "
+            "Read-only — the result is computed on a private copy, so the "
+            "molecule on the canvas is never modified."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "atom_indices": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": (
+                        "Optional list of 0-based atom indices to restrict the "
+                        "result to. Omit or pass [] for every atom."
+                    ),
+                },
+            },
+        },
+    },
     # ------------------------------------------------------------------
     # Visual / 3D
     # ------------------------------------------------------------------
@@ -958,7 +1143,8 @@ _READ_ONLY_TOOLS = {
     "get_plugin_dir", "get_plugin_dev_manual", "list_app_source_tree",
     "get_app_source", "list_available_plugins", "check_chemistry",
     "read_text_file", "list_directory", "get_file_io_config",
-    "grep_files", "find_files",
+    "grep_files", "find_files", "get_molecule_image", "get_molecule_descriptors",
+    "substructure_search", "compute_partial_charges",
 }
 
 #: Tools that replace or erase user work (the canvas, or a file on disk).
@@ -966,6 +1152,8 @@ _DESTRUCTIVE_TOOLS = {
     "load_molecule_from_smiles", "load_from_mol_block", "load_molecule_by_name",
     "show_xyz_in_viewer", "apply_reaction_smarts", "clear_canvas",
     "write_text_file", "write_file_with_xyz_block", "delete_file", "run_python",
+    "add_hydrogens", "remove_hydrogens", "optimize_geometry", "set_atom_charge",
+    "delete_atoms",
 }
 
 #: Mutating tools whose repeated call leaves the same state.
@@ -1014,6 +1202,21 @@ def _tool_ok(text: str) -> Dict[str, Any]:
 def _tool_err(text: str) -> Dict[str, Any]:
     """Return a failed MCP tool result."""
     return {"content": [{"type": "text", "text": text}], "isError": True}
+
+
+def _tool_image(data_base64: str, mime_type: str, caption: str = "") -> Dict[str, Any]:
+    """Return a successful MCP tool result carrying an image content block.
+
+    A leading text block is included when *caption* is given: several MCP
+    clients render only the first content block's type as the "kind" of
+    result, and a caption-only response with no image block at all is a
+    worse failure than a caption a strict client ignores.
+    """
+    content: List[Dict[str, Any]] = []
+    if caption:
+        content.append({"type": "text", "text": caption})
+    content.append({"type": "image", "data": data_base64, "mimeType": mime_type})
+    return {"content": content}
 
 
 # ---------------------------------------------------------------------------
@@ -1533,6 +1736,131 @@ def dispatch_tool(  # noqa: C901
                 "3D conversion triggered. "
                 "Use get_molecule_xyz to retrieve the generated coordinates."
             )
+
+        if name == "get_molecule_image":
+            data = bridge.call(
+                "get_molecule_image",
+                {
+                    "view": arguments.get("view", "auto"),
+                    "width": arguments.get("width"),
+                    "height": arguments.get("height"),
+                },
+            )
+            return _tool_image(
+                data["image_base64"],
+                data["mime_type"],
+                caption=f"{data['view'].upper()} view, {data['width']}x{data['height']}",
+            )
+
+        # ------------------------------------------------------------------
+        # Molecule manipulation (direct RDKit access)
+        # ------------------------------------------------------------------
+
+        if name == "get_molecule_descriptors":
+            data = bridge.call("get_molecule_descriptors")
+            if not data["loaded"]:
+                return _tool_ok("No molecule is currently loaded in MoleditPy.")
+            lines = [
+                f"Canonical SMILES: {data['canonical_smiles']}",
+                f"Formula: {data['formula']}",
+                f"Molecular Weight: {data['molecular_weight']:.4f} g/mol",
+                f"Exact Mass: {data['exact_mass']:.4f}",
+                f"LogP (Crippen): {data['logp']:.4f}",
+                f"TPSA: {data['tpsa']:.4f}",
+                f"Formal Charge: {data['formal_charge']}",
+                f"H-Bond Donors: {data['num_h_donors']}",
+                f"H-Bond Acceptors: {data['num_h_acceptors']}",
+                f"Rotatable Bonds: {data['num_rotatable_bonds']}",
+                f"Rings: {data['num_rings']} ({data['num_aromatic_rings']} aromatic)",
+                f"Atoms: {data['num_atoms']} ({data['num_heavy_atoms']} heavy)",
+                f"Bonds: {data['num_bonds']}",
+            ]
+            return _tool_ok("\n".join(lines))
+
+        if name == "add_hydrogens":
+            result = bridge.call(
+                "add_hydrogens", {"explicit_only": bool(arguments.get("explicit_only", False))}
+            )
+            return _tool_ok(
+                f"Hydrogens added. Molecule now has {result['num_atoms']} atom(s)."
+            )
+
+        if name == "remove_hydrogens":
+            result = bridge.call("remove_hydrogens")
+            return _tool_ok(
+                f"Hydrogens removed. Molecule now has {result['num_atoms']} atom(s)."
+            )
+
+        if name == "optimize_geometry":
+            result = bridge.call(
+                "optimize_geometry",
+                {
+                    "force_field": arguments.get("force_field", "mmff"),
+                    "max_iters": arguments.get("max_iters", 500),
+                },
+                timeout=60.0,
+            )
+            status = "converged" if result["converged"] else "did not fully converge"
+            return _tool_ok(
+                f"Geometry optimized with {result['force_field'].upper()} ({status})."
+            )
+
+        if name == "set_atom_charge":
+            if "atom_index" not in arguments:
+                return _tool_err("'atom_index' argument is required.")
+            if "charge" not in arguments:
+                return _tool_err("'charge' argument is required.")
+            result = bridge.call(
+                "set_atom_charge",
+                {"atom_index": arguments["atom_index"], "charge": arguments["charge"]},
+            )
+            return _tool_ok(
+                f"Atom {result['atom_index']} formal charge set to {result['charge']}."
+            )
+
+        if name == "delete_atoms":
+            atom_indices = arguments.get("atom_indices") or []
+            if not atom_indices:
+                return _tool_err("'atom_indices' argument is required.")
+            result = bridge.call("delete_atoms", {"atom_indices": atom_indices})
+            return _tool_ok(
+                f"Deleted atom(s) {result['deleted']}. "
+                f"{result['remaining_atoms']} atom(s) remain."
+            )
+
+        if name == "substructure_search":
+            smarts = (arguments.get("smarts") or "").strip()
+            if not smarts:
+                return _tool_err("'smarts' argument is required.")
+            data = bridge.call(
+                "substructure_search",
+                {
+                    "smarts": smarts,
+                    "unique_matches": bool(arguments.get("unique_matches", True)),
+                },
+            )
+            if not data["loaded"]:
+                return _tool_ok("No molecule is currently loaded in MoleditPy.")
+            if not data["matches"]:
+                return _tool_ok(f"No matches for SMARTS {smarts!r}.")
+            lines = [f"{data['num_matches']} match(es) for SMARTS {smarts!r}:"]
+            for i, match in enumerate(data["matches"]):
+                lines.append(f"  Match {i}: atom indices {match}")
+            return _tool_ok("\n".join(lines))
+
+        if name == "compute_partial_charges":
+            data = bridge.call(
+                "compute_partial_charges",
+                {"atom_indices": arguments.get("atom_indices") or []},
+            )
+            if not data["charges"]:
+                return _tool_ok("No molecule loaded or no matching atoms found.")
+            lines = ["Gasteiger partial charges:"]
+            for entry in data["charges"]:
+                lines.append(
+                    f"  Atom {entry['index']} ({entry['symbol']}): {entry['charge']:+.4f}"
+                )
+            return _tool_ok("\n".join(lines))
 
         # "highlight_atoms" kept as a hidden alias for pre-1.4.0 clients.
         if name in ("set_cpk_color_override", "highlight_atoms"):

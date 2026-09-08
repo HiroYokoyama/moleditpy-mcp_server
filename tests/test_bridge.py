@@ -1717,3 +1717,318 @@ def test_qt_stub_is_not_left_behind(monkeypatch):
     _real_bridge()
     assert sys.modules["PyQt6"] is None
     assert sys.modules["PyQt6.QtCore"] is None
+
+
+# ---------------------------------------------------------------------------
+# Molecule manipulation (direct RDKit access) — exercised against real RDKit,
+# the same way _apply_reaction_smarts is above.
+# ---------------------------------------------------------------------------
+
+
+def _ctx_with(smiles, mod=None):
+    pytest.importorskip("rdkit")
+    from rdkit import Chem
+
+    mod = mod or _real_bridge()
+    ctx = MagicMock()
+    ctx.current_molecule = Chem.MolFromSmiles(smiles)
+    return mod, ctx
+
+
+def test_get_molecule_descriptors_no_molecule():
+    mod = _real_bridge()
+    ctx = MagicMock()
+    ctx.current_molecule = None
+    assert mod.execute_operation(ctx, "get_molecule_descriptors", {}) == {"loaded": False}
+
+
+def test_get_molecule_descriptors_with_molecule():
+    mod, ctx = _ctx_with("CCO")
+    data = mod.execute_operation(ctx, "get_molecule_descriptors", {})
+    assert data["loaded"] is True
+    assert data["canonical_smiles"] == "CCO"
+    assert data["formula"] == "C2H6O"
+    assert data["num_atoms"] == 3
+    assert data["num_heavy_atoms"] == 3
+    assert data["formal_charge"] == 0
+    assert data["num_h_donors"] == 1
+
+
+def test_add_hydrogens_default():
+    mod, ctx = _ctx_with("CCO")
+    result = mod.execute_operation(ctx, "add_hydrogens", {})
+    assert result["success"] is True
+    assert result["num_atoms"] == 9  # 3 heavy + 6 H
+    assert ctx.current_molecule.GetNumAtoms() == 9
+    ctx.push_undo_checkpoint.assert_called_once()
+    ctx.refresh_ui.assert_called_once()
+
+
+def test_add_hydrogens_no_molecule_raises():
+    mod = _real_bridge()
+    ctx = MagicMock()
+    ctx.current_molecule = None
+    with pytest.raises(ValueError, match="No molecule loaded"):
+        mod.execute_operation(ctx, "add_hydrogens", {})
+
+
+def test_remove_hydrogens():
+    mod, ctx = _ctx_with("[H][C]([H])([H])[C]([H])([H])[H]")
+    result = mod.execute_operation(ctx, "remove_hydrogens", {})
+    assert result["success"] is True
+    assert result["num_atoms"] == 2
+    ctx.push_undo_checkpoint.assert_called_once()
+
+
+def test_optimize_geometry_without_conformer_raises():
+    mod, ctx = _ctx_with("CCO")
+    with pytest.raises(ValueError, match="no 3D coordinates"):
+        mod.execute_operation(ctx, "optimize_geometry", {})
+
+
+def test_optimize_geometry_invalid_force_field_raises():
+    from rdkit.Chem import AllChem
+
+    mod, ctx = _ctx_with("CCO")
+    AllChem.EmbedMolecule(ctx.current_molecule, randomSeed=1)
+    with pytest.raises(ValueError, match="force_field"):
+        mod.execute_operation(ctx, "optimize_geometry", {"force_field": "bogus"})
+
+
+def test_optimize_geometry_mmff_runs_on_a_copy_not_the_live_molecule():
+    from rdkit.Chem import AllChem
+
+    mod, ctx = _ctx_with("CCO")
+    AllChem.EmbedMolecule(ctx.current_molecule, randomSeed=1)
+    original = ctx.current_molecule
+    result = mod.execute_operation(ctx, "optimize_geometry", {"force_field": "mmff"})
+    assert result["success"] is True
+    assert result["force_field"] == "mmff"
+    assert isinstance(result["converged"], bool)
+    # The context's molecule was reassigned to the optimized copy.
+    assert ctx.current_molecule is not original
+    ctx.refresh_3d_view.assert_called_once()
+
+
+def test_optimize_geometry_uff():
+    from rdkit.Chem import AllChem
+
+    mod, ctx = _ctx_with("CCO")
+    AllChem.EmbedMolecule(ctx.current_molecule, randomSeed=1)
+    result = mod.execute_operation(ctx, "optimize_geometry", {"force_field": "uff"})
+    assert result["force_field"] == "uff"
+
+
+def test_set_atom_charge_out_of_range_raises():
+    mod, ctx = _ctx_with("CCO")
+    with pytest.raises(ValueError, match="out of range"):
+        mod.execute_operation(ctx, "set_atom_charge", {"atom_index": 99, "charge": -1})
+
+
+def test_set_atom_charge_requires_arguments():
+    mod, ctx = _ctx_with("CCO")
+    with pytest.raises(ValueError, match="atom_index"):
+        mod.execute_operation(ctx, "set_atom_charge", {"charge": -1})
+    with pytest.raises(ValueError, match="charge"):
+        mod.execute_operation(ctx, "set_atom_charge", {"atom_index": 0})
+
+
+def test_set_atom_charge_success():
+    # Deprotonated methoxide oxygen: atom 1 in "CO" is the O.
+    mod, ctx = _ctx_with("CO")
+    result = mod.execute_operation(ctx, "set_atom_charge", {"atom_index": 1, "charge": -1})
+    assert result == {"success": True, "atom_index": 1, "charge": -1}
+    assert ctx.current_molecule.GetAtomWithIdx(1).GetFormalCharge() == -1
+    ctx.push_undo_checkpoint.assert_called_once()
+
+
+def test_set_atom_charge_invalid_result_raises():
+    # The quaternary carbon in neopentane already has 4 bonds and no implicit
+    # Hs to give up, so a +1 charge (needing a 5th) cannot sanitize.
+    mod, ctx = _ctx_with("CC(C)(C)C")
+    with pytest.raises(ValueError, match="invalid molecule"):
+        mod.execute_operation(ctx, "set_atom_charge", {"atom_index": 1, "charge": 1})
+
+
+def test_delete_atoms_requires_indices():
+    mod, ctx = _ctx_with("CCO")
+    with pytest.raises(ValueError, match="atom_indices"):
+        mod.execute_operation(ctx, "delete_atoms", {})
+
+
+def test_delete_atoms_out_of_range_raises():
+    mod, ctx = _ctx_with("CCO")
+    with pytest.raises(ValueError, match="out of range"):
+        mod.execute_operation(ctx, "delete_atoms", {"atom_indices": [42]})
+
+
+def test_delete_atoms_removes_highest_index_first():
+    # "CCO": C0-C1-O2. Deleting atom 2 (the O) should leave ethane's carbons.
+    mod, ctx = _ctx_with("CCO")
+    result = mod.execute_operation(ctx, "delete_atoms", {"atom_indices": [2]})
+    assert result["success"] is True
+    assert result["deleted"] == [2]
+    assert result["remaining_atoms"] == 2
+
+
+def test_delete_atoms_multiple_indices_do_not_shift_each_other():
+    mod, ctx = _ctx_with("CCCO")  # C0-C1-C2-O3
+    result = mod.execute_operation(ctx, "delete_atoms", {"atom_indices": [0, 3]})
+    assert result["remaining_atoms"] == 2
+
+
+def test_substructure_search_no_molecule():
+    mod = _real_bridge()
+    ctx = MagicMock()
+    ctx.current_molecule = None
+    result = mod.execute_operation(ctx, "substructure_search", {"smarts": "[OH]"})
+    assert result == {"loaded": False, "matches": []}
+
+
+def test_substructure_search_requires_smarts():
+    mod, ctx = _ctx_with("CCO")
+    with pytest.raises(ValueError, match="smarts"):
+        mod.execute_operation(ctx, "substructure_search", {})
+
+
+def test_substructure_search_invalid_smarts_raises():
+    mod, ctx = _ctx_with("CCO")
+    with pytest.raises(ValueError, match="Invalid SMARTS"):
+        mod.execute_operation(ctx, "substructure_search", {"smarts": "("})
+
+
+def test_substructure_search_finds_matches():
+    mod, ctx = _ctx_with("CCO")
+    result = mod.execute_operation(ctx, "substructure_search", {"smarts": "[OX2H]"})
+    assert result["loaded"] is True
+    assert result["num_matches"] == 1
+    assert result["matches"] == [[2]]
+
+
+def test_compute_partial_charges_all_atoms():
+    mod, ctx = _ctx_with("CCO")
+    result = mod.execute_operation(ctx, "compute_partial_charges", {})
+    assert len(result["charges"]) == 3
+    symbols = [c["symbol"] for c in result["charges"]]
+    assert symbols == ["C", "C", "O"]
+    for entry in result["charges"]:
+        assert isinstance(entry["charge"], float)
+
+
+def test_compute_partial_charges_filters_by_index():
+    mod, ctx = _ctx_with("CCO")
+    result = mod.execute_operation(ctx, "compute_partial_charges", {"atom_indices": [2]})
+    assert len(result["charges"]) == 1
+    assert result["charges"][0]["index"] == 2
+
+
+def test_compute_partial_charges_does_not_mutate_the_live_molecule():
+    mod, ctx = _ctx_with("CCO")
+    original = ctx.current_molecule
+    mod.execute_operation(ctx, "compute_partial_charges", {})
+    assert ctx.current_molecule is original
+    assert not original.HasProp("_GasteigerCharge")
+
+
+def test_compute_partial_charges_no_molecule_raises():
+    mod = _real_bridge()
+    ctx = MagicMock()
+    ctx.current_molecule = None
+    with pytest.raises(ValueError, match="No molecule loaded"):
+        mod.execute_operation(ctx, "compute_partial_charges", {})
+
+
+# ---------------------------------------------------------------------------
+# get_molecule_image
+# ---------------------------------------------------------------------------
+
+
+def test_clamp_dimension_defaults_and_clamps():
+    mod = _real_bridge()
+    assert mod._clamp_dimension(None) == 900
+    assert mod._clamp_dimension("not a number") == 900
+    assert mod._clamp_dimension(10) == 128
+    assert mod._clamp_dimension(999999) == 2048
+    assert mod._clamp_dimension(500) == 500
+
+
+def test_get_molecule_image_rejects_bad_view():
+    mod = _real_bridge()
+    ctx = MagicMock()
+    with pytest.raises(ValueError, match="view"):
+        mod.execute_operation(ctx, "get_molecule_image", {"view": "4d"})
+
+
+def test_get_molecule_image_explicit_3d(monkeypatch):
+    mod = _real_bridge()
+    ctx = MagicMock()
+    monkeypatch.setattr(mod, "_render_3d_png", lambda ctx, w, h: b"threedbytes")
+    result = mod.execute_operation(ctx, "get_molecule_image", {"view": "3d"})
+    assert result["view"] == "3d"
+    import base64
+
+    assert base64.b64decode(result["image_base64"]) == b"threedbytes"
+    assert result["mime_type"] == "image/png"
+
+
+def test_get_molecule_image_explicit_2d(monkeypatch):
+    mod = _real_bridge()
+    ctx = MagicMock()
+    monkeypatch.setattr(mod, "_render_2d_png", lambda ctx, w, h: b"twodbytes")
+    result = mod.execute_operation(ctx, "get_molecule_image", {"view": "2d"})
+    assert result["view"] == "2d"
+
+
+def test_get_molecule_image_auto_prefers_3d_when_available(monkeypatch):
+    mod, ctx = _ctx_with("CCO")
+    from rdkit.Chem import AllChem
+
+    AllChem.EmbedMolecule(ctx.current_molecule, randomSeed=1)
+    ctx.plotter = MagicMock()
+    monkeypatch.setattr(mod, "_render_3d_png", lambda ctx, w, h: b"3d")
+    monkeypatch.setattr(mod, "_render_2d_png", lambda ctx, w, h: b"2d")
+    result = mod.execute_operation(ctx, "get_molecule_image", {"view": "auto"})
+    assert result["view"] == "3d"
+
+
+def test_get_molecule_image_auto_falls_back_to_2d_without_a_conformer(monkeypatch):
+    mod, ctx = _ctx_with("CCO")
+    ctx.plotter = MagicMock()
+    monkeypatch.setattr(mod, "_render_3d_png", lambda ctx, w, h: b"3d")
+    monkeypatch.setattr(mod, "_render_2d_png", lambda ctx, w, h: b"2d")
+    result = mod.execute_operation(ctx, "get_molecule_image", {"view": "auto"})
+    assert result["view"] == "2d"
+
+
+def test_get_molecule_image_auto_falls_back_to_2d_without_a_plotter(monkeypatch):
+    mod, ctx = _ctx_with("CCO")
+    from rdkit.Chem import AllChem
+
+    AllChem.EmbedMolecule(ctx.current_molecule, randomSeed=1)
+    ctx.plotter = None
+    monkeypatch.setattr(mod, "_render_3d_png", lambda ctx, w, h: b"3d")
+    monkeypatch.setattr(mod, "_render_2d_png", lambda ctx, w, h: b"2d")
+    result = mod.execute_operation(ctx, "get_molecule_image", {"view": "auto"})
+    assert result["view"] == "2d"
+
+
+def test_get_molecule_image_empty_render_raises(monkeypatch):
+    mod = _real_bridge()
+    ctx = MagicMock()
+    monkeypatch.setattr(mod, "_render_2d_png", lambda ctx, w, h: None)
+    with pytest.raises(ValueError, match="Nothing to render"):
+        mod.execute_operation(ctx, "get_molecule_image", {"view": "2d"})
+
+
+def test_render_2d_png_returns_none_without_a_scene():
+    mod = _real_bridge()
+    ctx = MagicMock()
+    ctx.scene = None
+    assert mod._render_2d_png(ctx, 400, 300) is None
+
+
+def test_render_3d_png_returns_none_without_a_plotter():
+    mod = _real_bridge()
+    ctx = MagicMock()
+    ctx.plotter = None
+    assert mod._render_3d_png(ctx, 400, 300) is None

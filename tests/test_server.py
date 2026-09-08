@@ -63,6 +63,49 @@ def test_required_tools_have_required_schema_fields(srv):
     assert "smiles" in load_tool["inputSchema"]["required"]
 
 
+def test_molecule_manipulation_tools_present(srv):
+    names = {t["name"] for t in srv._TOOLS}
+    expected = {
+        "get_molecule_image",
+        "get_molecule_descriptors",
+        "add_hydrogens",
+        "remove_hydrogens",
+        "optimize_geometry",
+        "set_atom_charge",
+        "delete_atoms",
+        "substructure_search",
+        "compute_partial_charges",
+    }
+    assert expected <= names
+
+
+def test_set_atom_charge_and_delete_atoms_require_their_arguments(srv):
+    charge_tool = next(t for t in srv._TOOLS if t["name"] == "set_atom_charge")
+    assert set(charge_tool["inputSchema"]["required"]) == {"atom_index", "charge"}
+    delete_tool = next(t for t in srv._TOOLS if t["name"] == "delete_atoms")
+    assert "atom_indices" in delete_tool["inputSchema"]["required"]
+    search_tool = next(t for t in srv._TOOLS if t["name"] == "substructure_search")
+    assert "smarts" in search_tool["inputSchema"]["required"]
+
+
+def test_manipulation_tools_are_classified_destructive(srv):
+    for name in (
+        "add_hydrogens", "remove_hydrogens", "optimize_geometry",
+        "set_atom_charge", "delete_atoms",
+    ):
+        tool = next(t for t in srv._TOOLS if t["name"] == name)
+        assert tool["annotations"]["destructiveHint"] is True
+
+
+def test_read_only_manipulation_tools_are_classified_read_only(srv):
+    for name in (
+        "get_molecule_image", "get_molecule_descriptors",
+        "substructure_search", "compute_partial_charges",
+    ):
+        tool = next(t for t in srv._TOOLS if t["name"] == name)
+        assert tool["annotations"]["readOnlyHint"] is True
+
+
 # ---------------------------------------------------------------------------
 # Tool result helpers
 # ---------------------------------------------------------------------------
@@ -285,6 +328,168 @@ def test_dispatch_get_app_info(srv):
     text = result["content"][0]["text"]
     assert "MoleditPy" in text
     assert "4.0.0" in text
+
+
+def test_dispatch_get_molecule_image(srv):
+    bridge = _bridge({
+        "get_molecule_image": {
+            "view": "3d",
+            "width": 900,
+            "height": 700,
+            "mime_type": "image/png",
+            "image_base64": "Zm9vYmFy",
+        }
+    })
+    result = srv.dispatch_tool(bridge, "get_molecule_image", {})
+    kinds = [block["type"] for block in result["content"]]
+    assert "image" in kinds
+    image_block = next(b for b in result["content"] if b["type"] == "image")
+    assert image_block["data"] == "Zm9vYmFy"
+    assert image_block["mimeType"] == "image/png"
+
+
+def test_dispatch_get_molecule_image_passes_view_and_size(srv):
+    bridge = _bridge({
+        "get_molecule_image": {
+            "view": "2d",
+            "width": 400,
+            "height": 300,
+            "mime_type": "image/png",
+            "image_base64": "eA==",
+        }
+    })
+    srv.dispatch_tool(bridge, "get_molecule_image", {"view": "2d", "width": 400, "height": 300})
+    bridge.call.assert_called_once_with(
+        "get_molecule_image", {"view": "2d", "width": 400, "height": 300}
+    )
+
+
+def test_dispatch_get_molecule_descriptors_no_mol(srv):
+    bridge = _bridge({"get_molecule_descriptors": {"loaded": False}})
+    result = srv.dispatch_tool(bridge, "get_molecule_descriptors", {})
+    assert "No molecule" in result["content"][0]["text"]
+
+
+def test_dispatch_get_molecule_descriptors_with_mol(srv):
+    bridge = _bridge({
+        "get_molecule_descriptors": {
+            "loaded": True,
+            "canonical_smiles": "CCO",
+            "formula": "C2H6O",
+            "molecular_weight": 46.0684,
+            "exact_mass": 46.0419,
+            "logp": -0.0014,
+            "tpsa": 20.23,
+            "formal_charge": 0,
+            "num_h_donors": 1,
+            "num_h_acceptors": 1,
+            "num_rotatable_bonds": 0,
+            "num_rings": 0,
+            "num_aromatic_rings": 0,
+            "num_atoms": 3,
+            "num_heavy_atoms": 3,
+            "num_bonds": 2,
+        }
+    })
+    result = srv.dispatch_tool(bridge, "get_molecule_descriptors", {})
+    text = result["content"][0]["text"]
+    assert "CCO" in text
+    assert "C2H6O" in text
+
+
+def test_dispatch_add_hydrogens(srv):
+    bridge = _bridge({"add_hydrogens": {"success": True, "num_atoms": 9}})
+    result = srv.dispatch_tool(bridge, "add_hydrogens", {})
+    assert "9" in result["content"][0]["text"]
+
+
+def test_dispatch_remove_hydrogens(srv):
+    bridge = _bridge({"remove_hydrogens": {"success": True, "num_atoms": 3}})
+    result = srv.dispatch_tool(bridge, "remove_hydrogens", {})
+    assert "3" in result["content"][0]["text"]
+
+
+def test_dispatch_optimize_geometry(srv):
+    bridge = _bridge({
+        "optimize_geometry": {"success": True, "force_field": "mmff", "converged": True}
+    })
+    result = srv.dispatch_tool(bridge, "optimize_geometry", {})
+    text = result["content"][0]["text"]
+    assert "MMFF" in text
+    assert "converged" in text
+
+
+def test_dispatch_set_atom_charge_missing_args(srv):
+    bridge = MagicMock()
+    result = srv.dispatch_tool(bridge, "set_atom_charge", {"charge": -1})
+    assert result.get("isError") is True
+    bridge.call.assert_not_called()
+
+
+def test_dispatch_set_atom_charge_ok(srv):
+    bridge = _bridge({"set_atom_charge": {"success": True, "atom_index": 2, "charge": -1}})
+    result = srv.dispatch_tool(bridge, "set_atom_charge", {"atom_index": 2, "charge": -1})
+    assert "2" in result["content"][0]["text"]
+
+
+def test_dispatch_delete_atoms_missing_args(srv):
+    bridge = MagicMock()
+    result = srv.dispatch_tool(bridge, "delete_atoms", {})
+    assert result.get("isError") is True
+    bridge.call.assert_not_called()
+
+
+def test_dispatch_delete_atoms_ok(srv):
+    bridge = _bridge({
+        "delete_atoms": {"success": True, "deleted": [3, 1], "remaining_atoms": 5}
+    })
+    result = srv.dispatch_tool(bridge, "delete_atoms", {"atom_indices": [1, 3]})
+    assert "5" in result["content"][0]["text"]
+
+
+def test_dispatch_substructure_search_missing_smarts(srv):
+    bridge = MagicMock()
+    result = srv.dispatch_tool(bridge, "substructure_search", {})
+    assert result.get("isError") is True
+
+
+def test_dispatch_substructure_search_no_matches(srv):
+    bridge = _bridge({
+        "substructure_search": {
+            "loaded": True, "smarts": "[OH]", "num_matches": 0, "matches": []
+        }
+    })
+    result = srv.dispatch_tool(bridge, "substructure_search", {"smarts": "[OH]"})
+    assert "No matches" in result["content"][0]["text"]
+
+
+def test_dispatch_substructure_search_with_matches(srv):
+    bridge = _bridge({
+        "substructure_search": {
+            "loaded": True, "smarts": "[OH]", "num_matches": 1, "matches": [[2]]
+        }
+    })
+    result = srv.dispatch_tool(bridge, "substructure_search", {"smarts": "[OH]"})
+    text = result["content"][0]["text"]
+    assert "1 match" in text
+    assert "[2]" in text
+
+
+def test_dispatch_compute_partial_charges(srv):
+    bridge = _bridge({
+        "compute_partial_charges": {
+            "charges": [{"index": 0, "symbol": "C", "charge": -0.05}]
+        }
+    })
+    result = srv.dispatch_tool(bridge, "compute_partial_charges", {})
+    text = result["content"][0]["text"]
+    assert "Atom 0 (C)" in text
+
+
+def test_dispatch_compute_partial_charges_empty(srv):
+    bridge = _bridge({"compute_partial_charges": {"charges": []}})
+    result = srv.dispatch_tool(bridge, "compute_partial_charges", {})
+    assert "No molecule" in result["content"][0]["text"]
 
 
 def test_dispatch_unknown_tool(srv):
