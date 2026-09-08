@@ -918,11 +918,22 @@ def _render_3d_png(ctx: Any, width: int, height: int) -> Optional[bytes]:
         return None
     handle, path = tempfile.mkstemp(suffix=".png")
     os.close(handle)
+    # PyVista's screenshot(window_size=...) assigns the size to the plotter and
+    # never puts it back, so asking for an image would silently resize the
+    # viewer the user is looking at -- and this tool is annotated read-only.
+    previous = getattr(plotter, "window_size", None)
     try:
         plotter.screenshot(path, window_size=[width, height])
         with open(path, "rb") as file_obj:
             return file_obj.read() or None
     finally:
+        if previous is not None:
+            try:
+                plotter.window_size = previous
+            except Exception:  # pylint: disable=broad-except
+                # A plotter that will not take its own size back is not a
+                # reason to fail a screenshot that already succeeded.
+                logging.debug("MCP Server: 3D viewer size not restored")
         try:
             os.unlink(path)
         except OSError:

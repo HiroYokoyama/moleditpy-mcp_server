@@ -2032,3 +2032,43 @@ def test_render_3d_png_returns_none_without_a_plotter():
     ctx = MagicMock()
     ctx.plotter = None
     assert mod._render_3d_png(ctx, 400, 300) is None
+
+
+class _SizedPlotter:
+    """A plotter that behaves like PyVista's: window_size given to screenshot()
+    sticks to the object, and is never put back by screenshot itself."""
+
+    def __init__(self):
+        self.window_size = [640, 480]
+
+    def screenshot(self, path, window_size=None):
+        if window_size is not None:
+            self.window_size = list(window_size)
+        with open(path, "wb") as handle:
+            handle.write(b"\x89PNG fake")
+
+
+def test_render_3d_png_puts_the_viewers_size_back():
+    # Asking for an image must not resize the 3D viewer the user is looking
+    # at: get_molecule_image is annotated read-only.
+    mod = _real_bridge()
+    ctx = MagicMock()
+    ctx.plotter = _SizedPlotter()
+    assert mod._render_3d_png(ctx, 1600, 1200) == b"\x89PNG fake"
+    assert ctx.plotter.window_size == [640, 480]
+
+
+def test_render_3d_png_restores_the_size_even_when_the_screenshot_fails():
+    mod = _real_bridge()
+    plotter = _SizedPlotter()
+
+    def boom(path, window_size=None):
+        plotter.window_size = list(window_size or plotter.window_size)
+        raise RuntimeError("render failed")
+
+    plotter.screenshot = boom
+    ctx = MagicMock()
+    ctx.plotter = plotter
+    with pytest.raises(RuntimeError):
+        mod._render_3d_png(ctx, 1600, 1200)
+    assert plotter.window_size == [640, 480]
