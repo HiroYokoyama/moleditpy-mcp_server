@@ -6,6 +6,7 @@ Once running, any MCP-compatible client — **Claude Desktop**, **Claude Code**,
 
 [![Tests](https://github.com/HiroYokoyama/moleditpy-mcp_server/actions/workflows/test.yml/badge.svg)](https://github.com/HiroYokoyama/moleditpy-mcp_server/actions/workflows/test.yml)
 ![Test Coverage](https://img.shields.io/badge/coverage->90%25-green)
+[![MoleditPy](https://img.shields.io/badge/MoleditPy->=4.0.0-3577F7)](https://github.com/HiroYokoyama/python_molecular_editor)
 [![Downloads](https://img.shields.io/github/downloads/HiroYokoyama/moleditpy-mcp_server/total)](https://github.com/HiroYokoyama/moleditpy-mcp_server/releases)
 [![GitHub tag](https://img.shields.io/github/v/tag/HiroYokoyama/moleditpy-mcp_server?label=version)](https://github.com/HiroYokoyama/moleditpy-mcp_server/tags)
 [![PyPI - mcp-gui-tester](https://img.shields.io/pypi/v/mcp-gui-tester?label=mcp-gui-tester)](https://pypi.org/project/mcp-gui-tester/)
