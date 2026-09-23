@@ -24,14 +24,14 @@ import logging
 from typing import Any, Optional
 
 PLUGIN_NAME = "MCP Server"
-PLUGIN_VERSION = "1.6.1"
+PLUGIN_VERSION = "1.6.2"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Expose MoleditPy via Model Context Protocol (MCP) "
     "for AI assistant integration (Claude Desktop, etc.)."
 )
 PLUGIN_CATEGORY = "Integration"
-PLUGIN_TAGS = ["MCP", "AI", "Integration", "API", "Claude"]
+PLUGIN_TAGS = ["AI"]
 PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=4.0.0, <5.0.0"
 
 logger = logging.getLogger(__name__)
