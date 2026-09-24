@@ -52,4 +52,9 @@ jobs:
         run: pip install pytest moleditpy
 
       - name: Run integration tests
-        run: pytest tests/test_plugin_integration.py -v --tb=short
+        # test_integration_xyz_charge drives the app's real XYZ loader (real
+        # RDKit bond perception) to catch changes to the charge-prompt hook.
+        env:
+          MOLEDITPY_HEADLESS: "1"
+          QT_QPA_PLATFORM: offscreen
+        run: pytest tests/test_plugin_integration.py tests/test_integration_xyz_charge.py -v --tb=short

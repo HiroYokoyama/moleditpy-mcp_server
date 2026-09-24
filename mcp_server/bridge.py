@@ -15,9 +15,11 @@ function with no Qt dependency) so it can be unit-tested without a QApplication.
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import math
 import threading
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 from PyQt6.QtCore import QObject, Qt, QTimer, pyqtSignal
 
@@ -74,8 +76,26 @@ def execute_operation(ctx: Any, operation: str, args: Dict[str, Any]) -> Any:  #
         source_name = args.get("source_name", "MCP input")
         if not xyz_text:
             raise ValueError("'xyz_text' argument is required")
-        mol = ctx.show_xyz_data(xyz_text, source_name=source_name)
-        return {"success": mol is not None}
+        charge = args.get("charge")
+        if charge is not None:
+            if isinstance(charge, bool) or not isinstance(charge, int):
+                raise ValueError("'charge' must be an integer")
+        skip = bool(args.get("skip_chemistry", False))
+        frame = args.get("frame")
+        if frame is not None:
+            frame = _int_arg(frame, "frame")
+        xyz_text, frame_idx, n_frames = _select_xyz_frame(xyz_text, frame)
+        plotter = ctx.plotter if args.get("keep_camera") else None
+        camera = plotter.camera_position if plotter is not None else None
+        with _xyz_charge_override(ctx, charge, skip) as state:
+            mol = ctx.show_xyz_data(xyz_text, source_name=source_name)
+        if camera is not None and mol is not None:
+            plotter.camera_position = camera
+            plotter.render()
+        result = _show_xyz_result(mol, charge, state)
+        if n_frames > 1:
+            result.update(frame=frame_idx, num_frames=n_frames)
+        return result
 
     if operation == "get_atom_properties":
         return _get_atom_properties(ctx, args.get("atom_indices") or [])
@@ -199,6 +219,21 @@ def execute_operation(ctx: Any, operation: str, args: Dict[str, Any]) -> Any:  #
 
     if operation == "get_molecule_image":
         return _get_molecule_image(ctx, args)
+
+    if operation == "get_3d_camera":
+        return _get_3d_camera(ctx)
+
+    if operation == "set_3d_camera":
+        return _set_3d_camera(ctx, args)
+
+    if operation == "measure_geometry":
+        return _measure_geometry(ctx, args)
+
+    if operation == "compare_structures":
+        return _compare_structures(ctx, args)
+
+    if operation == "clear_overlay":
+        return _clear_overlay(ctx)
 
     if operation == "get_molecule_descriptors":
         return _get_molecule_descriptors(ctx)
@@ -473,6 +508,89 @@ def _load_mol_block(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     ctx.push_undo_checkpoint()
     ctx.refresh_ui()
     return {"success": True}
+
+
+_XYZ_SETTING_KEYS = ("skip_chemistry_checks", "always_ask_charge")
+_MISSING = object()
+
+
+@contextlib.contextmanager
+def _xyz_charge_override(ctx: Any, charge: Optional[int], skip: bool) -> Iterator[Dict[str, Any]]:
+    """Answer MoleditPy's XYZ charge prompt on the caller's behalf.
+
+    Loading XYZ text first tries bond perception with charge 0 and, when that
+    fails (or 'always ask' is on), opens a modal charge dialog. Over MCP no
+    one is there to answer it, so for the duration of the call the prompt is
+    replaced by one that returns *charge* once and then "skip chemistry"
+    (a second prompt means perception failed with that charge; looping on the
+    same answer would never end). An explicit *charge* also bypasses the
+    silent charge-0 attempt, which can "succeed" with wrong bond orders for
+    an ion. The app's settings and prompt are restored afterwards.
+    """
+    state: Dict[str, Any] = {"prompts": 0, "fallback": False}
+    mw = ctx.get_main_window() if hasattr(ctx, "get_main_window") else None
+    io_mgr = getattr(mw, "io_manager", None)
+    settings = getattr(getattr(mw, "init_manager", None), "settings", None)
+    if io_mgr is None or not isinstance(settings, dict):
+        yield state
+        return
+
+    def _prompt() -> tuple:
+        state["prompts"] += 1
+        if charge is not None and state["prompts"] == 1:
+            return charge, True, False
+        state["fallback"] = True
+        return 0, True, True
+
+    own = vars(io_mgr) if hasattr(io_mgr, "__dict__") else {}
+    saved_prompt = own.get("prompt_for_charge", _MISSING)
+    saved = {k: settings.get(k, _MISSING) for k in _XYZ_SETTING_KEYS}
+    io_mgr.prompt_for_charge = _prompt
+    if skip:
+        settings["skip_chemistry_checks"] = True
+    elif charge is not None:
+        settings["skip_chemistry_checks"] = False
+        settings["always_ask_charge"] = True
+    try:
+        yield state
+    finally:
+        if saved_prompt is _MISSING:
+            try:
+                del io_mgr.prompt_for_charge
+            except AttributeError:
+                pass
+        else:
+            io_mgr.prompt_for_charge = saved_prompt
+        for key, value in saved.items():
+            if value is _MISSING:
+                settings.pop(key, None)
+            else:
+                settings[key] = value
+
+
+def _show_xyz_result(mol: Any, charge: Optional[int], state: Dict[str, Any]) -> Dict[str, Any]:
+    """Summarize how an XYZ load went: which charge was used, whether bond
+    perception was skipped (distance-based bonds only), and why."""
+    if mol is None:
+        return {"success": False}
+    skipped = bool(mol.HasProp("_xyz_skip_checks") and mol.GetIntProp("_xyz_skip_checks"))
+    result: Dict[str, Any] = {
+        "success": True,
+        "chemistry_skipped": skipped,
+        "charge": None if skipped else (
+            mol.GetIntProp("_xyz_charge") if mol.HasProp("_xyz_charge") else charge
+        ),
+        "num_atoms": mol.GetNumAtoms(),
+        "num_bonds": mol.GetNumBonds(),
+    }
+    if state.get("fallback"):
+        result["note"] = (
+            f"Bond perception failed with charge {charge}; loaded with distance-based bonds."
+            if charge is not None
+            else "Bond perception failed with charge 0; loaded with distance-based bonds. "
+            "Pass 'charge' for ions."
+        )
+    return result
 
 
 def _get_mapped_smiles(ctx: Any) -> Dict[str, Any]:
@@ -884,9 +1002,11 @@ def _get_molecule_image(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
         )
         view = "3d" if has_3d else "2d"
 
-    png_bytes = _render_3d_png(ctx, width, height) if view == "3d" else _render_2d_png(
-        ctx, width, height
-    )
+    if view == "3d":
+        with _atom_index_labels(ctx, bool(args.get("atom_labels", False))):
+            png_bytes = _render_3d_png(ctx, width, height)
+    else:
+        png_bytes = _render_2d_png(ctx, width, height)
     if not png_bytes:
         empty = "3D viewer" if view == "3d" else "2D canvas"
         raise ValueError(
@@ -977,6 +1097,373 @@ def _render_3d_png(ctx: Any, width: int, height: int) -> Optional[bytes]:
             os.unlink(path)
         except OSError:
             logger.debug("Temp screenshot not removed: %s", path)
+
+
+@contextlib.contextmanager
+def _atom_index_labels(ctx: Any, enabled: bool) -> Iterator[None]:
+    """Overlay 0-based atom indices on the 3D viewer for one capture, then
+    remove them so the user's view is left as it was."""
+    plotter = ctx.plotter
+    mol = ctx.current_molecule
+    if not enabled or plotter is None or mol is None or mol.GetNumConformers() == 0:
+        yield
+        return
+    conf = mol.GetConformer()
+    points = [list(conf.GetAtomPosition(i)) for i in range(mol.GetNumAtoms())]
+    actor = plotter.add_point_labels(
+        points,
+        [str(i) for i in range(len(points))],
+        font_size=14,
+        text_color="black",
+        shape_color="white",
+        shape_opacity=0.6,
+        show_points=False,
+        always_visible=True,
+        name="_mcp_atom_index_labels",
+    )
+    try:
+        yield
+    finally:
+        try:
+            plotter.remove_actor(actor)
+            plotter.render()
+        except Exception:  # pylint: disable=broad-except
+            logger.debug("Atom index labels not removed")
+
+
+# ---------------------------------------------------------------------------
+# 3D camera
+# ---------------------------------------------------------------------------
+
+
+def _vec3(value: Any, what: str) -> List[float]:
+    """A finite 3-vector from a JSON list, or ValueError naming the argument."""
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        raise ValueError(f"'{what}' must be a list of 3 numbers")
+    try:
+        out = [float(v) for v in value]
+    except (TypeError, ValueError):
+        raise ValueError(f"'{what}' must be a list of 3 numbers") from None
+    if not all(math.isfinite(v) for v in out):
+        raise ValueError(f"'{what}' must contain finite numbers")
+    return out
+
+
+def _camera_state(plotter: Any) -> Dict[str, Any]:
+    pos, focal, up = plotter.camera_position
+    return {
+        "position": [round(float(v), 4) for v in pos],
+        "focal_point": [round(float(v), 4) for v in focal],
+        "view_up": [round(float(v), 4) for v in up],
+    }
+
+
+def _get_3d_camera(ctx: Any) -> Dict[str, Any]:
+    plotter = ctx.plotter
+    if plotter is None:
+        raise ValueError("The 3D viewer is not available.")
+    return _camera_state(plotter)
+
+
+def _set_3d_camera(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Point the 3D camera explicitly.
+
+    Either give ``position`` (absolute), or ``direction`` (from the focal
+    point toward the camera, i.e. the side you look from). ``fit`` (default
+    true with ``direction``) re-frames the molecule while keeping that
+    orientation; ``zoom`` > 1 then moves in.
+    """
+    plotter = ctx.plotter
+    if plotter is None:
+        raise ValueError("The 3D viewer is not available.")
+    if "position" in args and "direction" in args:
+        raise ValueError("Pass either 'position' or 'direction', not both")
+    cur_pos, cur_focal, cur_up = (list(map(float, v)) for v in plotter.camera_position)
+    focal = _vec3(args["focal_point"], "focal_point") if "focal_point" in args else cur_focal
+    up = _vec3(args["view_up"], "view_up") if "view_up" in args else cur_up
+    if "position" in args:
+        pos = _vec3(args["position"], "position")
+    elif "direction" in args:
+        d = _vec3(args["direction"], "direction")
+        norm = math.sqrt(sum(v * v for v in d))
+        if norm == 0.0:
+            raise ValueError("'direction' must be non-zero")
+        dist = math.sqrt(sum((a - b) ** 2 for a, b in zip(cur_pos, cur_focal))) or 10.0
+        pos = [f + dist * v / norm for f, v in zip(focal, d)]
+    else:
+        pos = cur_pos
+    view = [p - f for p, f in zip(pos, focal)]
+    view_len = math.sqrt(sum(v * v for v in view))
+    up_len = math.sqrt(sum(v * v for v in up))
+    if view_len == 0.0 or up_len == 0.0:
+        raise ValueError("Camera position must differ from focal_point, and view_up be non-zero")
+    cos = abs(sum(a * b for a, b in zip(view, up))) / (view_len * up_len)
+    if cos > 0.999:
+        raise ValueError("'view_up' is parallel to the viewing direction")
+    plotter.camera_position = [pos, focal, up]
+    fit = args.get("fit", "direction" in args)
+    if fit:
+        plotter.reset_camera()
+    zoom = args.get("zoom")
+    if zoom is not None:
+        zoom = float(zoom)
+        if not (math.isfinite(zoom) and zoom > 0):
+            raise ValueError("'zoom' must be a positive number")
+        plotter.camera.zoom(zoom)
+    plotter.render()
+    return _camera_state(plotter)
+
+
+# ---------------------------------------------------------------------------
+# Geometry measurement
+# ---------------------------------------------------------------------------
+
+
+def _sub(a: List[float], b: List[float]) -> List[float]:
+    return [x - y for x, y in zip(a, b)]
+
+
+def _dot(a: List[float], b: List[float]) -> float:
+    return sum(x * y for x, y in zip(a, b))
+
+
+def _cross(a: List[float], b: List[float]) -> List[float]:
+    return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+
+
+def _angle_deg(a: List[float], b: List[float], c: List[float]) -> float:
+    """Angle a-b-c in degrees."""
+    u, v = _sub(a, b), _sub(c, b)
+    nu, nv = math.sqrt(_dot(u, u)), math.sqrt(_dot(v, v))
+    if nu == 0.0 or nv == 0.0:
+        raise ValueError("Angle undefined: two atoms coincide")
+    return math.degrees(math.acos(max(-1.0, min(1.0, _dot(u, v) / (nu * nv)))))
+
+
+def _dihedral_deg(a: List[float], b: List[float], c: List[float], d: List[float]) -> float:
+    """Signed dihedral a-b-c-d in degrees (IUPAC sign convention)."""
+    b0, b1, b2 = _sub(a, b), _sub(c, b), _sub(d, c)
+    n1 = math.sqrt(_dot(b1, b1))
+    if n1 == 0.0:
+        raise ValueError("Dihedral undefined: the central atoms coincide")
+    b1 = [x / n1 for x in b1]
+    v = _sub(b0, [_dot(b0, b1) * x for x in b1])
+    w = _sub(b2, [_dot(b2, b1) * x for x in b1])
+    if _dot(v, v) == 0.0 or _dot(w, w) == 0.0:
+        raise ValueError("Dihedral undefined: three atoms are collinear")
+    return math.degrees(math.atan2(_dot(_cross(b1, v), w), _dot(v, w)))
+
+
+def _measure_geometry(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Distances (2 atoms), angles (3) and dihedrals (4) on the current 3D
+    conformer, by 0-based atom index."""
+    mol = ctx.current_molecule
+    if mol is None or mol.GetNumConformers() == 0:
+        raise ValueError("No 3D coordinates available.")
+    groups = args.get("atoms")
+    if not isinstance(groups, list) or not groups:
+        raise ValueError("'atoms' must be a non-empty list of index lists")
+    if len(groups) > 500:
+        raise ValueError("At most 500 measurements per call")
+    conf = mol.GetConformer()
+    out = []
+    for group in groups:
+        if not isinstance(group, list) or len(group) not in (2, 3, 4):
+            raise ValueError("Each entry must list 2, 3 or 4 atom indices")
+        idx = [_check_atom_index(mol, i) for i in group]
+        if len(set(idx)) != len(idx):
+            raise ValueError(f"Repeated atom index in {group}")
+        pts = [[float(v) for v in conf.GetAtomPosition(i)] for i in idx]
+        if len(idx) == 2:
+            kind, value = "distance", math.dist(pts[0], pts[1])
+        elif len(idx) == 3:
+            kind, value = "angle", _angle_deg(*pts)
+        else:
+            kind, value = "dihedral", _dihedral_deg(*pts)
+        symbols = [mol.GetAtomWithIdx(i).GetSymbol() for i in idx]
+        out.append({"atoms": idx, "symbols": symbols, "type": kind, "value": round(float(value), 4)})
+    return {"measurements": out, "units": {"distance": "angstrom", "angle": "degree", "dihedral": "degree"}}
+
+
+# ---------------------------------------------------------------------------
+# Structure comparison (RMSD + overlay)
+# ---------------------------------------------------------------------------
+
+_OVERLAY_NAMES = ("_mcp_overlay_atoms", "_mcp_overlay_bonds")
+
+
+def split_xyz_blocks(text: str) -> List[tuple]:
+    """Split XYZ text into frames of (comment, [atom lines]), raw lines kept.
+
+    Multi-frame files (optimization trajectories) are the standard
+    "count / comment / atoms" blocks back to back. Text without a count
+    header is one frame of bare 'Element X Y Z' lines with an empty comment.
+    """
+    lines = text.splitlines()
+    first = next((ln for ln in lines if ln.strip()), "")
+    if not first.strip().isdigit():
+        atoms = [ln for ln in lines if ln.strip()]
+        return [("", atoms)] if atoms else []
+    frames: List[tuple] = []
+    i = 0
+    while i < len(lines):
+        if not lines[i].strip():
+            i += 1
+            continue
+        count_text = lines[i].strip()
+        if not count_text.isdigit():
+            raise ValueError(f"Expected an atom count on line {i + 1}, got {count_text!r}")
+        count = int(count_text)
+        comment = lines[i + 1] if i + 1 < len(lines) else ""
+        block = lines[i + 2:i + 2 + count]
+        if len(block) < count:
+            raise ValueError(f"Frame {len(frames)} is truncated ({len(block)} of {count} atoms)")
+        frames.append((comment, block))
+        i += 2 + count
+    return frames
+
+
+def parse_xyz_frames(text: str) -> List[List[tuple]]:
+    """Frames of (symbol, x, y, z) tuples; see split_xyz_blocks."""
+    return [[_xyz_row(ln) for ln in block] for _comment, block in split_xyz_blocks(text)]
+
+
+def _select_xyz_frame(text: str, frame: Optional[int]) -> tuple:
+    """(xyz text of one frame, frame index, frame count).
+
+    Without *frame* a single-frame text is passed through untouched (the
+    app's own parser handles its quirks); a trajectory defaults to its last
+    frame, the converged geometry of an optimization.
+    """
+    try:
+        blocks = split_xyz_blocks(text)
+    except ValueError:
+        if frame is None:
+            return text, 0, 1
+        raise
+    if not blocks:
+        return text, 0, 0
+    if frame is None and len(blocks) == 1:
+        return text, 0, 1
+    idx = len(blocks) - 1 if frame is None else frame
+    if not -len(blocks) <= idx < len(blocks):
+        raise ValueError(f"'frame' {frame} out of range ({len(blocks)} frames)")
+    idx %= len(blocks)
+    comment, atoms = blocks[idx]
+    return "\n".join([str(len(atoms)), comment] + atoms), idx, len(blocks)
+
+
+def _xyz_row(line: str) -> tuple:
+    parts = line.split()
+    if len(parts) < 4:
+        raise ValueError(f"Not an 'Element X Y Z' line: {line!r}")
+    symbol = parts[0].strip().capitalize()
+    try:
+        return (symbol, float(parts[1]), float(parts[2]), float(parts[3]))
+    except ValueError:
+        raise ValueError(f"Not an 'Element X Y Z' line: {line!r}") from None
+
+
+def _kabsch(p: Any, q: Any) -> tuple:
+    """Rotation R and translation t minimizing |(q @ R.T + t) - p| (moves q onto p)."""
+    import numpy as np  # pylint: disable=import-outside-toplevel
+
+    pc, qc = p.mean(axis=0), q.mean(axis=0)
+    h = (q - qc).T @ (p - pc)
+    u, _s, vt = np.linalg.svd(h)
+    d = np.sign(np.linalg.det(vt.T @ u.T)) or 1.0
+    rot = vt.T @ np.diag([1.0, 1.0, d]) @ u.T
+    return rot, pc - qc @ rot.T
+
+
+def _compare_structures(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+    """RMSD between the current 3D molecule and another structure with the
+    same atoms in the same order, optionally drawn as a translucent overlay."""
+    import numpy as np  # pylint: disable=import-outside-toplevel
+
+    mol = ctx.current_molecule
+    if mol is None or mol.GetNumConformers() == 0:
+        raise ValueError("No 3D coordinates available for the current molecule.")
+    frames = parse_xyz_frames(args.get("xyz_text", ""))
+    if not frames:
+        raise ValueError("'xyz_text' contains no atoms")
+    frame_idx = int(args.get("frame", -1))
+    try:
+        other = frames[frame_idx]
+    except IndexError:
+        raise ValueError(f"'frame' {frame_idx} out of range ({len(frames)} frames)") from None
+    n = mol.GetNumAtoms()
+    if len(other) != n:
+        raise ValueError(f"Atom count differs: current {n}, other {len(other)}")
+    symbols = [mol.GetAtomWithIdx(i).GetSymbol() for i in range(n)]
+    mismatch = [i for i in range(n) if symbols[i] != other[i][0]]
+    if mismatch:
+        i = mismatch[0]
+        raise ValueError(
+            f"Atom order differs: index {i} is {symbols[i]} here and {other[i][0]} in the other structure"
+        )
+    conf = mol.GetConformer()
+    p = np.array([list(conf.GetAtomPosition(i)) for i in range(n)])
+    q = np.array([row[1:] for row in other])
+    heavy_only = bool(args.get("heavy_atoms_only", False))
+    sel = [i for i in range(n) if not (heavy_only and symbols[i] == "H")] or list(range(n))
+    if args.get("align", True):
+        rot, t = _kabsch(p[sel], q[sel])
+        q = q @ rot.T + t
+    dev = np.linalg.norm(p - q, axis=1)
+    rmsd = float(np.sqrt((dev[sel] ** 2).mean()))
+    order = sorted(sel, key=lambda i: -dev[i])[:10]
+    result = {
+        "rmsd": round(rmsd, 4),
+        "atoms_used": len(sel),
+        "aligned": bool(args.get("align", True)),
+        "largest_deviations": [
+            {"index": i, "symbol": symbols[i], "deviation": round(float(dev[i]), 4)} for i in order
+        ],
+    }
+    if args.get("overlay", False):
+        _draw_overlay(ctx, mol, q, str(args.get("overlay_color", "orange")))
+        result["overlay"] = True
+    return result
+
+
+def _draw_overlay(ctx: Any, mol: Any, coords: Any, color: str) -> None:
+    """Translucent spheres + bonds for the other structure, using the current
+    molecule's bonds (same atom order was checked by the caller)."""
+    import numpy as np  # pylint: disable=import-outside-toplevel
+    import pyvista as pv  # pylint: disable=import-outside-toplevel
+
+    plotter = ctx.plotter
+    if plotter is None:
+        raise ValueError("The 3D viewer is not available.")
+    _clear_overlay(ctx)
+    plotter.add_mesh(
+        pv.PolyData(np.asarray(coords, dtype=float)),
+        color=color, opacity=0.5, point_size=14, render_points_as_spheres=True,
+        name=_OVERLAY_NAMES[0], pickable=False,
+    )
+    bonds = [(b.GetBeginAtomIdx(), b.GetEndAtomIdx()) for b in mol.GetBonds()]
+    if bonds:
+        lines = np.hstack([[2, a, b] for a, b in bonds])
+        plotter.add_mesh(
+            pv.PolyData(np.asarray(coords, dtype=float), lines=lines),
+            color=color, opacity=0.5, line_width=4, name=_OVERLAY_NAMES[1], pickable=False,
+        )
+    plotter.render()
+
+
+def _clear_overlay(ctx: Any) -> Dict[str, Any]:
+    plotter = ctx.plotter
+    removed = 0
+    if plotter is not None:
+        for name in _OVERLAY_NAMES:
+            try:
+                if plotter.remove_actor(name):
+                    removed += 1
+            except Exception:  # pylint: disable=broad-except
+                logger.debug("Overlay actor %s not removed", name)
+        plotter.render()
+    return {"removed": removed}
 
 
 # ---------------------------------------------------------------------------

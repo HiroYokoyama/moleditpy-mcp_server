@@ -9,6 +9,7 @@ via the MCPBridge passed at construction time.
 
 from __future__ import annotations
 
+import base64
 import fnmatch
 import json
 import logging
@@ -79,8 +80,48 @@ _SERVER_INSTRUCTIONS = (
     "confined to the base directory configured in the plugin's settings "
     "dialog; grep_files and find_files search that directory, the installed "
     "MoleditPy source, or the user's plugin folder — use them (plus "
-    "get_plugin_dev_manual and get_app_source) when writing MoleditPy plugins."
+    "get_plugin_dev_manual and get_app_source) when writing MoleditPy plugins.\n"
+    "\n"
+    "XYZ data (show_xyz_in_viewer, load_xyz_file) never opens the app's charge "
+    "dialog over MCP: pass 'charge' for ions, or skip_chemistry=true to keep "
+    "distance-based bonds only. For figures, fix the view with set_3d_camera "
+    "and write it with save_molecule_image."
 )
+
+#: Arguments shared by the two XYZ-loading tools.
+_XYZ_LOAD_PROPERTIES: Dict[str, Any] = {
+    "charge": {
+        "type": "integer",
+        "description": (
+            "Total molecular charge for bond-order perception. Without it the "
+            "app tries 0 and, if that fails, falls back to distance-based "
+            "bonds instead of opening its charge dialog. Pass it for ions: "
+            "charge 0 can 'succeed' with wrong bond orders."
+        ),
+    },
+    "skip_chemistry": {
+        "type": "boolean",
+        "description": (
+            "Skip bond-order perception and connect atoms by distance only "
+            "(the dialog's 'Skip chemistry'). Good for unusual bonding, "
+            "transition states and non-covalent contacts. Default false."
+        ),
+    },
+    "frame": {
+        "type": "integer",
+        "description": (
+            "For multi-frame XYZ (trajectories): 0-based frame, negative "
+            "counts from the end. Default: the last frame."
+        ),
+    },
+    "keep_camera": {
+        "type": "boolean",
+        "description": (
+            "Keep the current 3D viewpoint instead of re-framing (for "
+            "stepping through frames or comparing similar structures)."
+        ),
+    },
+}
 
 _TOOLS: List[Dict[str, Any]] = [
     # ------------------------------------------------------------------
@@ -222,8 +263,31 @@ _TOOLS: List[Dict[str, Any]] = [
                         "(e.g. 'ORCA result', 'optimized geometry')."
                     ),
                 },
+                **_XYZ_LOAD_PROPERTIES,
             },
             "required": ["xyz_text"],
+        },
+    },
+    {
+        "name": "load_xyz_file",
+        "description": (
+            "Load an .xyz file from the file I/O sandbox into the 3D viewer, "
+            "without pasting coordinates. Multi-frame files (optimization "
+            "trajectories) are supported: 'frame' picks one (default: the "
+            "last); step through a trajectory by calling again with "
+            "keep_camera=true. Same charge / skip_chemistry handling as "
+            "show_xyz_in_viewer, so no dialog blocks the call."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Path relative to the sandbox base directory.",
+                },
+                **_XYZ_LOAD_PROPERTIES,
+            },
+            "required": ["path"],
         },
     },
     {
@@ -319,8 +383,141 @@ _TOOLS: List[Dict[str, Any]] = [
                     "type": "integer",
                     "description": "Image height in pixels, 128-2048 (default 700).",
                 },
+                "atom_labels": {
+                    "type": "boolean",
+                    "description": (
+                        "3D only: overlay 0-based atom indices for this capture "
+                        "(removed again afterwards). Default false."
+                    ),
+                },
             },
         },
+    },
+    {
+        "name": "save_molecule_image",
+        "description": (
+            "Render the 2D canvas or 3D viewer to a PNG file inside the file "
+            "I/O sandbox (for reports and notes). Set the viewpoint first "
+            "with set_3d_camera for a reproducible 3D figure. Only '.png' "
+            "paths are accepted, whatever the sandbox extension list says."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Output path relative to the sandbox, ending in .png.",
+                },
+                "view": {"type": "string", "enum": ["auto", "2d", "3d"],
+                         "description": "Which view to capture (default 'auto')."},
+                "width": {"type": "integer", "description": "Pixels, 128-2048 (default 900)."},
+                "height": {"type": "integer", "description": "Pixels, 128-2048 (default 700)."},
+                "atom_labels": {"type": "boolean",
+                                "description": "3D only: overlay 0-based atom indices."},
+                "overwrite": {"type": "boolean",
+                              "description": "Replace an existing file (default false)."},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "get_3d_camera",
+        "description": (
+            "Return the 3D camera as position, focal_point and view_up "
+            "(3-vectors). Pass them back to set_3d_camera to restore a view."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "set_3d_camera",
+        "description": (
+            "Point the 3D camera explicitly, so figures are reproducible. "
+            "Give either 'position' (absolute) or 'direction' (the side you "
+            "look FROM, as a vector from the focal point toward the camera, "
+            "e.g. [0, 0, 1] looks down the z axis). 'view_up' sets which way "
+            "is up on screen. With 'direction' the molecule is re-framed "
+            "('fit', default true); 'zoom' > 1 then moves in. Returns the "
+            "resulting camera."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "position": {"type": "array", "items": {"type": "number"},
+                             "minItems": 3, "maxItems": 3,
+                             "description": "Camera position [x, y, z]."},
+                "direction": {"type": "array", "items": {"type": "number"},
+                              "minItems": 3, "maxItems": 3,
+                              "description": "View-from direction [x, y, z]."},
+                "focal_point": {"type": "array", "items": {"type": "number"},
+                                "minItems": 3, "maxItems": 3,
+                                "description": "Point looked at (default: current)."},
+                "view_up": {"type": "array", "items": {"type": "number"},
+                            "minItems": 3, "maxItems": 3,
+                            "description": "Screen-up vector (default: current)."},
+                "fit": {"type": "boolean",
+                        "description": "Re-frame the molecule keeping the orientation."},
+                "zoom": {"type": "number", "description": "Zoom factor applied last (>0)."},
+            },
+        },
+    },
+    {
+        "name": "measure_geometry",
+        "description": (
+            "Measure the current 3D structure by 0-based atom index: 2 "
+            "indices give a distance (angstrom), 3 an angle, 4 a dihedral "
+            "(degrees). Pass several at once, e.g. [[0, 1], [0, 1, 2], "
+            "[0, 1, 2, 3]]."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "atoms": {
+                    "type": "array",
+                    "items": {"type": "array", "items": {"type": "integer"},
+                              "minItems": 2, "maxItems": 4},
+                    "description": "List of index lists (2, 3 or 4 atoms each).",
+                },
+            },
+            "required": ["atoms"],
+        },
+    },
+    {
+        "name": "compare_structures",
+        "description": (
+            "RMSD between the current 3D molecule and another structure with "
+            "the same atoms in the same order (e.g. before/after an "
+            "optimization, or two levels of theory). The other structure "
+            "comes from 'xyz_text' or a sandbox 'path'; trajectories take "
+            "'frame' (default last). Kabsch-aligned unless align=false. "
+            "overlay=true draws it translucent over the current molecule "
+            "(remove with clear_overlay)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "xyz_text": {
+                    "oneOf": [{"type": "string"},
+                              {"type": "array", "items": {"type": "string"}}],
+                    "description": "XYZ text of the other structure.",
+                },
+                "path": {"type": "string",
+                         "description": "Or: sandbox path of an .xyz file."},
+                "frame": {"type": "integer",
+                          "description": "Frame of a multi-frame XYZ (default -1, the last)."},
+                "align": {"type": "boolean", "description": "Superimpose first (default true)."},
+                "heavy_atoms_only": {"type": "boolean",
+                                     "description": "Ignore hydrogens (default false)."},
+                "overlay": {"type": "boolean",
+                            "description": "Draw the aligned structure in the 3D viewer."},
+                "overlay_color": {"type": "string",
+                                  "description": "Overlay color name or hex (default 'orange')."},
+            },
+        },
+    },
+    {
+        "name": "clear_overlay",
+        "description": "Remove the structure overlay drawn by compare_structures.",
+        "inputSchema": {"type": "object", "properties": {}},
     },
     # ------------------------------------------------------------------
     # Molecule manipulation (direct RDKit access)
@@ -1150,7 +1347,8 @@ _READ_ONLY_TOOLS = {
     "get_app_source", "list_available_plugins", "check_chemistry",
     "read_text_file", "list_directory", "get_file_io_config",
     "grep_files", "find_files", "get_molecule_image", "get_molecule_descriptors",
-    "substructure_search", "compute_partial_charges",
+    "substructure_search", "compute_partial_charges", "get_3d_camera",
+    "measure_geometry",
 }
 
 #: Tools that replace or erase user work (the canvas, or a file on disk).
@@ -1159,7 +1357,7 @@ _DESTRUCTIVE_TOOLS = {
     "show_xyz_in_viewer", "apply_reaction_smarts", "clear_canvas",
     "write_text_file", "write_file_with_xyz_block", "delete_file", "run_python",
     "add_hydrogens", "remove_hydrogens", "optimize_geometry", "set_atom_charge",
-    "delete_atoms",
+    "delete_atoms", "load_xyz_file", "save_molecule_image",
 }
 
 #: Mutating tools whose repeated call leaves the same state.
@@ -1168,7 +1366,8 @@ _IDEMPOTENT_TOOLS = {
     "set_bond_color_override", "highlight_bonds", "enter_3d_mode",
     "exit_3d_mode", "fit_2d_view", "reset_3d_camera", "refresh_3d_view",
     "refresh_ui", "reload_plugins", "open_plugin_installer",
-    "set_file_io_config", "trigger_3d_conversion",
+    "set_file_io_config", "trigger_3d_conversion", "set_3d_camera",
+    "clear_overlay",
 }
 
 #: Tools that reach outside MoleditPy (network).
@@ -1305,6 +1504,47 @@ def _get_sandbox(bridge: Any) -> tuple[str, List[str]]:
         )
     allowed: List[str] = cfg.get("allowed_extensions", [])
     return base_dir, allowed
+
+
+def _read_sandbox_text(bridge: Any, user_path: str) -> str:
+    """UTF-8 text of a sandbox file, with the same checks as read_text_file."""
+    base_dir, allowed_exts = _get_sandbox(bridge)
+    target = _resolve_safe_path(user_path, base_dir)
+    _check_extension(target, allowed_exts)
+    if not target.is_file():
+        raise ValueError(f"{user_path!r} does not exist or is not a file.")
+    size = target.stat().st_size
+    if size > _MAX_FILE_BYTES:
+        raise ValueError(
+            f"File is {size:,} bytes, exceeding the "
+            f"{_MAX_FILE_BYTES // 1024 // 1024} MB read limit."
+        )
+    return target.read_text(encoding="utf-8")
+
+
+def _show_xyz(bridge: Any, xyz_text: str, source_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """Shared body of show_xyz_in_viewer and load_xyz_file."""
+    call_args: Dict[str, Any] = {"xyz_text": xyz_text, "source_name": source_name}
+    for key in ("charge", "skip_chemistry", "frame", "keep_camera"):
+        if arguments.get(key) is not None:
+            call_args[key] = arguments[key]
+    result = bridge.call("show_xyz", call_args)
+    if not result.get("success"):
+        return _tool_err("Failed to parse XYZ data. Verify the format.")
+    text = f"XYZ data displayed in 3D viewer (source: {source_name})."
+    if "num_frames" in result:
+        text += f" Frame {result['frame']} of {result['num_frames']} (0-based)."
+    if "num_atoms" in result:
+        if result.get("chemistry_skipped"):
+            text += f" {result['num_atoms']} atoms, {result['num_bonds']} bonds by distance (chemistry skipped)."
+        else:
+            text += (
+                f" {result['num_atoms']} atoms, {result['num_bonds']} bonds, "
+                f"charge {result.get('charge')}."
+            )
+    if result.get("note"):
+        text += " " + result["note"]
+    return _tool_ok(text)
 
 
 # ---------------------------------------------------------------------------
@@ -1770,15 +2010,14 @@ def dispatch_tool(  # noqa: C901
             source_name = arguments.get("source_name", "MCP input")
             if not xyz_text:
                 return _tool_err("'xyz_text' argument is required.")
-            result = bridge.call(
-                "show_xyz",
-                {"xyz_text": xyz_text, "source_name": source_name},
-            )
-            if result["success"]:
-                return _tool_ok(
-                    f"XYZ data displayed in 3D viewer (source: {source_name})."
-                )
-            return _tool_err("Failed to parse XYZ data. Verify the format.")
+            return _show_xyz(bridge, xyz_text, source_name, arguments)
+
+        if name == "load_xyz_file":
+            user_path = _str_arg(arguments, "path")
+            if not user_path:
+                return _tool_err("'path' argument is required.")
+            xyz_text = _read_sandbox_text(bridge, user_path)
+            return _show_xyz(bridge, xyz_text, user_path, arguments)
 
         if name == "trigger_3d_conversion":
             # The RDKit fallback (ETKDG embed + MMFF optimize) runs in-thread
@@ -1796,6 +2035,7 @@ def dispatch_tool(  # noqa: C901
                     "view": arguments.get("view", "auto"),
                     "width": arguments.get("width"),
                     "height": arguments.get("height"),
+                    **({"atom_labels": True} if arguments.get("atom_labels") else {}),
                 },
             )
             return _tool_image(
@@ -1803,6 +2043,81 @@ def dispatch_tool(  # noqa: C901
                 data["mime_type"],
                 caption=f"{data['view'].upper()} view, {data['width']}x{data['height']}",
             )
+
+        if name == "save_molecule_image":
+            user_path = _str_arg(arguments, "path")
+            if not user_path:
+                return _tool_err("'path' argument is required.")
+            base_dir, _ = _get_sandbox(bridge)
+            target = _resolve_safe_path(user_path, base_dir)
+            if target.suffix.lower() != ".png":
+                return _tool_err("save_molecule_image writes PNG only: the path must end in '.png'.")
+            if target.exists() and not bool(arguments.get("overwrite", False)):
+                return _tool_err(
+                    f"{user_path!r} already exists. Pass overwrite=true to replace it."
+                )
+            data = bridge.call(
+                "get_molecule_image",
+                {
+                    "view": arguments.get("view", "auto"),
+                    "width": arguments.get("width"),
+                    "height": arguments.get("height"),
+                    **({"atom_labels": True} if arguments.get("atom_labels") else {}),
+                },
+            )
+            png = base64.b64decode(data["image_base64"])
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(png)
+            return _tool_ok(
+                f"Saved {data['view'].upper()} view ({data['width']}x{data['height']}) "
+                f"to {user_path} ({len(png):,} bytes)"
+            )
+
+        if name == "get_3d_camera":
+            return _tool_ok(json.dumps(bridge.call("get_3d_camera")))
+
+        if name == "set_3d_camera":
+            keys = ("position", "direction", "focal_point", "view_up", "fit", "zoom")
+            cam_args = {k: arguments[k] for k in keys if arguments.get(k) is not None}
+            return _tool_ok("Camera set: " + json.dumps(bridge.call("set_3d_camera", cam_args)))
+
+        if name == "measure_geometry":
+            data = bridge.call("measure_geometry", {"atoms": arguments.get("atoms")})
+            lines = []
+            for m in data["measurements"]:
+                label = "-".join(f"{s}{i}" for s, i in zip(m["symbols"], m["atoms"]))
+                unit = " A" if m["type"] == "distance" else " deg"
+                lines.append(f"{m['type']:<8} {label}: {m['value']:.4f}{unit}")
+            return _tool_ok("\n".join(lines))
+
+        if name == "compare_structures":
+            xyz_text = _text_arg(arguments.get("xyz_text", "")).strip()
+            user_path = _str_arg(arguments, "path")
+            if bool(xyz_text) == bool(user_path):
+                return _tool_err("Pass exactly one of 'xyz_text' or 'path'.")
+            if user_path:
+                xyz_text = _read_sandbox_text(bridge, user_path)
+            cmp_args: Dict[str, Any] = {"xyz_text": xyz_text}
+            for key in ("frame", "align", "heavy_atoms_only", "overlay", "overlay_color"):
+                if arguments.get(key) is not None:
+                    cmp_args[key] = arguments[key]
+            data = bridge.call("compare_structures", cmp_args)
+            lines = [
+                f"RMSD: {data['rmsd']:.4f} A over {data['atoms_used']} atoms "
+                f"({'aligned' if data['aligned'] else 'not aligned'})",
+                "Largest deviations:",
+            ]
+            lines += [
+                f"  {d['symbol']}{d['index']}: {d['deviation']:.4f} A"
+                for d in data["largest_deviations"]
+            ]
+            if data.get("overlay"):
+                lines.append("Overlay drawn in the 3D viewer (clear_overlay removes it).")
+            return _tool_ok("\n".join(lines))
+
+        if name == "clear_overlay":
+            data = bridge.call("clear_overlay")
+            return _tool_ok(f"Overlay cleared ({data['removed']} actors removed).")
 
         # ------------------------------------------------------------------
         # Molecule manipulation (direct RDKit access)

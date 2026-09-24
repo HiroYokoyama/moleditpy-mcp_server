@@ -28,6 +28,9 @@ Ask an AI to load, modify, and analyze molecules entirely through conversation:
 - **Query the current molecule** — get SMILES, formula, MW, atom/bond tables, 3D coordinates
 - **Edit atoms and bonds** — run arbitrary RDKit code via `run_python` with full access to the molecule
 - **3D visualization** — trigger 2D→3D conversion, switch to 3D viewer, highlight specific atoms or bonds in color, fit/reset the camera
+- **Reproducible figures** — point the camera exactly (`set_3d_camera`), overlay atom indices, and save a PNG into the sandbox (`save_molecule_image`)
+- **Measure and compare** — distances, angles and dihedrals by atom index (`measure_geometry`); RMSD and a translucent overlay against another structure (`compare_structures`)
+- **XYZ without dialogs** — load XYZ text or files (including multi-frame trajectories) with an explicit `charge` or `skip_chemistry`, so the app's charge prompt never blocks an AI call
 - **Undo-safe editing** — every change can push an undo checkpoint; the user can always revert
 
 ### DFT / QM input file generation
@@ -71,6 +74,24 @@ Example prompt: *"Write a MoleditPy plugin that adds a menu item to export the c
 2. **Restart MoleditPy** (or choose **Plugins → Reload All Plugins**).
 
 3. Choose **Plugins → MCP Server → Status & Settings…** to start the server.
+
+4. **Connect your MCP client.** For Claude Code, one command registers the server for all your projects:
+
+   ```bash
+   claude mcp add --transport http -s user moleditpy http://127.0.0.1:7891/mcp
+   ```
+
+   Or register it for one project only by putting a `.mcp.json` in that project folder, then run `claude` there once and approve the server when prompted:
+
+   ```json
+   {
+     "mcpServers": {
+       "moleditpy": { "type": "http", "url": "http://127.0.0.1:7891/mcp" }
+     }
+   }
+   ```
+
+   Pick one of the two: with both, the same server is configured twice. Check the connection with `claude mcp get moleditpy` (it should say *Connected*). Other clients are listed under [Connecting MCP clients](#connecting-mcp-clients).
 
 ---
 
@@ -119,7 +140,7 @@ Restart Claude Desktop. MoleditPy now appears as a connected tool server.
 
 ### Claude Code (CLI)
 
-Add the server to your Claude Code MCP configuration:
+Quickest: `claude mcp add --transport http -s user moleditpy http://127.0.0.1:7891/mcp` (all projects), or `-s project` to write a `.mcp.json` in the current folder. Equivalent configuration:
 
 ```json
 {
@@ -294,11 +315,17 @@ Claude loads it automatically whenever a task involves the MoleditPy MCP tools. 
 | `load_molecule_from_smiles` | Draw a molecule from a SMILES string |
 | `load_from_mol_block` | Load a molecule from a MOL/SDF block |
 | `load_molecule_by_name` | Look up by common/IUPAC name on PubChem and load (e.g. `"aspirin"`) |
-| `show_xyz_in_viewer` | Display an XYZ block in the 3D viewer |
+| `show_xyz_in_viewer` | Display an XYZ block in the 3D viewer. `charge` (for ions) or `skip_chemistry` (distance-based bonds) answer the app's charge prompt so no dialog blocks the call; `frame` picks one frame of a trajectory; `keep_camera` keeps the viewpoint |
+| `load_xyz_file` | Same as `show_xyz_in_viewer`, but reads an `.xyz` file from the sandbox — no pasting of coordinates; multi-frame files default to the last frame |
 | `get_mapped_smiles` | SMILES with atom indices embedded as map numbers + legend (find atom_index targets) |
 | `apply_reaction_smarts` | Modify the 2D molecule with a Reaction SMARTS transformation (optional anchor atom) |
 | `trigger_3d_conversion` | Run MoleditPy's built-in 2D→3D optimizer (ETKDG/MMFF) |
-| `get_molecule_image` | Render the molecule to a **PNG returned as an actual image** — the 2D canvas or the 3D viewer (`view`: auto / 2d / 3d, `width`, `height`) |
+| `get_molecule_image` | Render the molecule to a **PNG returned as an actual image** — the 2D canvas or the 3D viewer (`view`: auto / 2d / 3d, `width`, `height`, `atom_labels` to overlay atom indices) |
+| `save_molecule_image` | Write the same PNG into the file sandbox (`path` ending in `.png`, `overwrite`) — for reports and notes |
+| `get_3d_camera` / `set_3d_camera` | Read or set the 3D camera: `position` or `direction` (the side you look from), `focal_point`, `view_up`, `fit`, `zoom` — makes figures reproducible |
+| `measure_geometry` | Distances (2 atoms), angles (3) and dihedrals (4) by 0-based index, several per call |
+| `compare_structures` | RMSD against another structure with the same atom order (`xyz_text` or sandbox `path`, `frame`), Kabsch-aligned; `heavy_atoms_only`; `overlay` draws it translucent |
+| `clear_overlay` | Remove the overlay drawn by `compare_structures` |
 | `get_molecule_descriptors` | RDKit's standard descriptor set in one call: canonical SMILES, formula, MW, exact mass, LogP, TPSA, formal charge, HBD/HBA, rotatable bonds, ring and atom/bond counts |
 | `add_hydrogens` | Add explicit hydrogens (RDKit `AddHs`); 3D coordinates are generated for them when the molecule already has a conformer |
 | `remove_hydrogens` | Strip explicit hydrogens back to implicit (RDKit `RemoveHs`) |
