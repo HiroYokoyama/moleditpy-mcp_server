@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Thread-safe bridge between the MCP HTTP server thread and the Qt main thread.
 
@@ -19,7 +18,8 @@ import contextlib
 import logging
 import math
 import threading
-from typing import Any, Dict, Iterator, List, Optional
+from collections.abc import Iterator
+from typing import Any
 
 from PyQt6.QtCore import QObject, Qt, QTimer, pyqtSignal
 
@@ -29,12 +29,33 @@ logger = logging.getLogger(__name__)
 # Covers common DFT/QM input formats, plain text, and data files.
 _DEFAULT_EXTENSIONS: frozenset[str] = frozenset(
     {
-        ".inp", ".gjf", ".com", ".nw", ".in", ".orca",
-        ".xyz", ".mol", ".mol2", ".sdf", ".pdb", ".cif",
-        ".txt", ".csv", ".dat", ".log", ".out",
-        ".json", ".yaml", ".yml",
-        ".py", ".sh", ".bash",
-        ".fchk", ".chk", ".cfg", ".conf",
+        ".inp",
+        ".gjf",
+        ".com",
+        ".nw",
+        ".in",
+        ".orca",
+        ".xyz",
+        ".mol",
+        ".mol2",
+        ".sdf",
+        ".pdb",
+        ".cif",
+        ".txt",
+        ".csv",
+        ".dat",
+        ".log",
+        ".out",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".py",
+        ".sh",
+        ".bash",
+        ".fchk",
+        ".chk",
+        ".cfg",
+        ".conf",
     }
 )
 
@@ -44,7 +65,7 @@ _DEFAULT_EXTENSIONS: frozenset[str] = frozenset(
 # ---------------------------------------------------------------------------
 
 
-def execute_operation(ctx: Any, operation: str, args: Dict[str, Any]) -> Any:  # noqa: C901
+def execute_operation(ctx: Any, operation: str, args: dict[str, Any]) -> Any:
     """
     Dispatch *operation* to the appropriate PluginContext method and return
     the result. All code here runs on the Qt main thread (via MCPBridge).
@@ -127,13 +148,19 @@ def execute_operation(ctx: Any, operation: str, args: Dict[str, Any]) -> Any:  #
         if not atom_colors:
             raise ValueError("'atom_colors' argument is required")
         if not isinstance(atom_colors, dict):
-            raise ValueError("'atom_colors' must be an object mapping atom index to color")
+            raise ValueError(
+                "'atom_colors' must be an object mapping atom index to color"
+            )
         ctrl = ctx.get_3d_controller()
         if ctrl is None:
-            raise ValueError("3D controller is not available (is the 3D viewer active?)")
+            raise ValueError(
+                "3D controller is not available (is the 3D viewer active?)"
+            )
         # Parse every key before coloring any atom, so a bad key leaves the
         # view untouched instead of half-applied.
-        resolved = {_int_arg(idx, "atom index"): color for idx, color in atom_colors.items()}
+        resolved = {
+            _int_arg(idx, "atom index"): color for idx, color in atom_colors.items()
+        }
         for idx, color in resolved.items():
             ctrl.set_atom_color(idx, color)
         ctx.refresh_3d_view()
@@ -304,7 +331,7 @@ def _parse_atom_pair(pair: str) -> tuple:
     )
 
 
-def _set_bond_colors(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+def _set_bond_colors(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     bond_colors = args.get("bond_colors") or {}
     pair_colors = args.get("atom_pair_colors") or {}
     if not bond_colors and not pair_colors:
@@ -313,11 +340,13 @@ def _set_bond_colors(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     if ctrl is None:
         raise ValueError("3D controller is not available (is the 3D viewer active?)")
 
-    resolved: Dict[int, str] = {}
+    resolved: dict[int, str] = {}
     if pair_colors:
         mol = ctx.current_molecule
         if mol is None:
-            raise ValueError("No molecule with 3D data — run trigger_3d_conversion first.")
+            raise ValueError(
+                "No molecule with 3D data — run trigger_3d_conversion first."
+            )
         for pair, color in pair_colors.items():
             idx1, idx2 = _parse_atom_pair(str(pair))
             bond = mol.GetBondBetweenAtoms(idx1, idx2)
@@ -333,7 +362,7 @@ def _set_bond_colors(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     return {"success": True, "bonds_colored": len(resolved)}
 
 
-def _reset_cpk_color_override(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+def _reset_cpk_color_override(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     """Clear plugin CPK color overrides (atoms and/or bonds) and redraw once."""
     scope = args.get("scope", "all")
     if scope not in ("atoms", "bonds", "all"):
@@ -352,7 +381,9 @@ def _reset_cpk_color_override(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     if scope in ("bonds", "all") and hasattr(v3d, "_plugin_bond_color_overrides"):
         cleared_bonds = len(v3d._plugin_bond_color_overrides)
         v3d._plugin_bond_color_overrides.clear()
-    if getattr(v3d, "current_mol", None) is not None and (cleared_atoms or cleared_bonds):
+    if getattr(v3d, "current_mol", None) is not None and (
+        cleared_atoms or cleared_bonds
+    ):
         v3d.draw_molecule_3d(v3d.current_mol)
     return {"cleared_atoms": cleared_atoms, "cleared_bonds": cleared_bonds}
 
@@ -371,7 +402,7 @@ def _find_menu_action(actions: Any, needle: str) -> Any:
     return None
 
 
-def _open_plugin_installer(ctx: Any) -> Dict[str, Any]:
+def _open_plugin_installer(ctx: Any) -> dict[str, Any]:
     mw = ctx.get_main_window()
     if mw is None:
         raise ValueError("Main window is not available")
@@ -385,7 +416,7 @@ def _open_plugin_installer(ctx: Any) -> Dict[str, Any]:
     return {"found": True}
 
 
-def _get_molecule_info(ctx: Any) -> Dict[str, Any]:
+def _get_molecule_info(ctx: Any) -> dict[str, Any]:
     mol = ctx.current_molecule
     if mol is None:
         return {
@@ -398,7 +429,11 @@ def _get_molecule_info(ctx: Any) -> Dict[str, Any]:
             "has_3d_coords": False,
         }
     from rdkit import Chem  # pylint: disable=import-outside-toplevel
-    from rdkit.Chem import Descriptors, rdMolDescriptors  # pylint: disable=import-outside-toplevel
+    from rdkit.Chem import (  # pylint: disable=import-outside-toplevel
+        Descriptors,
+        rdMolDescriptors,
+    )
+
     return {
         "loaded": True,
         "smiles": Chem.MolToSmiles(mol),
@@ -410,7 +445,7 @@ def _get_molecule_info(ctx: Any) -> Dict[str, Any]:
     }
 
 
-def _get_atom_properties(ctx: Any, atom_indices: List[int]) -> Dict[str, Any]:
+def _get_atom_properties(ctx: Any, atom_indices: list[int]) -> dict[str, Any]:
     mol = ctx.current_molecule
     if mol is None:
         return {"atoms": []}
@@ -418,7 +453,7 @@ def _get_atom_properties(ctx: Any, atom_indices: List[int]) -> Dict[str, Any]:
         atom_indices = [_check_atom_index(mol, i) for i in atom_indices]
     else:
         atom_indices = list(range(mol.GetNumAtoms()))
-    atoms: List[Dict[str, Any]] = []
+    atoms: list[dict[str, Any]] = []
     for idx in atom_indices:
         atom = mol.GetAtomWithIdx(idx)
         atoms.append(
@@ -435,12 +470,12 @@ def _get_atom_properties(ctx: Any, atom_indices: List[int]) -> Dict[str, Any]:
     return {"atoms": atoms}
 
 
-def _get_xyz_atoms(ctx: Any) -> Dict[str, Any]:
+def _get_xyz_atoms(ctx: Any) -> dict[str, Any]:
     mol = ctx.current_molecule
     if mol is None or mol.GetNumConformers() == 0:
         return {"atoms": [], "has_data": False}
     conf = mol.GetConformer()
-    atoms: List[Dict[str, Any]] = []
+    atoms: list[dict[str, Any]] = []
     for atom in mol.GetAtoms():
         idx = atom.GetIdx()
         pos = conf.GetAtomPosition(idx)
@@ -465,11 +500,11 @@ _BOND_TYPE_NAMES = {
 }
 
 
-def _get_bond_info(ctx: Any) -> Dict[str, Any]:
+def _get_bond_info(ctx: Any) -> dict[str, Any]:
     mol = ctx.current_molecule
     if mol is None:
         return {"bonds": []}
-    bonds: List[Dict[str, Any]] = []
+    bonds: list[dict[str, Any]] = []
     for bond in mol.GetBonds():
         bond_order = bond.GetBondTypeAsDouble()
         bonds.append(
@@ -483,10 +518,10 @@ def _get_bond_info(ctx: Any) -> Dict[str, Any]:
     return {"bonds": bonds}
 
 
-def _get_selected_atoms(ctx: Any) -> Dict[str, Any]:
-    indices: List[int] = ctx.get_selected_atom_indices()
+def _get_selected_atoms(ctx: Any) -> dict[str, Any]:
+    indices: list[int] = ctx.get_selected_atom_indices()
     mol = ctx.current_molecule
-    atoms: List[Dict[str, Any]] = []
+    atoms: list[dict[str, Any]] = []
     if mol and indices:
         for idx in indices:
             atom = mol.GetAtomWithIdx(idx)
@@ -500,8 +535,9 @@ def _get_selected_atoms(ctx: Any) -> Dict[str, Any]:
     return {"selected_atoms": atoms, "count": len(atoms)}
 
 
-def _load_mol_block(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+def _load_mol_block(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     from rdkit import Chem  # pylint: disable=import-outside-toplevel
+
     mol_block = args.get("mol_block", "").strip()
     if not mol_block:
         raise ValueError("'mol_block' argument is required")
@@ -519,7 +555,9 @@ _MISSING = object()
 
 
 @contextlib.contextmanager
-def _xyz_charge_override(ctx: Any, charge: Optional[int], skip: bool) -> Iterator[Dict[str, Any]]:
+def _xyz_charge_override(
+    ctx: Any, charge: int | None, skip: bool
+) -> Iterator[dict[str, Any]]:
     """Answer MoleditPy's XYZ charge prompt on the caller's behalf.
 
     Loading XYZ text first tries bond perception with charge 0 and, when that
@@ -531,7 +569,7 @@ def _xyz_charge_override(ctx: Any, charge: Optional[int], skip: bool) -> Iterato
     silent charge-0 attempt, which can "succeed" with wrong bond orders for
     an ion. The app's settings and prompt are restored afterwards.
     """
-    state: Dict[str, Any] = {"prompts": 0, "fallback": False}
+    state: dict[str, Any] = {"prompts": 0, "fallback": False}
     mw = ctx.get_main_window() if hasattr(ctx, "get_main_window") else None
     io_mgr = getattr(mw, "io_manager", None)
     settings = getattr(getattr(mw, "init_manager", None), "settings", None)
@@ -572,18 +610,22 @@ def _xyz_charge_override(ctx: Any, charge: Optional[int], skip: bool) -> Iterato
                 settings[key] = value
 
 
-def _show_xyz_result(mol: Any, charge: Optional[int], state: Dict[str, Any]) -> Dict[str, Any]:
+def _show_xyz_result(
+    mol: Any, charge: int | None, state: dict[str, Any]
+) -> dict[str, Any]:
     """Summarize how an XYZ load went: which charge was used, whether bond
     perception was skipped (distance-based bonds only), and why."""
     if mol is None:
         return {"success": False}
-    skipped = bool(mol.HasProp("_xyz_skip_checks") and mol.GetIntProp("_xyz_skip_checks"))
-    result: Dict[str, Any] = {
+    skipped = bool(
+        mol.HasProp("_xyz_skip_checks") and mol.GetIntProp("_xyz_skip_checks")
+    )
+    result: dict[str, Any] = {
         "success": True,
         "chemistry_skipped": skipped,
-        "charge": None if skipped else (
-            mol.GetIntProp("_xyz_charge") if mol.HasProp("_xyz_charge") else charge
-        ),
+        "charge": None
+        if skipped
+        else (mol.GetIntProp("_xyz_charge") if mol.HasProp("_xyz_charge") else charge),
         "num_atoms": mol.GetNumAtoms(),
         "num_bonds": mol.GetNumBonds(),
     }
@@ -597,7 +639,7 @@ def _show_xyz_result(mol: Any, charge: Optional[int], state: Dict[str, Any]) -> 
     return result
 
 
-def _get_mapped_smiles(ctx: Any) -> Dict[str, Any]:
+def _get_mapped_smiles(ctx: Any) -> dict[str, Any]:
     """
     Return the current molecule's SMILES with every atom's RDKit index
     embedded as an atom map number (map number = index + 1, because RDKit
@@ -605,6 +647,7 @@ def _get_mapped_smiles(ctx: Any) -> Dict[str, Any]:
     atom_index to target in apply_reaction_smarts / highlight_atoms.
     """
     from rdkit import Chem  # pylint: disable=import-outside-toplevel
+
     mol = ctx.current_molecule
     if mol is None:
         return {"loaded": False, "mapped_smiles": None, "atoms": []}
@@ -686,7 +729,7 @@ def _clean_reaction_product(new_mol: Any) -> Any:
         return None
 
 
-def _apply_reaction_smarts(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+def _apply_reaction_smarts(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     """
     Apply a Reaction SMARTS transformation to the current molecule and load
     the product into the 2D editor.
@@ -799,7 +842,7 @@ def _apply_reaction_smarts(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _exit_3d_mode(ctx: Any) -> Dict[str, Any]:
+def _exit_3d_mode(ctx: Any) -> dict[str, Any]:
     """Switch the UI back to 2D editing mode (counterpart of enter_3d_mode)."""
     # Not in the PluginContext API yet; used as soon as a future app adds it.
     exit_fn = getattr(ctx, "exit_3d_viewer_mode", None)
@@ -811,12 +854,14 @@ def _exit_3d_mode(ctx: Any) -> Dict[str, Any]:
         raise ValueError("Main window UI manager is not available")
     fn = getattr(mw.ui_manager, "restore_ui_for_editing", None)
     if fn is None:
-        raise ValueError("This MoleditPy version does not support exiting 3D viewer mode")
+        raise ValueError(
+            "This MoleditPy version does not support exiting 3D viewer mode"
+        )
     fn()
     return {"success": True}
 
 
-def _trigger_3d_conversion(ctx: Any) -> Dict[str, Any]:
+def _trigger_3d_conversion(ctx: Any) -> dict[str, Any]:
     # Prefer the native compute manager (non-blocking trigger).
     mw = ctx.get_main_window()
     if mw is not None and hasattr(mw, "compute_manager"):
@@ -827,6 +872,7 @@ def _trigger_3d_conversion(ctx: Any) -> Dict[str, Any]:
     # Fallback: RDKit ETKDG + MMFF in-thread.
     from rdkit import Chem  # pylint: disable=import-outside-toplevel
     from rdkit.Chem import AllChem  # pylint: disable=import-outside-toplevel
+
     mol = ctx.current_molecule
     if mol is None:
         raise ValueError("No molecule loaded")
@@ -844,6 +890,7 @@ def _trigger_3d_conversion(ctx: Any) -> Dict[str, Any]:
 def _find_moleditpy_spec() -> Any:
     """Return the importlib.util spec for the moleditpy package (tries both install names)."""
     import importlib.util  # pylint: disable=import-outside-toplevel
+
     for name in ("moleditpy", "moleditpy_linux"):
         spec = importlib.util.find_spec(name)
         if spec is not None and spec.submodule_search_locations:
@@ -867,27 +914,31 @@ def _resolve_in_package(pkg_root: Any, rel_path: str) -> Any:
     try:
         target.relative_to(pkg_root)
     except ValueError:
-        raise ValueError(f"Path {rel_path!r} is outside the moleditpy package") from None
+        raise ValueError(
+            f"Path {rel_path!r} is outside the moleditpy package"
+        ) from None
     return target
 
 
-def _list_app_source_tree(args: Dict[str, Any]) -> Dict[str, Any]:
+def _list_app_source_tree(args: dict[str, Any]) -> dict[str, Any]:
     pkg_root = _moleditpy_pkg_root()
     rel_path = (args.get("path") or "").strip()
     start = _resolve_in_package(pkg_root, rel_path) if rel_path else pkg_root
     if not start.is_dir():
         raise ValueError(f"{rel_path!r} is not a directory in the moleditpy package")
-    lines: List[str] = [f"{start.name}/  [{start}]"]
+    lines: list[str] = [f"{start.name}/  [{start}]"]
     _append_tree(start, "", lines)
     return {"content": "\n".join(lines)}
 
 
-def _append_tree(directory: Any, prefix: str, lines: List[str]) -> None:
+def _append_tree(directory: Any, prefix: str, lines: list[str]) -> None:
     from pathlib import Path  # pylint: disable=import-outside-toplevel
+
     skip = {"__pycache__", ".git", ".mypy_cache", ".pytest_cache"}
     entries = sorted(
         [
-            e for e in Path(directory).iterdir()
+            e
+            for e in Path(directory).iterdir()
             if e.name not in skip and not e.name.endswith((".pyc", ".pyo"))
         ],
         key=lambda p: (p.is_file(), p.name.lower()),
@@ -904,11 +955,11 @@ def _append_tree(directory: Any, prefix: str, lines: List[str]) -> None:
             )
 
 
-def _get_app_source_root() -> Dict[str, Any]:
+def _get_app_source_root() -> dict[str, Any]:
     return {"root": str(_moleditpy_pkg_root())}
 
 
-def _get_app_source(args: Dict[str, Any]) -> Dict[str, Any]:
+def _get_app_source(args: dict[str, Any]) -> dict[str, Any]:
     rel_path = (args.get("path") or "").strip()
     if not rel_path:
         raise ValueError("'path' argument is required")
@@ -917,8 +968,10 @@ def _get_app_source(args: Dict[str, Any]) -> Dict[str, Any]:
         entries = sorted(target.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
         lines = [f"Directory listing: {rel_path}"]
         for e in entries:
-            lines.append(f"  {'[dir]' if e.is_dir() else '[file]'}  {e.name}"
-                         + (f"  ({e.stat().st_size:,} bytes)" if e.is_file() else ""))
+            lines.append(
+                f"  {'[dir]' if e.is_dir() else '[file]'}  {e.name}"
+                + (f"  ({e.stat().st_size:,} bytes)" if e.is_file() else "")
+            )
         return {"type": "directory", "content": "\n".join(lines)}
     if not target.exists():
         raise ValueError(f"{rel_path!r} does not exist in the moleditpy package")
@@ -930,13 +983,14 @@ def _get_app_source(args: Dict[str, Any]) -> Dict[str, Any]:
     return {"type": "file", "content": target.read_text(encoding="utf-8")}
 
 
-def _run_python(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
-    import io  # pylint: disable=import-outside-toplevel
+def _run_python(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     import contextlib  # pylint: disable=import-outside-toplevel
+    import io  # pylint: disable=import-outside-toplevel
+
     code = args.get("code", "").strip()
     if not code:
         raise ValueError("'code' argument is required")
-    namespace: Dict[str, Any] = {"ctx": ctx, "result": None}
+    namespace: dict[str, Any] = {"ctx": ctx, "result": None}
     stdout_buf = io.StringIO()
     stderr_buf = io.StringIO()
     with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
@@ -948,7 +1002,7 @@ def _run_python(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _get_file_io_config(ctx: Any) -> Dict[str, Any]:
+def _get_file_io_config(ctx: Any) -> dict[str, Any]:
     base_dir = ctx.get_setting("file_io_base_dir", None)
     exts_raw = ctx.get_setting("file_io_allowed_extensions", None)
     allowed_exts = sorted(
@@ -957,7 +1011,7 @@ def _get_file_io_config(ctx: Any) -> Dict[str, Any]:
     return {"base_dir": base_dir, "allowed_extensions": allowed_exts}
 
 
-def _set_file_io_config(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+def _set_file_io_config(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     if "base_dir" in args:
         ctx.set_setting("file_io_base_dir", args["base_dir"])
         ctx.show_status_message(
@@ -987,7 +1041,7 @@ def _clamp_dimension(value: Any, default: int = 900) -> int:
     return max(128, min(pixels, 2048))
 
 
-def _get_molecule_image(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+def _get_molecule_image(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     """Render the current molecule to a PNG, base64-encoded for the MCP
     ``image`` content type.
 
@@ -1031,7 +1085,7 @@ def _get_molecule_image(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _render_2d_png(ctx: Any, width: int, height: int) -> Optional[bytes]:
+def _render_2d_png(ctx: Any, width: int, height: int) -> bytes | None:
     """The 2D canvas, rendered to PNG bytes via QGraphicsScene.render()."""
     # Before the Qt imports: "there is no canvas" is answerable without them,
     # and the environment that has no PyQt6 at all is exactly the one that
@@ -1040,8 +1094,16 @@ def _render_2d_png(ctx: Any, width: int, height: int) -> Optional[bytes]:
     if scene is None:
         return None
 
-    from PyQt6.QtCore import QBuffer, QIODevice, QRectF  # pylint: disable=import-outside-toplevel
-    from PyQt6.QtGui import QColor, QImage, QPainter  # pylint: disable=import-outside-toplevel
+    from PyQt6.QtCore import (  # pylint: disable=import-outside-toplevel
+        QBuffer,
+        QIODevice,
+        QRectF,
+    )
+    from PyQt6.QtGui import (  # pylint: disable=import-outside-toplevel
+        QColor,
+        QImage,
+        QPainter,
+    )
 
     source = scene.itemsBoundingRect()
     if source is None or source.isEmpty():
@@ -1067,7 +1129,7 @@ def _render_2d_png(ctx: Any, width: int, height: int) -> Optional[bytes]:
     return data or None
 
 
-def _render_3d_png(ctx: Any, width: int, height: int) -> Optional[bytes]:
+def _render_3d_png(ctx: Any, width: int, height: int) -> bytes | None:
     """The 3D viewer, rendered to PNG bytes via the PyVista plotter.
 
     Through a temp file rather than ``return_img``: PyVista's in-memory array
@@ -1142,7 +1204,7 @@ def _atom_index_labels(ctx: Any, enabled: bool) -> Iterator[None]:
 # ---------------------------------------------------------------------------
 
 
-def _vec3(value: Any, what: str) -> List[float]:
+def _vec3(value: Any, what: str) -> list[float]:
     """A finite 3-vector from a JSON list, or ValueError naming the argument."""
     if not isinstance(value, (list, tuple)) or len(value) != 3:
         raise ValueError(f"'{what}' must be a list of 3 numbers")
@@ -1155,7 +1217,7 @@ def _vec3(value: Any, what: str) -> List[float]:
     return out
 
 
-def _camera_state(plotter: Any) -> Dict[str, Any]:
+def _camera_state(plotter: Any) -> dict[str, Any]:
     pos, focal, up = plotter.camera_position
     return {
         "position": [round(float(v), 4) for v in pos],
@@ -1164,14 +1226,14 @@ def _camera_state(plotter: Any) -> Dict[str, Any]:
     }
 
 
-def _get_3d_camera(ctx: Any) -> Dict[str, Any]:
+def _get_3d_camera(ctx: Any) -> dict[str, Any]:
     plotter = ctx.plotter
     if plotter is None:
         raise ValueError("The 3D viewer is not available.")
     return _camera_state(plotter)
 
 
-def _set_3d_camera(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+def _set_3d_camera(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     """Point the 3D camera explicitly.
 
     Either give ``position`` (absolute), or ``direction`` (from the focal
@@ -1185,7 +1247,11 @@ def _set_3d_camera(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     if "position" in args and "direction" in args:
         raise ValueError("Pass either 'position' or 'direction', not both")
     cur_pos, cur_focal, cur_up = (list(map(float, v)) for v in plotter.camera_position)
-    focal = _vec3(args["focal_point"], "focal_point") if "focal_point" in args else cur_focal
+    focal = (
+        _vec3(args["focal_point"], "focal_point")
+        if "focal_point" in args
+        else cur_focal
+    )
     up = _vec3(args["view_up"], "view_up") if "view_up" in args else cur_up
     if "position" in args:
         pos = _vec3(args["position"], "position")
@@ -1202,7 +1268,9 @@ def _set_3d_camera(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     view_len = math.sqrt(sum(v * v for v in view))
     up_len = math.sqrt(sum(v * v for v in up))
     if view_len == 0.0 or up_len == 0.0:
-        raise ValueError("Camera position must differ from focal_point, and view_up be non-zero")
+        raise ValueError(
+            "Camera position must differ from focal_point, and view_up be non-zero"
+        )
     cos = abs(sum(a * b for a, b in zip(view, up))) / (view_len * up_len)
     if cos > 0.999:
         raise ValueError("'view_up' is parallel to the viewing direction")
@@ -1225,19 +1293,23 @@ def _set_3d_camera(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _sub(a: List[float], b: List[float]) -> List[float]:
+def _sub(a: list[float], b: list[float]) -> list[float]:
     return [x - y for x, y in zip(a, b)]
 
 
-def _dot(a: List[float], b: List[float]) -> float:
+def _dot(a: list[float], b: list[float]) -> float:
     return sum(x * y for x, y in zip(a, b))
 
 
-def _cross(a: List[float], b: List[float]) -> List[float]:
-    return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+def _cross(a: list[float], b: list[float]) -> list[float]:
+    return [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
 
 
-def _angle_deg(a: List[float], b: List[float], c: List[float]) -> float:
+def _angle_deg(a: list[float], b: list[float], c: list[float]) -> float:
     """Angle a-b-c in degrees."""
     u, v = _sub(a, b), _sub(c, b)
     nu, nv = math.sqrt(_dot(u, u)), math.sqrt(_dot(v, v))
@@ -1246,7 +1318,9 @@ def _angle_deg(a: List[float], b: List[float], c: List[float]) -> float:
     return math.degrees(math.acos(max(-1.0, min(1.0, _dot(u, v) / (nu * nv)))))
 
 
-def _dihedral_deg(a: List[float], b: List[float], c: List[float], d: List[float]) -> float:
+def _dihedral_deg(
+    a: list[float], b: list[float], c: list[float], d: list[float]
+) -> float:
     """Signed dihedral a-b-c-d in degrees (IUPAC sign convention)."""
     b0, b1, b2 = _sub(a, b), _sub(c, b), _sub(d, c)
     n1 = math.sqrt(_dot(b1, b1))
@@ -1260,7 +1334,7 @@ def _dihedral_deg(a: List[float], b: List[float], c: List[float], d: List[float]
     return math.degrees(math.atan2(_dot(_cross(b1, v), w), _dot(v, w)))
 
 
-def _measure_geometry(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+def _measure_geometry(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     """Distances (2 atoms), angles (3) and dihedrals (4) on the current 3D
     conformer, by 0-based atom index."""
     mol = ctx.current_molecule
@@ -1287,8 +1361,18 @@ def _measure_geometry(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
         else:
             kind, value = "dihedral", _dihedral_deg(*pts)
         symbols = [mol.GetAtomWithIdx(i).GetSymbol() for i in idx]
-        out.append({"atoms": idx, "symbols": symbols, "type": kind, "value": round(float(value), 4)})
-    return {"measurements": out, "units": {"distance": "angstrom", "angle": "degree", "dihedral": "degree"}}
+        out.append(
+            {
+                "atoms": idx,
+                "symbols": symbols,
+                "type": kind,
+                "value": round(float(value), 4),
+            }
+        )
+    return {
+        "measurements": out,
+        "units": {"distance": "angstrom", "angle": "degree", "dihedral": "degree"},
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1298,7 +1382,7 @@ def _measure_geometry(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
 _OVERLAY_NAMES = ("_mcp_overlay_atoms", "_mcp_overlay_bonds")
 
 
-def split_xyz_blocks(text: str) -> List[tuple]:
+def split_xyz_blocks(text: str) -> list[tuple]:
     """Split XYZ text into frames of (comment, [atom lines]), raw lines kept.
 
     Multi-frame files (optimization trajectories) are the standard
@@ -1310,7 +1394,7 @@ def split_xyz_blocks(text: str) -> List[tuple]:
     if not first.strip().isdigit():
         atoms = [ln for ln in lines if ln.strip()]
         return [("", atoms)] if atoms else []
-    frames: List[tuple] = []
+    frames: list[tuple] = []
     i = 0
     while i < len(lines):
         if not lines[i].strip():
@@ -1318,23 +1402,29 @@ def split_xyz_blocks(text: str) -> List[tuple]:
             continue
         count_text = lines[i].strip()
         if not count_text.isdigit():
-            raise ValueError(f"Expected an atom count on line {i + 1}, got {count_text!r}")
+            raise ValueError(
+                f"Expected an atom count on line {i + 1}, got {count_text!r}"
+            )
         count = int(count_text)
         comment = lines[i + 1] if i + 1 < len(lines) else ""
-        block = lines[i + 2:i + 2 + count]
+        block = lines[i + 2 : i + 2 + count]
         if len(block) < count:
-            raise ValueError(f"Frame {len(frames)} is truncated ({len(block)} of {count} atoms)")
+            raise ValueError(
+                f"Frame {len(frames)} is truncated ({len(block)} of {count} atoms)"
+            )
         frames.append((comment, block))
         i += 2 + count
     return frames
 
 
-def parse_xyz_frames(text: str) -> List[List[tuple]]:
+def parse_xyz_frames(text: str) -> list[list[tuple]]:
     """Frames of (symbol, x, y, z) tuples; see split_xyz_blocks."""
-    return [[_xyz_row(ln) for ln in block] for _comment, block in split_xyz_blocks(text)]
+    return [
+        [_xyz_row(ln) for ln in block] for _comment, block in split_xyz_blocks(text)
+    ]
 
 
-def _select_xyz_frame(text: str, frame: Optional[int]) -> tuple:
+def _select_xyz_frame(text: str, frame: int | None) -> tuple:
     """(xyz text of one frame, frame index, frame count).
 
     Without *frame* a single-frame text is passed through untouched (the
@@ -1382,7 +1472,7 @@ def _kabsch(p: Any, q: Any) -> tuple:
     return rot, pc - qc @ rot.T
 
 
-def _compare_structures(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+def _compare_structures(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     """RMSD between the current 3D molecule and another structure with the
     same atoms in the same order, optionally drawn as a translucent overlay."""
     import numpy as np  # pylint: disable=import-outside-toplevel
@@ -1397,7 +1487,9 @@ def _compare_structures(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     try:
         other = frames[frame_idx]
     except IndexError:
-        raise ValueError(f"'frame' {frame_idx} out of range ({len(frames)} frames)") from None
+        raise ValueError(
+            f"'frame' {frame_idx} out of range ({len(frames)} frames)"
+        ) from None
     n = mol.GetNumAtoms()
     if len(other) != n:
         raise ValueError(f"Atom count differs: current {n}, other {len(other)}")
@@ -1412,7 +1504,9 @@ def _compare_structures(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     p = np.array([list(conf.GetAtomPosition(i)) for i in range(n)])
     q = np.array([row[1:] for row in other])
     heavy_only = bool(args.get("heavy_atoms_only", False))
-    sel = [i for i in range(n) if not (heavy_only and symbols[i] == "H")] or list(range(n))
+    sel = [i for i in range(n) if not (heavy_only and symbols[i] == "H")] or list(
+        range(n)
+    )
     if args.get("align", True):
         rot, t = _kabsch(p[sel], q[sel])
         q = q @ rot.T + t
@@ -1424,12 +1518,15 @@ def _compare_structures(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
         "atoms_used": len(sel),
         "aligned": bool(args.get("align", True)),
         "largest_deviations": [
-            {"index": i, "symbol": symbols[i], "deviation": round(float(dev[i]), 4)} for i in order
+            {"index": i, "symbol": symbols[i], "deviation": round(float(dev[i]), 4)}
+            for i in order
         ],
     }
     if args.get("overlay", False):
         _draw_overlay(
-            ctx, mol, q,
+            ctx,
+            mol,
+            q,
             str(args.get("overlay_color") or _DEFAULT_OVERLAY_CARBON),
             str(args.get("current_color") or _DEFAULT_CURRENT_CARBON),
         )
@@ -1446,10 +1543,18 @@ _DEFAULT_CURRENT_CARBON = "#3fa7d6"
 _DEFAULT_OVERLAY_CARBON = "#ff8c00"
 #: Fallback element colors (RGB 0-1) when the app's CPK table is unavailable.
 _FALLBACK_CPK = {
-    "H": (1.0, 1.0, 1.0), "C": (0.56, 0.56, 0.56), "N": (0.19, 0.31, 0.97),
-    "O": (1.0, 0.05, 0.05), "F": (0.56, 0.88, 0.31), "P": (1.0, 0.5, 0.0),
-    "S": (1.0, 1.0, 0.19), "Cl": (0.12, 0.94, 0.12), "Br": (0.65, 0.16, 0.16),
-    "I": (0.58, 0.0, 0.58), "B": (1.0, 0.71, 0.71), "Si": (0.94, 0.78, 0.63),
+    "H": (1.0, 1.0, 1.0),
+    "C": (0.56, 0.56, 0.56),
+    "N": (0.19, 0.31, 0.97),
+    "O": (1.0, 0.05, 0.05),
+    "F": (0.56, 0.88, 0.31),
+    "P": (1.0, 0.5, 0.0),
+    "S": (1.0, 1.0, 0.19),
+    "Cl": (0.12, 0.94, 0.12),
+    "Br": (0.65, 0.16, 0.16),
+    "I": (0.58, 0.0, 0.58),
+    "B": (1.0, 0.71, 0.71),
+    "Si": (0.94, 0.78, 0.63),
 }
 
 
@@ -1463,7 +1568,11 @@ def _stick_radius(ctx: Any) -> float:
     mw = ctx.get_main_window() if hasattr(ctx, "get_main_window") else None
     settings = getattr(getattr(mw, "init_manager", None), "settings", None)
     try:
-        radius = float(settings.get("stick_bond_radius", 0.15)) if isinstance(settings, dict) else 0.15
+        radius = (
+            float(settings.get("stick_bond_radius", 0.15))
+            if isinstance(settings, dict)
+            else 0.15
+        )
     except (TypeError, ValueError):
         radius = 0.15
     return radius if radius > 0 else 0.15
@@ -1472,7 +1581,9 @@ def _stick_radius(ctx: Any) -> float:
 def _element_rgb(symbol: str) -> tuple:
     """RGB (0-1) of an element from the app's CPK table, else a fallback."""
     try:
-        from moleditpy.utils.constants import CPK_COLORS_PV  # pylint: disable=import-outside-toplevel
+        from moleditpy.utils.constants import (
+            CPK_COLORS_PV,  # pylint: disable=import-outside-toplevel
+        )
 
         color = CPK_COLORS_PV.get(symbol) if isinstance(CPK_COLORS_PV, dict) else None
         if color is not None and len(color) == 3:
@@ -1487,7 +1598,7 @@ def _hex_rgb(color: str) -> tuple:
     text = color.strip()
     if text.startswith("#") and len(text) == 7:
         try:
-            return tuple(int(text[i:i + 2], 16) / 255.0 for i in (1, 3, 5))
+            return tuple(int(text[i : i + 2], 16) / 255.0 for i in (1, 3, 5))
         except ValueError:
             pass
     import pyvista as pv  # pylint: disable=import-outside-toplevel
@@ -1495,7 +1606,9 @@ def _hex_rgb(color: str) -> tuple:
     return tuple(float(c) for c in pv.Color(text).float_rgb)
 
 
-def _draw_overlay(ctx: Any, mol: Any, coords: Any, color: str, current_color: str) -> None:
+def _draw_overlay(
+    ctx: Any, mol: Any, coords: Any, color: str, current_color: str
+) -> None:
     """Show both structures as stick models, told apart by carbon color.
 
     In ball-and-stick the atom spheres swallow any shift smaller than their
@@ -1520,25 +1633,37 @@ def _draw_overlay(ctx: Any, mol: Any, coords: Any, color: str, current_color: st
     manager = _view_3d_manager(ctx)
     if manager is not None:
         if getattr(plotter, _OVERLAY_STYLE_ATTR, None) is None:
-            setattr(plotter, _OVERLAY_STYLE_ATTR, getattr(manager, "current_3d_style", None))
+            setattr(
+                plotter, _OVERLAY_STYLE_ATTR, getattr(manager, "current_3d_style", None)
+            )
     saved = _set_carbon_colors(ctx, manager, {i: current_color for i in carbons})
     if getattr(plotter, _OVERLAY_COLORED_ATTR, None) is None:
         setattr(plotter, _OVERLAY_COLORED_ATTR, saved)
     if manager is not None:
-        _restyle_and_redraw(manager, "stick")  # redraws the molecule, so overlay goes after
+        _restyle_and_redraw(
+            manager, "stick"
+        )  # redraws the molecule, so overlay goes after
 
     carbon_rgb = _hex_rgb(color)
-    rgb = np.array([carbon_rgb if s == "C" else _element_rgb(s) for s in symbols], dtype=float)
+    rgb = np.array(
+        [carbon_rgb if s == "C" else _element_rgb(s) for s in symbols], dtype=float
+    )
     radius = _stick_radius(ctx) * _OVERLAY_RADIUS_SCALE
     points = np.asarray(coords, dtype=float)
 
     atoms = pv.PolyData(points)
     atoms.point_data["rgb"] = rgb
     plotter.add_mesh(
-        atoms.glyph(geom=pv.Sphere(radius=radius, theta_resolution=16, phi_resolution=16),
-                    scale=False, orient=False),
-        scalars="rgb", rgb=True, opacity=_OVERLAY_OPACITY,
-        name=_OVERLAY_NAMES[0], pickable=False,
+        atoms.glyph(
+            geom=pv.Sphere(radius=radius, theta_resolution=16, phi_resolution=16),
+            scale=False,
+            orient=False,
+        ),
+        scalars="rgb",
+        rgb=True,
+        opacity=_OVERLAY_OPACITY,
+        name=_OVERLAY_NAMES[0],
+        pickable=False,
     )
     bonds = [(b.GetBeginAtomIdx(), b.GetEndAtomIdx()) for b in mol.GetBonds()]
     if bonds:
@@ -1555,8 +1680,11 @@ def _draw_overlay(ctx: Any, mol: Any, coords: Any, color: str, current_color: st
         sticks.point_data["rgb"] = np.array(seg_rgb)
         plotter.add_mesh(
             sticks.tube(radius=radius, n_sides=16),
-            scalars="rgb", rgb=True, opacity=_OVERLAY_OPACITY,
-            name=_OVERLAY_NAMES[1], pickable=False,
+            scalars="rgb",
+            rgb=True,
+            opacity=_OVERLAY_OPACITY,
+            name=_OVERLAY_NAMES[1],
+            pickable=False,
         )
     plotter.render()
 
@@ -1572,9 +1700,9 @@ def _remove_overlay_actors(plotter: Any) -> int:
     return removed
 
 
-def _clear_overlay(ctx: Any) -> Dict[str, Any]:
+def _clear_overlay(ctx: Any) -> dict[str, Any]:
     plotter = ctx.plotter
-    result: Dict[str, Any] = {"removed": 0}
+    result: dict[str, Any] = {"removed": 0}
     if plotter is None:
         return result
     result["removed"] = _remove_overlay_actors(plotter)
@@ -1593,7 +1721,9 @@ def _clear_overlay(ctx: Any) -> Dict[str, Any]:
     return result
 
 
-def _set_carbon_colors(ctx: Any, manager: Any, colors: Dict[int, Optional[str]]) -> Dict[int, Optional[str]]:
+def _set_carbon_colors(
+    ctx: Any, manager: Any, colors: dict[int, str | None]
+) -> dict[int, str | None]:
     """Apply atom color overrides (None removes one) and return the previous
     values, for restoring. Returns without redrawing when it can write the
     3D manager's override store directly; the per-atom PluginContext call
@@ -1616,7 +1746,7 @@ def _set_carbon_colors(ctx: Any, manager: Any, colors: Dict[int, Optional[str]])
     return {idx: None for idx in colors}
 
 
-def _restyle_and_redraw(manager: Any, style: Optional[str]) -> None:
+def _restyle_and_redraw(manager: Any, style: str | None) -> None:
     """Switch the 3D style (which redraws) or, when it is already that
     style, redraw once so pending color overrides show."""
     if style is not None and getattr(manager, "current_3d_style", None) != style:
@@ -1632,13 +1762,17 @@ def _restyle_and_redraw(manager: Any, style: Optional[str]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _get_molecule_descriptors(ctx: Any) -> Dict[str, Any]:
+def _get_molecule_descriptors(ctx: Any) -> dict[str, Any]:
     """Common RDKit descriptors for the current molecule, in one call."""
     mol = ctx.current_molecule
     if mol is None:
         return {"loaded": False}
     from rdkit import Chem  # pylint: disable=import-outside-toplevel
-    from rdkit.Chem import Crippen, Descriptors, rdMolDescriptors  # pylint: disable=import-outside-toplevel
+    from rdkit.Chem import (  # pylint: disable=import-outside-toplevel
+        Crippen,
+        Descriptors,
+        rdMolDescriptors,
+    )
 
     return {
         "loaded": True,
@@ -1660,7 +1794,7 @@ def _get_molecule_descriptors(ctx: Any) -> Dict[str, Any]:
     }
 
 
-def _add_hydrogens(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+def _add_hydrogens(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     """Add explicit hydrogens to the current molecule (RDKit AddHs)."""
     mol = ctx.current_molecule
     if mol is None:
@@ -1677,7 +1811,7 @@ def _add_hydrogens(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     return {"success": True, "num_atoms": mol_h.GetNumAtoms()}
 
 
-def _remove_hydrogens(ctx: Any) -> Dict[str, Any]:
+def _remove_hydrogens(ctx: Any) -> dict[str, Any]:
     """Strip explicit hydrogens from the current molecule (RDKit RemoveHs)."""
     mol = ctx.current_molecule
     if mol is None:
@@ -1691,7 +1825,7 @@ def _remove_hydrogens(ctx: Any) -> Dict[str, Any]:
     return {"success": True, "num_atoms": mol_no_h.GetNumAtoms()}
 
 
-def _optimize_geometry(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+def _optimize_geometry(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     """Minimize the current 3D conformer with MMFF94 or UFF.
 
     Distinct from trigger_3d_conversion, which *generates* a fresh conformer:
@@ -1735,7 +1869,7 @@ def _optimize_geometry(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     return {"success": True, "force_field": force_field, "converged": status == 0}
 
 
-def _set_atom_charge(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+def _set_atom_charge(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     """Set one atom's formal charge, re-sanitizing before it is accepted."""
     mol = ctx.current_molecule
     if mol is None:
@@ -1768,7 +1902,7 @@ def _set_atom_charge(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     return {"success": True, "atom_index": atom_index, "charge": charge}
 
 
-def _delete_atoms(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+def _delete_atoms(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     """Remove one or more atoms by index, highest index first.
 
     Highest-first matters: removing a lower index first would shift every
@@ -1796,7 +1930,9 @@ def _delete_atoms(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     try:
         Chem.SanitizeMol(new_mol)
     except Exception as exc:  # pylint: disable=broad-except
-        raise ValueError(f"Deleting atom(s) {indices} produced an invalid molecule: {exc}") from exc
+        raise ValueError(
+            f"Deleting atom(s) {indices} produced an invalid molecule: {exc}"
+        ) from exc
     ctx.current_molecule = new_mol
     ctx.push_undo_checkpoint()
     ctx.refresh_ui()
@@ -1807,7 +1943,7 @@ def _delete_atoms(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _substructure_search(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+def _substructure_search(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     """SMARTS substructure matches against the current molecule (read-only)."""
     mol = ctx.current_molecule
     if mol is None:
@@ -1831,17 +1967,17 @@ def _substructure_search(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _compute_partial_charges(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+def _compute_partial_charges(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     """Gasteiger partial charges per atom. Never mutates the live molecule."""
     mol = ctx.current_molecule
     if mol is None:
         raise ValueError("No molecule loaded")
     atom_indices = args.get("atom_indices") or []
 
+    import math  # pylint: disable=import-outside-toplevel
+
     from rdkit import Chem  # pylint: disable=import-outside-toplevel
     from rdkit.Chem import AllChem  # pylint: disable=import-outside-toplevel
-
-    import math  # pylint: disable=import-outside-toplevel
 
     working = Chem.Mol(mol)
     AllChem.ComputeGasteigerCharges(working)
@@ -1851,7 +1987,11 @@ def _compute_partial_charges(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
         idx = atom.GetIdx()
         if wanted is not None and idx not in wanted:
             continue
-        raw = atom.GetDoubleProp("_GasteigerCharge") if atom.HasProp("_GasteigerCharge") else 0.0
+        raw = (
+            atom.GetDoubleProp("_GasteigerCharge")
+            if atom.HasProp("_GasteigerCharge")
+            else 0.0
+        )
         # Gasteiger has no parameters for some elements (metals, B, ...) and
         # yields NaN there. NaN is not JSON, so report "no charge" instead.
         charge = round(raw, 4) if math.isfinite(raw) else None
@@ -1899,7 +2039,7 @@ def _app_version(mw: Any) -> str:
     return "unknown"
 
 
-def _get_app_info(ctx: Any) -> Dict[str, Any]:
+def _get_app_info(ctx: Any) -> dict[str, Any]:
     return {
         "app": "MoleditPy",
         "version": _app_version(ctx.get_main_window()),
@@ -1927,7 +2067,7 @@ class MCPBridge(QObject):
     # from a thread other than the one that owns this QObject.
     _request = pyqtSignal(str, object, object)
 
-    def __init__(self, context: Any, parent: Optional[QObject] = None) -> None:
+    def __init__(self, context: Any, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._context = context
         # The bridge is built on the Qt main thread; remembered so call() can
@@ -1942,7 +2082,7 @@ class MCPBridge(QObject):
     def call(
         self,
         operation: str,
-        args: Optional[Dict[str, Any]] = None,
+        args: dict[str, Any] | None = None,
         timeout: float = 10.0,
     ) -> Any:
         """
@@ -1958,7 +2098,7 @@ class MCPBridge(QObject):
             # delivered once this call returned, so waiting for it would
             # freeze the UI for the whole timeout and then fail.
             return execute_operation(self._context, operation, dict(args))
-        container: Dict[str, Any] = {
+        container: dict[str, Any] = {
             "event": threading.Event(),
             "lock": threading.Lock(),
             "state": "queued",
@@ -1972,9 +2112,7 @@ class MCPBridge(QObject):
                     # Never started: withdraw it, so a busy main thread does
                     # not later apply an edit the client was told had failed.
                     container["state"] = "cancelled"
-            raise TimeoutError(
-                f"Operation {operation!r} timed out after {timeout}s"
-            )
+            raise TimeoutError(f"Operation {operation!r} timed out after {timeout}s")
         if container["error"] is not None:
             raise container["error"]
         return container["result"]
@@ -1990,7 +2128,7 @@ class MCPBridge(QObject):
         container: object,
     ) -> None:
         """Execute the requested operation and signal completion."""
-        c: Dict[str, Any] = container  # type: ignore[assignment]
+        c: dict[str, Any] = container  # type: ignore[assignment]
         with c["lock"]:
             if c["state"] == "cancelled":
                 logger.warning("Skipping %r: the caller already timed out", operation)
@@ -1998,7 +2136,9 @@ class MCPBridge(QObject):
             c["state"] = "running"
         try:
             c["result"] = execute_operation(
-                self._context, operation, dict(args)  # type: ignore[arg-type]
+                self._context,
+                operation,
+                dict(args),  # type: ignore[arg-type]
             )
         except Exception as exc:  # pylint: disable=broad-except
             c["error"] = exc

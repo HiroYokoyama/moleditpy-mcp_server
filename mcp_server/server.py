@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 MCP HTTP server — implements the MCP Streamable HTTP transport.
 
@@ -24,7 +23,7 @@ import urllib.request
 import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +31,7 @@ logger = logging.getLogger(__name__)
 # Two eras of MCP are spoken here:
 #   * "legacy"  — handshake-based (`initialize`), 2025-11-25 and earlier.
 #   * "modern"  — stateless per-request metadata, 2026-07-28 and later.
-_PROTOCOL_VERSION = "2024-11-05"          # legacy default when none requested
+_PROTOCOL_VERSION = "2024-11-05"  # legacy default when none requested
 _MODERN_PROTOCOL_VERSION = "2026-07-28"
 _LEGACY_PROTOCOL_VERSIONS = (
     "2025-11-25",
@@ -89,7 +88,7 @@ _SERVER_INSTRUCTIONS = (
 )
 
 #: Arguments shared by the two XYZ-loading tools.
-_XYZ_LOAD_PROPERTIES: Dict[str, Any] = {
+_XYZ_LOAD_PROPERTIES: dict[str, Any] = {
     "charge": {
         "type": "integer",
         "description": (
@@ -123,7 +122,7 @@ _XYZ_LOAD_PROPERTIES: Dict[str, Any] = {
     },
 }
 
-_TOOLS: List[Dict[str, Any]] = [
+_TOOLS: list[dict[str, Any]] = [
     # ------------------------------------------------------------------
     # Read molecule state
     # ------------------------------------------------------------------
@@ -408,14 +407,27 @@ _TOOLS: List[Dict[str, Any]] = [
                     "type": "string",
                     "description": "Output path relative to the sandbox, ending in .png.",
                 },
-                "view": {"type": "string", "enum": ["auto", "2d", "3d"],
-                         "description": "Which view to capture (default 'auto')."},
-                "width": {"type": "integer", "description": "Pixels, 128-2048 (default 900)."},
-                "height": {"type": "integer", "description": "Pixels, 128-2048 (default 700)."},
-                "atom_labels": {"type": "boolean",
-                                "description": "3D only: overlay 0-based atom indices."},
-                "overwrite": {"type": "boolean",
-                              "description": "Replace an existing file (default false)."},
+                "view": {
+                    "type": "string",
+                    "enum": ["auto", "2d", "3d"],
+                    "description": "Which view to capture (default 'auto').",
+                },
+                "width": {
+                    "type": "integer",
+                    "description": "Pixels, 128-2048 (default 900).",
+                },
+                "height": {
+                    "type": "integer",
+                    "description": "Pixels, 128-2048 (default 700).",
+                },
+                "atom_labels": {
+                    "type": "boolean",
+                    "description": "3D only: overlay 0-based atom indices.",
+                },
+                "overwrite": {
+                    "type": "boolean",
+                    "description": "Replace an existing file (default false).",
+                },
             },
             "required": ["path"],
         },
@@ -442,21 +454,42 @@ _TOOLS: List[Dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "position": {"type": "array", "items": {"type": "number"},
-                             "minItems": 3, "maxItems": 3,
-                             "description": "Camera position [x, y, z]."},
-                "direction": {"type": "array", "items": {"type": "number"},
-                              "minItems": 3, "maxItems": 3,
-                              "description": "View-from direction [x, y, z]."},
-                "focal_point": {"type": "array", "items": {"type": "number"},
-                                "minItems": 3, "maxItems": 3,
-                                "description": "Point looked at (default: current)."},
-                "view_up": {"type": "array", "items": {"type": "number"},
-                            "minItems": 3, "maxItems": 3,
-                            "description": "Screen-up vector (default: current)."},
-                "fit": {"type": "boolean",
-                        "description": "Re-frame the molecule keeping the orientation."},
-                "zoom": {"type": "number", "description": "Zoom factor applied last (>0)."},
+                "position": {
+                    "type": "array",
+                    "items": {"type": "number"},
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "description": "Camera position [x, y, z].",
+                },
+                "direction": {
+                    "type": "array",
+                    "items": {"type": "number"},
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "description": "View-from direction [x, y, z].",
+                },
+                "focal_point": {
+                    "type": "array",
+                    "items": {"type": "number"},
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "description": "Point looked at (default: current).",
+                },
+                "view_up": {
+                    "type": "array",
+                    "items": {"type": "number"},
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "description": "Screen-up vector (default: current).",
+                },
+                "fit": {
+                    "type": "boolean",
+                    "description": "Re-frame the molecule keeping the orientation.",
+                },
+                "zoom": {
+                    "type": "number",
+                    "description": "Zoom factor applied last (>0).",
+                },
             },
         },
     },
@@ -473,8 +506,12 @@ _TOOLS: List[Dict[str, Any]] = [
             "properties": {
                 "atoms": {
                     "type": "array",
-                    "items": {"type": "array", "items": {"type": "integer"},
-                              "minItems": 2, "maxItems": 4},
+                    "items": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "minItems": 2,
+                        "maxItems": 4,
+                    },
                     "description": "List of index lists (2, 3 or 4 atoms each).",
                 },
             },
@@ -498,23 +535,40 @@ _TOOLS: List[Dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "xyz_text": {
-                    "oneOf": [{"type": "string"},
-                              {"type": "array", "items": {"type": "string"}}],
+                    "oneOf": [
+                        {"type": "string"},
+                        {"type": "array", "items": {"type": "string"}},
+                    ],
                     "description": "XYZ text of the other structure.",
                 },
-                "path": {"type": "string",
-                         "description": "Or: sandbox path of an .xyz file."},
-                "frame": {"type": "integer",
-                          "description": "Frame of a multi-frame XYZ (default -1, the last)."},
-                "align": {"type": "boolean", "description": "Superimpose first (default true)."},
-                "heavy_atoms_only": {"type": "boolean",
-                                     "description": "Ignore hydrogens (default false)."},
-                "overlay": {"type": "boolean",
-                            "description": "Draw the aligned structure in the 3D viewer."},
-                "overlay_color": {"type": "string",
-                                  "description": "Carbon color of the other structure (default '#ff8c00')."},
-                "current_color": {"type": "string",
-                                  "description": "Carbon color of the current molecule during the overlay (default '#3fa7d6')."},
+                "path": {
+                    "type": "string",
+                    "description": "Or: sandbox path of an .xyz file.",
+                },
+                "frame": {
+                    "type": "integer",
+                    "description": "Frame of a multi-frame XYZ (default -1, the last).",
+                },
+                "align": {
+                    "type": "boolean",
+                    "description": "Superimpose first (default true).",
+                },
+                "heavy_atoms_only": {
+                    "type": "boolean",
+                    "description": "Ignore hydrogens (default false).",
+                },
+                "overlay": {
+                    "type": "boolean",
+                    "description": "Draw the aligned structure in the 3D viewer.",
+                },
+                "overlay_color": {
+                    "type": "string",
+                    "description": "Carbon color of the other structure (default '#ff8c00').",
+                },
+                "current_color": {
+                    "type": "string",
+                    "description": "Carbon color of the current molecule during the overlay (default '#3fa7d6').",
+                },
             },
         },
     },
@@ -700,7 +754,7 @@ _TOOLS: List[Dict[str, Any]] = [
                     "type": "object",
                     "description": (
                         "Mapping of atom index (as string key) to hex color string "
-                        "(e.g. {\"0\": \"#FF0000\", \"3\": \"#00FF00\"})."
+                        '(e.g. {"0": "#FF0000", "3": "#00FF00"}).'
                     ),
                     "additionalProperties": {"type": "string"},
                 }
@@ -870,7 +924,7 @@ _TOOLS: List[Dict[str, Any]] = [
         "description": (
             "Override the display color of specific bonds in the 3D viewer. "
             "bond_colors maps bond index (as string key) to a hex color "
-            "(e.g. {\"0\": \"#FF0000\", \"3\": \"#0000FF\"}). "
+            '(e.g. {"0": "#FF0000", "3": "#0000FF"}). '
             "Overrides PERSIST across redraws until cleared with "
             "reset_cpk_color_override (scope 'bonds' or 'all'). "
             "(Formerly named highlight_bonds.)"
@@ -880,14 +934,14 @@ _TOOLS: List[Dict[str, Any]] = [
             "properties": {
                 "bond_colors": {
                     "type": "object",
-                    "description": "Bond index → hex color, e.g. {\"0\": \"#FF0000\"}.",
+                    "description": 'Bond index → hex color, e.g. {"0": "#FF0000"}.',
                     "additionalProperties": {"type": "string"},
                 },
                 "atom_pair_colors": {
                     "type": "object",
                     "description": (
                         "'atomIndex1-atomIndex2' → hex color, e.g. "
-                        "{\"0-3\": \"#FF0000\"} — colors the bond between the "
+                        '{"0-3": "#FF0000"} — colors the bond between the '
                         "two atoms. Easier than bond indices: use the atom "
                         "indices from get_mapped_smiles/get_atom_properties. "
                         "Errors if no bond exists between the pair."
@@ -1348,38 +1402,78 @@ _TOOLS: List[Dict[str, Any]] = [
 # ---------------------------------------------------------------------------
 
 _READ_ONLY_TOOLS = {
-    "get_current_molecule", "get_molecule_xyz", "get_atom_properties",
-    "get_bond_info", "get_selected_atoms", "get_mapped_smiles", "get_app_info",
-    "get_plugin_dir", "get_plugin_dev_manual", "list_app_source_tree",
-    "get_app_source", "list_available_plugins", "check_chemistry",
-    "read_text_file", "list_directory", "get_file_io_config",
-    "grep_files", "find_files", "get_molecule_image", "get_molecule_descriptors",
-    "substructure_search", "compute_partial_charges", "get_3d_camera",
+    "get_current_molecule",
+    "get_molecule_xyz",
+    "get_atom_properties",
+    "get_bond_info",
+    "get_selected_atoms",
+    "get_mapped_smiles",
+    "get_app_info",
+    "get_plugin_dir",
+    "get_plugin_dev_manual",
+    "list_app_source_tree",
+    "get_app_source",
+    "list_available_plugins",
+    "check_chemistry",
+    "read_text_file",
+    "list_directory",
+    "get_file_io_config",
+    "grep_files",
+    "find_files",
+    "get_molecule_image",
+    "get_molecule_descriptors",
+    "substructure_search",
+    "compute_partial_charges",
+    "get_3d_camera",
     "measure_geometry",
 }
 
 #: Tools that replace or erase user work (the canvas, or a file on disk).
 _DESTRUCTIVE_TOOLS = {
-    "load_molecule_from_smiles", "load_from_mol_block", "load_molecule_by_name",
-    "show_xyz_in_viewer", "apply_reaction_smarts", "clear_canvas",
-    "write_text_file", "write_file_with_xyz_block", "delete_file", "run_python",
-    "add_hydrogens", "remove_hydrogens", "optimize_geometry", "set_atom_charge",
-    "delete_atoms", "load_xyz_file", "save_molecule_image",
+    "load_molecule_from_smiles",
+    "load_from_mol_block",
+    "load_molecule_by_name",
+    "show_xyz_in_viewer",
+    "apply_reaction_smarts",
+    "clear_canvas",
+    "write_text_file",
+    "write_file_with_xyz_block",
+    "delete_file",
+    "run_python",
+    "add_hydrogens",
+    "remove_hydrogens",
+    "optimize_geometry",
+    "set_atom_charge",
+    "delete_atoms",
+    "load_xyz_file",
+    "save_molecule_image",
 }
 
 #: Mutating tools whose repeated call leaves the same state.
 _IDEMPOTENT_TOOLS = {
-    "set_cpk_color_override", "reset_cpk_color_override",
-    "set_bond_color_override", "highlight_bonds", "enter_3d_mode",
-    "exit_3d_mode", "fit_2d_view", "reset_3d_camera", "refresh_3d_view",
-    "refresh_ui", "reload_plugins", "open_plugin_installer",
-    "set_file_io_config", "trigger_3d_conversion", "set_3d_camera",
+    "set_cpk_color_override",
+    "reset_cpk_color_override",
+    "set_bond_color_override",
+    "highlight_bonds",
+    "enter_3d_mode",
+    "exit_3d_mode",
+    "fit_2d_view",
+    "reset_3d_camera",
+    "refresh_3d_view",
+    "refresh_ui",
+    "reload_plugins",
+    "open_plugin_installer",
+    "set_file_io_config",
+    "trigger_3d_conversion",
+    "set_3d_camera",
     "clear_overlay",
 }
 
 #: Tools that reach outside MoleditPy (network).
 _OPEN_WORLD_TOOLS = {
-    "load_molecule_by_name", "list_available_plugins", "get_plugin_dev_manual",
+    "load_molecule_by_name",
+    "list_available_plugins",
+    "get_plugin_dev_manual",
 }
 
 
@@ -1388,7 +1482,7 @@ def _apply_annotations() -> None:
     for tool in _TOOLS:
         name = tool["name"]
         read_only = name in _READ_ONLY_TOOLS
-        annotations: Dict[str, Any] = {
+        annotations: dict[str, Any] = {
             "readOnlyHint": read_only,
             "openWorldHint": name in _OPEN_WORLD_TOOLS,
         }
@@ -1406,17 +1500,17 @@ _apply_annotations()
 # ---------------------------------------------------------------------------
 
 
-def _tool_ok(text: str) -> Dict[str, Any]:
+def _tool_ok(text: str) -> dict[str, Any]:
     """Return a successful MCP tool result."""
     return {"content": [{"type": "text", "text": text}]}
 
 
-def _tool_err(text: str) -> Dict[str, Any]:
+def _tool_err(text: str) -> dict[str, Any]:
     """Return a failed MCP tool result."""
     return {"content": [{"type": "text", "text": text}], "isError": True}
 
 
-def _tool_image(data_base64: str, mime_type: str, caption: str = "") -> Dict[str, Any]:
+def _tool_image(data_base64: str, mime_type: str, caption: str = "") -> dict[str, Any]:
     """Return a successful MCP tool result carrying an image content block.
 
     A leading text block is included when *caption* is given: several MCP
@@ -1424,7 +1518,7 @@ def _tool_image(data_base64: str, mime_type: str, caption: str = "") -> Dict[str
     result, and a caption-only response with no image block at all is a
     worse failure than a caption a strict client ignores.
     """
-    content: List[Dict[str, Any]] = []
+    content: list[dict[str, Any]] = []
     if caption:
         content.append({"type": "text", "text": caption})
     content.append({"type": "image", "data": data_base64, "mimeType": mime_type})
@@ -1460,7 +1554,7 @@ def _resolve_safe_path(user_path: str, base_dir: str) -> Path:
     return resolved
 
 
-def _check_extension(path: Path, allowed_extensions: List[str]) -> None:
+def _check_extension(path: Path, allowed_extensions: list[str]) -> None:
     """Raise ValueError if path's extension is not in *allowed_extensions*."""
     ext = path.suffix.lower()
     if not ext:
@@ -1476,15 +1570,17 @@ def _check_extension(path: Path, allowed_extensions: List[str]) -> None:
         )
 
 
-def normalize_extensions(raw: Any) -> List[str]:
+def normalize_extensions(raw: Any) -> list[str]:
     """Validate an extension allowlist and bring every entry to '.ext' form.
 
     A bare string is rejected rather than iterated: ``".inp"`` would otherwise
     become the allowlist ``['..', '.i', '.n', '.p']``.
     """
     if not isinstance(raw, (list, tuple)) or not all(isinstance(e, str) for e in raw):
-        raise ValueError("'allowed_extensions' must be a list of strings, e.g. ['.inp', '.xyz']")
-    exts: List[str] = []
+        raise ValueError(
+            "'allowed_extensions' must be a list of strings, e.g. ['.inp', '.xyz']"
+        )
+    exts: list[str] = []
     for entry in raw:
         ext = entry.strip().lower()
         if not ext or ext == ".":
@@ -1495,7 +1591,7 @@ def normalize_extensions(raw: Any) -> List[str]:
     return exts
 
 
-def _get_sandbox(bridge: Any) -> tuple[str, List[str]]:
+def _get_sandbox(bridge: Any) -> tuple[str, list[str]]:
     """
     Fetch the current file I/O config from the bridge.
 
@@ -1503,13 +1599,13 @@ def _get_sandbox(bridge: Any) -> tuple[str, List[str]]:
     Raises ValueError if base_dir is not configured.
     """
     cfg = bridge.call("get_file_io_config")
-    base_dir: Optional[str] = cfg.get("base_dir")
+    base_dir: str | None = cfg.get("base_dir")
     if not base_dir:
         raise ValueError(
             "File I/O base directory is not configured. "
             "Call set_file_io_config with a base_dir first."
         )
-    allowed: List[str] = cfg.get("allowed_extensions", [])
+    allowed: list[str] = cfg.get("allowed_extensions", [])
     return base_dir, allowed
 
 
@@ -1529,9 +1625,11 @@ def _read_sandbox_text(bridge: Any, user_path: str) -> str:
     return target.read_text(encoding="utf-8")
 
 
-def _show_xyz(bridge: Any, xyz_text: str, source_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+def _show_xyz(
+    bridge: Any, xyz_text: str, source_name: str, arguments: dict[str, Any]
+) -> dict[str, Any]:
     """Shared body of show_xyz_in_viewer and load_xyz_file."""
-    call_args: Dict[str, Any] = {"xyz_text": xyz_text, "source_name": source_name}
+    call_args: dict[str, Any] = {"xyz_text": xyz_text, "source_name": source_name}
     for key in ("charge", "skip_chemistry", "frame", "keep_camera"):
         if arguments.get(key) is not None:
             call_args[key] = arguments[key]
@@ -1560,16 +1658,44 @@ def _show_xyz(bridge: Any, xyz_text: str, source_name: str, arguments: Dict[str,
 # ---------------------------------------------------------------------------
 
 _SEARCH_SKIP_DIRS = {
-    "__pycache__", ".git", ".mypy_cache", ".pytest_cache", ".ruff_cache",
-    ".venv", "venv", "node_modules", ".idea", ".vscode",
+    "__pycache__",
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "venv",
+    "node_modules",
+    ".idea",
+    ".vscode",
 }
 
 #: Suffixes searched in the source/plugin trees (the sandbox root uses the
 #: user's own extension allowlist instead).
 _SEARCH_TEXT_SUFFIXES = {
-    ".py", ".pyw", ".pyi", ".md", ".txt", ".json", ".toml", ".cfg", ".ini",
-    ".yaml", ".yml", ".rst", ".csv", ".xyz", ".inp", ".out", ".log", ".sh",
-    ".bat", ".html", ".css", ".js", ".ts",
+    ".py",
+    ".pyw",
+    ".pyi",
+    ".md",
+    ".txt",
+    ".json",
+    ".toml",
+    ".cfg",
+    ".ini",
+    ".yaml",
+    ".yml",
+    ".rst",
+    ".csv",
+    ".xyz",
+    ".inp",
+    ".out",
+    ".log",
+    ".sh",
+    ".bat",
+    ".html",
+    ".css",
+    ".js",
+    ".ts",
 }
 
 _GREP_MAX_FILE_BYTES = 2 * 1024 * 1024
@@ -1579,7 +1705,7 @@ _GREP_MAX_LINE_CHARS = 300
 
 def _resolve_search_root(
     bridge: Any, root: str, sub_path: str
-) -> tuple[Path, Path, Optional[List[str]]]:
+) -> tuple[Path, Path, list[str] | None]:
     """
     Resolve a search *root* name to directories.
 
@@ -1589,7 +1715,7 @@ def _resolve_search_root(
     if root == "files":
         base_dir, allowed = _get_sandbox(bridge)
         base = Path(base_dir).expanduser().resolve()
-        exts: Optional[List[str]] = [e.lower() for e in allowed]
+        exts: list[str] | None = [e.lower() for e in allowed]
     elif root == "app_source":
         base = Path(bridge.call("get_app_source_root")["root"]).resolve()
         exts = None
@@ -1615,7 +1741,9 @@ def _resolve_search_root(
                 f"Path {sub_path!r} resolves outside the {root!r} root."
             ) from None
         if not start.is_dir():
-            raise ValueError(f"{sub_path!r} is not a directory inside the {root!r} root.")
+            raise ValueError(
+                f"{sub_path!r} is not a directory inside the {root!r} root."
+            )
     return base, start, exts
 
 
@@ -1636,7 +1764,7 @@ def _walk_files(start: Path, name_glob: str) -> Any:
 
 
 def _iter_search_files(
-    start: Path, name_glob: str, allowed_exts: Optional[List[str]]
+    start: Path, name_glob: str, allowed_exts: list[str] | None
 ) -> Any:
     """Yield candidate text files under *start*, capped at _GREP_MAX_FILES."""
     count = 0
@@ -1653,12 +1781,12 @@ def _iter_search_files(
         yield path
 
 
-def run_grep(  # noqa: PLR0913 - one option per documented tool argument
+def run_grep(
     start: Path,
     base: Path,
     pattern: str,
     name_glob: str = "*.py",
-    allowed_exts: Optional[List[str]] = None,
+    allowed_exts: list[str] | None = None,
     ignore_case: bool = False,
     fixed_string: bool = False,
     context: int = 0,
@@ -1678,7 +1806,7 @@ def run_grep(  # noqa: PLR0913 - one option per documented tool argument
             "Pass fixed_string=true to search for it literally."
         ) from exc
 
-    out: List[str] = []
+    out: list[str] = []
     matches = 0
     files_with_matches = 0
     truncated = False
@@ -1721,9 +1849,8 @@ def run_grep(  # noqa: PLR0913 - one option per documented tool argument
             f"(glob {name_glob or '*'}).\n"
             "Try a broader pattern, ignore_case=true, or glob='*'."
         )
-    header = (
-        f"{matches} match(es) in {files_with_matches} file(s) under {base}"
-        + (" — truncated, refine the pattern or raise max_matches" if truncated else "")
+    header = f"{matches} match(es) in {files_with_matches} file(s) under {base}" + (
+        " — truncated, refine the pattern or raise max_matches" if truncated else ""
     )
     return header + ":\n" + "\n".join(out)
 
@@ -1733,7 +1860,7 @@ def run_find(
 ) -> str:
     """List file paths under *start* matching *name_glob*."""
     max_results = max(1, min(int(max_results), 1000))
-    found: List[str] = []
+    found: list[str] = []
     truncated = False
     for path in _walk_files(start, name_glob):
         if len(found) >= max_results:
@@ -1763,11 +1890,11 @@ def _slice_lines(text: str, start_line: Any, end_line: Any) -> str:
         )
     if last < first:
         raise ValueError("end_line must be greater than or equal to start_line.")
-    body = "\n".join(lines[first - 1:last])
+    body = "\n".join(lines[first - 1 : last])
     return f"[lines {first}-{last} of {len(lines)}]\n{body}"
 
 
-def _str_arg(arguments: Dict[str, Any], key: str, default: str = "") -> str:
+def _str_arg(arguments: dict[str, Any], key: str, default: str = "") -> str:
     """A stripped string tool argument; *default* when absent, null, or blank.
 
     ``arguments.get(key, "").strip()`` crashes with AttributeError when a
@@ -1796,9 +1923,9 @@ def _text_arg(value: Any) -> str:
 
 
 def format_xyz_block(
-    atoms: List[Dict[str, Any]],
+    atoms: list[dict[str, Any]],
     element_style: str = "symbol",
-    atom_order: Optional[List[int]] = None,
+    atom_order: list[int] | None = None,
     precision: int = 6,
 ) -> str:
     """
@@ -1852,9 +1979,7 @@ def format_xyz_block(
 # ---------------------------------------------------------------------------
 
 
-_PLUGIN_DEV_MANUAL_URL = (
-    "https://hiroyokoyama.github.io/python_molecular_editor/docs/PLUGIN_DEVELOPMENT_MANUAL_V4.md"
-)
+_PLUGIN_DEV_MANUAL_URL = "https://hiroyokoyama.github.io/python_molecular_editor/docs/PLUGIN_DEVELOPMENT_MANUAL_V4.md"
 
 _PLUGIN_REGISTRY_URL = (
     "https://hiroyokoyama.github.io/moleditpy-plugins/REGISTRY/plugins.json"
@@ -1919,11 +2044,11 @@ def _fetch_smiles_by_name(name: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def dispatch_tool(  # noqa: C901
+def dispatch_tool(
     bridge: Any,
     name: str,
-    arguments: Dict[str, Any],
-) -> Dict[str, Any]:
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
     """
     Dispatch a named MCP tool call through *bridge* and return the result dict.
 
@@ -1973,9 +2098,7 @@ def dispatch_tool(  # noqa: C901
         if name == "get_bond_info":
             data = bridge.call("get_bond_info")
             if not data["bonds"]:
-                return _tool_ok(
-                    "No molecule loaded or molecule has no bonds."
-                )
+                return _tool_ok("No molecule loaded or molecule has no bonds.")
             lines = [f"Bond table ({len(data['bonds'])} bond(s)):"]
             for b in data["bonds"]:
                 lines.append(
@@ -2058,7 +2181,9 @@ def dispatch_tool(  # noqa: C901
             base_dir, _ = _get_sandbox(bridge)
             target = _resolve_safe_path(user_path, base_dir)
             if target.suffix.lower() != ".png":
-                return _tool_err("save_molecule_image writes PNG only: the path must end in '.png'.")
+                return _tool_err(
+                    "save_molecule_image writes PNG only: the path must end in '.png'."
+                )
             if target.exists() and not bool(arguments.get("overwrite", False)):
                 return _tool_err(
                     f"{user_path!r} already exists. Pass overwrite=true to replace it."
@@ -2086,7 +2211,9 @@ def dispatch_tool(  # noqa: C901
         if name == "set_3d_camera":
             keys = ("position", "direction", "focal_point", "view_up", "fit", "zoom")
             cam_args = {k: arguments[k] for k in keys if arguments.get(k) is not None}
-            return _tool_ok("Camera set: " + json.dumps(bridge.call("set_3d_camera", cam_args)))
+            return _tool_ok(
+                "Camera set: " + json.dumps(bridge.call("set_3d_camera", cam_args))
+            )
 
         if name == "measure_geometry":
             data = bridge.call("measure_geometry", {"atoms": arguments.get("atoms")})
@@ -2104,8 +2231,15 @@ def dispatch_tool(  # noqa: C901
                 return _tool_err("Pass exactly one of 'xyz_text' or 'path'.")
             if user_path:
                 xyz_text = _read_sandbox_text(bridge, user_path)
-            cmp_args: Dict[str, Any] = {"xyz_text": xyz_text}
-            for key in ("frame", "align", "heavy_atoms_only", "overlay", "overlay_color", "current_color"):
+            cmp_args: dict[str, Any] = {"xyz_text": xyz_text}
+            for key in (
+                "frame",
+                "align",
+                "heavy_atoms_only",
+                "overlay",
+                "overlay_color",
+                "current_color",
+            ):
                 if arguments.get(key) is not None:
                     cmp_args[key] = arguments[key]
             data = bridge.call("compare_structures", cmp_args)
@@ -2159,7 +2293,8 @@ def dispatch_tool(  # noqa: C901
 
         if name == "add_hydrogens":
             result = bridge.call(
-                "add_hydrogens", {"explicit_only": bool(arguments.get("explicit_only", False))}
+                "add_hydrogens",
+                {"explicit_only": bool(arguments.get("explicit_only", False))},
             )
             return _tool_ok(
                 f"Hydrogens added. Molecule now has {result['num_atoms']} atom(s)."
@@ -2238,7 +2373,11 @@ def dispatch_tool(  # noqa: C901
             lines = ["Gasteiger partial charges:"]
             for entry in data["charges"]:
                 charge = entry["charge"]
-                shown = "n/a (no Gasteiger parameters)" if charge is None else f"{charge:+.4f}"
+                shown = (
+                    "n/a (no Gasteiger parameters)"
+                    if charge is None
+                    else f"{charge:+.4f}"
+                )
                 lines.append(f"  Atom {entry['index']} ({entry['symbol']}): {shown}")
             return _tool_ok("\n".join(lines))
 
@@ -2280,7 +2419,7 @@ def dispatch_tool(  # noqa: C901
             if not code:
                 return _tool_err("'code' argument is required.")
             result = bridge.call("run_python", {"code": code}, timeout=30.0)
-            parts: List[str] = []
+            parts: list[str] = []
             if result.get("stdout"):
                 parts.append(f"stdout:\n{result['stdout']}")
             if result.get("stderr"):
@@ -2296,9 +2435,7 @@ def dispatch_tool(  # noqa: C901
                 return _tool_err("'name' argument is required.")
             smiles = _fetch_smiles_by_name(mol_name)
             bridge.call("load_smiles", {"smiles": smiles})
-            return _tool_ok(
-                f"Loaded {mol_name!r} from PubChem.\nSMILES: {smiles}"
-            )
+            return _tool_ok(f"Loaded {mol_name!r} from PubChem.\nSMILES: {smiles}")
 
         if name == "push_undo_checkpoint":
             bridge.call("push_undo_checkpoint")
@@ -2486,13 +2623,16 @@ def dispatch_tool(  # noqa: C901
             if not lines:
                 return _tool_ok(
                     f"No plugins in the registry match {search!r}."
-                    if search else "The plugin registry returned no visible plugins."
+                    if search
+                    else "The plugin registry returned no visible plugins."
                 )
             header = f"{len(lines)} plugin(s) available in the official registry"
             if search:
                 header += f" matching {search!r}"
             return _tool_ok(
-                header + ":\n" + "\n".join(lines)
+                header
+                + ":\n"
+                + "\n".join(lines)
                 + "\n\nTo install one, call open_plugin_installer and let the "
                 "user pick it in the installer window."
             )
@@ -2521,12 +2661,11 @@ def dispatch_tool(  # noqa: C901
             base_dir = cfg.get("base_dir") or "(not configured)"
             exts = ", ".join(cfg.get("allowed_extensions", []))
             return _tool_ok(
-                f"Base directory: {base_dir}\n"
-                f"Allowed extensions: {exts or '(none)'}"
+                f"Base directory: {base_dir}\nAllowed extensions: {exts or '(none)'}"
             )
 
         if name == "set_file_io_config":
-            args_inner: Dict[str, Any] = {}
+            args_inner: dict[str, Any] = {}
             if "base_dir" in arguments:
                 bd = _str_arg(arguments, "base_dir")
                 if not bd:
@@ -2551,7 +2690,9 @@ def dispatch_tool(  # noqa: C901
             if "base_dir" in args_inner:
                 parts.append(f"Base directory: {args_inner['base_dir']}")
             if "allowed_extensions" in args_inner:
-                parts.append(f"Allowed extensions: {', '.join(args_inner['allowed_extensions'])}")
+                parts.append(
+                    f"Allowed extensions: {', '.join(args_inner['allowed_extensions'])}"
+                )
             return _tool_ok("File I/O config updated.\n" + "\n".join(parts))
 
         if name == "write_text_file":
@@ -2574,9 +2715,7 @@ def dispatch_tool(  # noqa: C901
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8")
             size = target.stat().st_size
-            return _tool_ok(
-                f"Written: {user_path} ({size:,} bytes)"
-            )
+            return _tool_ok(f"Written: {user_path} ({size:,} bytes)")
 
         if name == "write_file_with_xyz_block":
             user_path = _str_arg(arguments, "path")
@@ -2704,8 +2843,7 @@ def dispatch_tool(  # noqa: C901
 
     except TimeoutError:
         return _tool_err(
-            "Timed out waiting for MoleditPy to respond. "
-            "The application may be busy."
+            "Timed out waiting for MoleditPy to respond. The application may be busy."
         )
     except Exception as exc:  # pylint: disable=broad-except
         logger.exception("Tool %r raised an unhandled exception", name)
@@ -2717,7 +2855,7 @@ def dispatch_tool(  # noqa: C901
 # ---------------------------------------------------------------------------
 
 
-def supported_versions(mode: str = "auto") -> List[str]:
+def supported_versions(mode: str = "auto") -> list[str]:
     """Protocol versions this server accepts under *mode*, newest first."""
     if mode == "modern":
         return list(_MODERN_PROTOCOL_VERSIONS)
@@ -2730,6 +2868,7 @@ def decode_header_value(value: str) -> str:
     """Decode the ``=?base64?...?=`` sentinel form used by header mirroring."""
     if value.startswith("=?base64?") and value.endswith("?="):
         import base64  # pylint: disable=import-outside-toplevel
+
         try:
             return base64.b64decode(value[9:-2]).decode("utf-8")
         except Exception:  # pylint: disable=broad-except
@@ -2737,7 +2876,7 @@ def decode_header_value(value: str) -> str:
     return value
 
 
-def is_modern_request(message: Dict[str, Any], headers: Dict[str, str]) -> bool:
+def is_modern_request(message: dict[str, Any], headers: dict[str, str]) -> bool:
     """
     True if *message* is framed per 2026-07-28 (per-request metadata).
 
@@ -2755,8 +2894,8 @@ def is_modern_request(message: Dict[str, Any], headers: Dict[str, str]) -> bool:
 
 
 def validate_modern_request(
-    message: Dict[str, Any], headers: Dict[str, str], mode: str = "auto"
-) -> Optional[Dict[str, Any]]:
+    message: dict[str, Any], headers: dict[str, str], mode: str = "auto"
+) -> dict[str, Any] | None:
     """
     Check a modern request's version and mirrored headers.
 
@@ -2840,7 +2979,7 @@ def validate_modern_request(
 
 def build_discover_result(
     mode: str, server_name: str, server_version: str
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build the 2026-07-28 ``server/discover`` result."""
     return {
         "supportedVersions": supported_versions(mode),
@@ -2848,9 +2987,7 @@ def build_discover_result(
         "instructions": _SERVER_INSTRUCTIONS,
         "ttlMs": _DISCOVER_TTL_MS,
         "cacheScope": "private",
-        "_meta": {
-            _META_SERVER_INFO: {"name": server_name, "version": server_version}
-        },
+        "_meta": {_META_SERVER_INFO: {"name": server_name, "version": server_version}},
     }
 
 
@@ -2912,7 +3049,7 @@ class _MCPHandler(BaseHTTPRequestHandler):
             type(self), name
         )
 
-    def _header(self, name: str) -> Optional[str]:
+    def _header(self, name: str) -> str | None:
         """Case-insensitive request header lookup (None when absent)."""
         headers = getattr(self, "headers", None)
         if not headers:
@@ -3007,7 +3144,7 @@ class _MCPHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(404)
 
-    def _content_length(self) -> Optional[int]:
+    def _content_length(self) -> int | None:
         """The declared body length, or None when it is malformed."""
         try:
             length = int(self._header("Content-Length") or 0)
@@ -3042,7 +3179,11 @@ class _MCPHandler(BaseHTTPRequestHandler):
             message = json.loads(raw)
         except (ValueError, OSError) as exc:  # JSONDecodeError, UnicodeDecodeError
             self._send_json(
-                {"jsonrpc": "2.0", "error": {"code": -32700, "message": str(exc)}, "id": None}
+                {
+                    "jsonrpc": "2.0",
+                    "error": {"code": -32700, "message": str(exc)},
+                    "id": None,
+                }
             )
             return
         if not isinstance(message, dict) or not isinstance(
@@ -3068,10 +3209,10 @@ class _MCPHandler(BaseHTTPRequestHandler):
     # MCP JSON-RPC processing
     # ------------------------------------------------------------------
 
-    def _process(self, message: Dict[str, Any]) -> None:
+    def _process(self, message: dict[str, Any]) -> None:
         msg_id = message.get("id")
         method = message.get("method", "")
-        params: Dict[str, Any] = message.get("params") or {}
+        params: dict[str, Any] = message.get("params") or {}
         raw_headers = getattr(self, "headers", None)
         headers = {k.lower(): v for k, v in raw_headers.items()} if raw_headers else {}
         modern = is_modern_request(message, headers)
@@ -3102,7 +3243,9 @@ class _MCPHandler(BaseHTTPRequestHandler):
                     modern=True,
                 )
                 return
-            error = validate_modern_request(message, headers, self._cfg("protocol_mode"))
+            error = validate_modern_request(
+                message, headers, self._cfg("protocol_mode")
+            )
             if error is not None:
                 self._send_error(msg_id, error, status=400, modern=True)
                 return
@@ -3130,7 +3273,10 @@ class _MCPHandler(BaseHTTPRequestHandler):
         except _MethodNotFound:
             self._send_error(
                 msg_id,
-                {"code": _ERR_METHOD_NOT_FOUND, "message": f"Method not found: {method}"},
+                {
+                    "code": _ERR_METHOD_NOT_FOUND,
+                    "message": f"Method not found: {method}",
+                },
                 status=404 if modern else 200,
                 modern=modern,
             )
@@ -3150,11 +3296,13 @@ class _MCPHandler(BaseHTTPRequestHandler):
         )
 
     def _handle_method(
-        self, method: str, params: Dict[str, Any], modern: bool = False
+        self, method: str, params: dict[str, Any], modern: bool = False
     ) -> Any:
         if method == "server/discover":
             return build_discover_result(
-                self._cfg("protocol_mode"), self._cfg("server_name"), self._cfg("server_version")
+                self._cfg("protocol_mode"),
+                self._cfg("server_name"),
+                self._cfg("server_version"),
             )
         if method == "initialize":
             return {
@@ -3171,14 +3319,14 @@ class _MCPHandler(BaseHTTPRequestHandler):
         if method == "ping":
             return {}
         if method == "tools/list":
-            result: Dict[str, Any] = {"tools": _TOOLS}
+            result: dict[str, Any] = {"tools": _TOOLS}
             if modern:
                 result["ttlMs"] = _TOOLS_TTL_MS
                 result["cacheScope"] = "private"
             return result
         if method == "tools/call":
             tool_name = params.get("name", "")
-            arguments: Dict[str, Any] = params.get("arguments") or {}
+            arguments: dict[str, Any] = params.get("arguments") or {}
             if not isinstance(arguments, dict):
                 return _tool_err("'arguments' must be a JSON object.")
             if self._cfg("bridge") is None:
@@ -3193,7 +3341,7 @@ class _MCPHandler(BaseHTTPRequestHandler):
     def _send_error(
         self,
         msg_id: Any,
-        error: Dict[str, Any],
+        error: dict[str, Any],
         status: int = 200,
         modern: bool = False,
     ) -> None:
@@ -3204,14 +3352,17 @@ class _MCPHandler(BaseHTTPRequestHandler):
         )
 
     def _send_json(
-        self, data: Dict[str, Any], status: int = 200, modern: bool = False
+        self, data: dict[str, Any], status: int = 200, modern: bool = False
     ) -> None:
         if modern and "result" in data and isinstance(data["result"], dict):
             data["result"].setdefault("resultType", _RESULT_TYPE_COMPLETE)
             meta = data["result"].setdefault("_meta", {})
             meta.setdefault(
                 _META_SERVER_INFO,
-                {"name": self._cfg("server_name"), "version": self._cfg("server_version")},
+                {
+                    "name": self._cfg("server_name"),
+                    "version": self._cfg("server_version"),
+                },
             )
         body = json.dumps(data).encode("utf-8")
         self.send_response(status)
@@ -3269,7 +3420,7 @@ class MCPHttpServer:
         self._protocol_mode = (
             protocol_mode if protocol_mode in PROTOCOL_MODES else "auto"
         )
-        self._httpd: Optional[_ThreadedHTTPServer] = None
+        self._httpd: _ThreadedHTTPServer | None = None
 
     # ------------------------------------------------------------------
     # Lifecycle

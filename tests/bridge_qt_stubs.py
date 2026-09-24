@@ -25,7 +25,7 @@ class _BoundSignal:
     def __init__(self):
         self._fns = []
 
-    def connect(self, fn, type=None):  # noqa: A002 - matches PyQt's kwarg name
+    def connect(self, fn, type=None):
         self._fns.append(fn)
 
     def emit(self, *args, **kwargs):
@@ -33,7 +33,7 @@ class _BoundSignal:
             fn(*args, **kwargs)
 
 
-class pyqtSignal:  # noqa: N801 - matches PyQt's naming
+class pyqtSignal:
     """Descriptor mimicking PyQt6's per-instance bound-signal behavior."""
 
     def __init__(self, *types):
@@ -64,7 +64,7 @@ class Qt:
 
 class QTimer:
     @staticmethod
-    def singleShot(ms, fn):  # noqa: N802 - matches PyQt's naming
+    def singleShot(ms, fn):
         fn()
 
 

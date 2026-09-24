@@ -8,9 +8,7 @@ from contextlib import contextmanager
 from unittest.mock import MagicMock
 
 import pytest
-
 from conftest import make_context, mock_optional_imports
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -19,8 +17,11 @@ from conftest import make_context, mock_optional_imports
 
 def _clear_mcp_submodules() -> dict:
     """Remove mcp_server.* submodules from sys.modules; return snapshot."""
-    saved = {k: v for k, v in sys.modules.items()
-             if k == "mcp_server" or k.startswith("mcp_server.")}
+    saved = {
+        k: v
+        for k, v in sys.modules.items()
+        if k == "mcp_server" or k.startswith("mcp_server.")
+    }
     for k in saved:
         del sys.modules[k]
     return saved
@@ -96,7 +97,8 @@ def pkg():
     """Import mcp_server with a clean sys.modules slate; restore on teardown."""
     saved = _clear_mcp_submodules()
     with mock_optional_imports():
-        import mcp_server as _pkg  # noqa: PLC0415
+        import mcp_server as _pkg
+
         yield _pkg
     _restore_mcp_submodules(saved)
 

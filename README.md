@@ -382,6 +382,7 @@ Claude loads it automatically whenever a task involves the MoleditPy MCP tools. 
 ```python
 # Example: add an isotope label to atom 0 and reload
 from rdkit import Chem
+
 mol = ctx.current_molecule
 mol.GetAtomWithIdx(0).SetIsotope(13)
 ctx.current_molecule = mol

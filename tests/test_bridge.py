@@ -8,7 +8,6 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-
 from conftest import load_module, make_context, mock_optional_imports
 
 
@@ -138,15 +137,21 @@ def test_execute_get_xyz_atoms_with_data(bridge_mod, ctx):
         0: MagicMock(x=0.0, y=0.5, z=-1.25),
         1: MagicMock(x=1.2, y=0.0, z=0.0),
     }
-    mock_mol.GetConformer.return_value.GetAtomPosition.side_effect = positions.__getitem__
+    mock_mol.GetConformer.return_value.GetAtomPosition.side_effect = (
+        positions.__getitem__
+    )
     ctx.current_molecule = mock_mol
 
     result = bridge_mod.execute_operation(ctx, "get_xyz_atoms", {})
     assert result["has_data"] is True
     assert len(result["atoms"]) == 2
     assert result["atoms"][0] == {
-        "index": 0, "symbol": "C", "atomic_num": 6,
-        "x": 0.0, "y": 0.5, "z": -1.25,
+        "index": 0,
+        "symbol": "C",
+        "atomic_num": 6,
+        "x": 0.0,
+        "y": 0.5,
+        "z": -1.25,
     }
     assert result["atoms"][1]["symbol"] == "O"
     assert result["atoms"][1]["x"] == 1.2
@@ -211,7 +216,9 @@ def test_execute_show_xyz_empty_raises(bridge_mod, ctx):
 
 def test_execute_get_atom_properties_no_mol(bridge_mod, ctx):
     ctx.current_molecule = None
-    result = bridge_mod.execute_operation(ctx, "get_atom_properties", {"atom_indices": [0]})
+    result = bridge_mod.execute_operation(
+        ctx, "get_atom_properties", {"atom_indices": [0]}
+    )
     assert result["atoms"] == []
 
 
@@ -247,7 +254,9 @@ def test_execute_get_atom_properties_specific_indices(bridge_mod, ctx):
     mock_mol.GetAtomWithIdx.return_value = atom
     ctx.current_molecule = mock_mol
 
-    result = bridge_mod.execute_operation(ctx, "get_atom_properties", {"atom_indices": [2]})
+    result = bridge_mod.execute_operation(
+        ctx, "get_atom_properties", {"atom_indices": [2]}
+    )
     assert len(result["atoms"]) == 1
     assert result["atoms"][0]["index"] == 2
     assert result["atoms"][0]["symbol"] == "N"
@@ -340,7 +349,9 @@ def test_execute_load_mol_block_parse_failure(bridge_mod, ctx):
     sys.modules["rdkit"] = rdkit_mock
     sys.modules["rdkit.Chem"] = chem_mock
     try:
-        result = bridge_mod.execute_operation(ctx, "load_mol_block", {"mol_block": "garbage"})
+        result = bridge_mod.execute_operation(
+            ctx, "load_mol_block", {"mol_block": "garbage"}
+        )
     finally:
         for k, v in saved.items():
             if v is None:
@@ -412,16 +423,17 @@ def _configure_reaction(rd, mol, products, final_smiles="CCO", clean_atoms=None)
 def test_apply_reaction_smarts_empty_raises(bridge_mod, ctx):
     with _RdkitPatch():
         with pytest.raises(ValueError, match="required"):
-            bridge_mod.execute_operation(ctx, "apply_reaction_smarts", {"reaction_smarts": " "})
+            bridge_mod.execute_operation(
+                ctx, "apply_reaction_smarts", {"reaction_smarts": " "}
+            )
 
 
 def test_apply_reaction_smarts_no_molecule_raises(bridge_mod, ctx):
     ctx.current_molecule = None
-    with _RdkitPatch():
-        with pytest.raises(ValueError, match="No molecule"):
-            bridge_mod.execute_operation(
-                ctx, "apply_reaction_smarts", {"reaction_smarts": "[c:1][H]>>[c:1][Cl]"}
-            )
+    with _RdkitPatch(), pytest.raises(ValueError, match="No molecule"):
+        bridge_mod.execute_operation(
+            ctx, "apply_reaction_smarts", {"reaction_smarts": "[c:1][H]>>[c:1][Cl]"}
+        )
 
 
 def test_apply_reaction_smarts_invalid_smarts_raises(bridge_mod, ctx):
@@ -565,7 +577,9 @@ def test_apply_reaction_smarts_anchor_not_found_falls_back(bridge_mod, ctx):
     assert result["selected_product"] == 0
 
 
-def test_apply_reaction_smarts_anchor_more_matches_than_products_breaks(bridge_mod, ctx):
+def test_apply_reaction_smarts_anchor_more_matches_than_products_breaks(
+    bridge_mod, ctx
+):
     """More RunReactants matches than products (i >= len(products)) must
     break the enumeration loop instead of indexing out of range."""
     mol = MagicMock()
@@ -721,7 +735,9 @@ def test_execute_trigger_3d_conversion_fallback_rdkit(bridge_mod, ctx):
     rdkit_mock = MagicMock(name="rdkit")
     rdkit_mock.Chem = chem_mock
 
-    saved = {k: sys.modules.get(k) for k in ("rdkit", "rdkit.Chem", "rdkit.Chem.AllChem")}
+    saved = {
+        k: sys.modules.get(k) for k in ("rdkit", "rdkit.Chem", "rdkit.Chem.AllChem")
+    }
     sys.modules["rdkit"] = rdkit_mock
     sys.modules["rdkit.Chem"] = chem_mock
     sys.modules["rdkit.Chem.AllChem"] = allchem_mock
@@ -763,7 +779,9 @@ def test_execute_trigger_3d_conversion_embed_failure_raises(bridge_mod, ctx):
     rdkit_mock = MagicMock(name="rdkit")
     rdkit_mock.Chem = chem_mock
 
-    saved = {k: sys.modules.get(k) for k in ("rdkit", "rdkit.Chem", "rdkit.Chem.AllChem")}
+    saved = {
+        k: sys.modules.get(k) for k in ("rdkit", "rdkit.Chem", "rdkit.Chem.AllChem")
+    }
     sys.modules["rdkit"] = rdkit_mock
     sys.modules["rdkit.Chem"] = chem_mock
     sys.modules["rdkit.Chem.AllChem"] = allchem_mock
@@ -808,14 +826,18 @@ def test_find_moleditpy_spec_found(bridge_mod, tmp_path):
         importlib.util.find_spec = original_find_spec
 
 
-def test_execute_list_app_source_tree_path_outside_package_raises(bridge_mod, ctx, tmp_path):
+def test_execute_list_app_source_tree_path_outside_package_raises(
+    bridge_mod, ctx, tmp_path
+):
     fake_spec = MagicMock()
     fake_spec.submodule_search_locations = [str(tmp_path)]
     original = bridge_mod._find_moleditpy_spec
     bridge_mod._find_moleditpy_spec = lambda: fake_spec
     try:
         with pytest.raises(ValueError, match="outside the moleditpy package"):
-            bridge_mod.execute_operation(ctx, "list_app_source_tree", {"path": "../../etc"})
+            bridge_mod.execute_operation(
+                ctx, "list_app_source_tree", {"path": "../../etc"}
+            )
     finally:
         bridge_mod._find_moleditpy_spec = original
 
@@ -881,7 +903,9 @@ def test_execute_get_app_source_outside_package_raises(bridge_mod, ctx, tmp_path
     bridge_mod._find_moleditpy_spec = lambda: fake_spec
     try:
         with pytest.raises(ValueError, match="outside the moleditpy package"):
-            bridge_mod.execute_operation(ctx, "get_app_source", {"path": "../etc/passwd"})
+            bridge_mod.execute_operation(
+                ctx, "get_app_source", {"path": "../etc/passwd"}
+            )
     finally:
         bridge_mod._find_moleditpy_spec = original
 
@@ -893,7 +917,9 @@ def test_execute_get_app_source_outside_package_raises(bridge_mod, ctx, tmp_path
 
 def test_execute_highlight_atoms_ok(bridge_mod, ctx):
     colors = {"0": "#FF0000", "3": "#00FF00"}
-    result = bridge_mod.execute_operation(ctx, "highlight_atoms", {"atom_colors": colors})
+    result = bridge_mod.execute_operation(
+        ctx, "highlight_atoms", {"atom_colors": colors}
+    )
     ctrl = ctx.get_3d_controller.return_value
     assert ctrl.set_atom_color.call_count == 2
     ctx.refresh_3d_view.assert_called()
@@ -920,7 +946,9 @@ def test_execute_highlight_atoms_no_controller_raises(bridge_mod, ctx):
 
 def test_execute_highlight_bonds_ok(bridge_mod, ctx):
     colors = {"0": "#FF0000", "2": "#0000FF"}
-    result = bridge_mod.execute_operation(ctx, "highlight_bonds", {"bond_colors": colors})
+    result = bridge_mod.execute_operation(
+        ctx, "highlight_bonds", {"bond_colors": colors}
+    )
     ctrl = ctx.get_3d_controller.return_value
     assert ctrl.set_bond_color.call_count == 2
     ctx.refresh_3d_view.assert_called()
@@ -943,7 +971,9 @@ def test_execute_bond_colors_by_atom_pair(bridge_mod, ctx):
         ctx, "highlight_bonds", {"atom_pair_colors": {"0-3": "#00FF00"}}
     )
     mol.GetBondBetweenAtoms.assert_called_once_with(0, 3)
-    ctx.get_3d_controller.return_value.set_bond_color.assert_called_once_with(7, "#00FF00")
+    ctx.get_3d_controller.return_value.set_bond_color.assert_called_once_with(
+        7, "#00FF00"
+    )
     assert result["bonds_colored"] == 1
 
 
@@ -1172,7 +1202,9 @@ def test_execute_list_app_source_tree(bridge_mod, ctx, tmp_path):
     (tmp_path / "core").mkdir()
     (tmp_path / "core" / "molecular_data.py").write_text("# data", encoding="utf-8")
     (tmp_path / "plugins").mkdir()
-    (tmp_path / "plugins" / "plugin_interface.py").write_text("# interface", encoding="utf-8")
+    (tmp_path / "plugins" / "plugin_interface.py").write_text(
+        "# interface", encoding="utf-8"
+    )
     (tmp_path / "__pycache__").mkdir()
     (tmp_path / "__pycache__" / "cache.pyc").write_text("junk", encoding="utf-8")
 
@@ -1407,9 +1439,7 @@ def test_set_file_io_config_extensions(bridge_mod, ctx):
 
 
 def test_set_file_io_config_shows_status(bridge_mod, ctx):
-    bridge_mod.execute_operation(
-        ctx, "set_file_io_config", {"base_dir": "/tmp/calc"}
-    )
+    bridge_mod.execute_operation(ctx, "set_file_io_config", {"base_dir": "/tmp/calc"})
     ctx.show_status_message.assert_called_once()
 
 
@@ -1441,7 +1471,8 @@ def test_open_plugin_installer_found(bridge_mod, ctx):
     submenu.actions.return_value = [_menu_action("Reload Plugins"), installer]
     plugin_menu = _menu_action("&Plugin", submenu=submenu)
     ctx.get_main_window.return_value.menuBar.return_value.actions.return_value = [
-        _menu_action("&File"), plugin_menu,
+        _menu_action("&File"),
+        plugin_menu,
     ]
 
     result = bridge_mod.execute_operation(ctx, "open_plugin_installer", {})
@@ -1451,7 +1482,8 @@ def test_open_plugin_installer_found(bridge_mod, ctx):
 
 def test_open_plugin_installer_not_found(bridge_mod, ctx):
     ctx.get_main_window.return_value.menuBar.return_value.actions.return_value = [
-        _menu_action("&File"), _menu_action("&Edit"),
+        _menu_action("&File"),
+        _menu_action("&Edit"),
     ]
     result = bridge_mod.execute_operation(ctx, "open_plugin_installer", {})
     assert result["found"] is False
@@ -1477,7 +1509,9 @@ def _v3d_with_overrides(ctx, atoms=None, bonds=None):
 
 
 def test_reset_cpk_override_all(bridge_mod, ctx):
-    v3d = _v3d_with_overrides(ctx, atoms={0: "#FF0000", 2: "#00FF00"}, bonds={1: "#0000FF"})
+    v3d = _v3d_with_overrides(
+        ctx, atoms={0: "#FF0000", 2: "#00FF00"}, bonds={1: "#0000FF"}
+    )
     result = bridge_mod.execute_operation(ctx, "reset_cpk_color_override", {})
     assert result == {"cleared_atoms": 2, "cleared_bonds": 1}
     assert v3d._plugin_color_overrides == {}
@@ -1487,7 +1521,9 @@ def test_reset_cpk_override_all(bridge_mod, ctx):
 
 def test_reset_cpk_override_atoms_only(bridge_mod, ctx):
     v3d = _v3d_with_overrides(ctx, atoms={0: "#FF0000"}, bonds={1: "#0000FF"})
-    result = bridge_mod.execute_operation(ctx, "reset_cpk_color_override", {"scope": "atoms"})
+    result = bridge_mod.execute_operation(
+        ctx, "reset_cpk_color_override", {"scope": "atoms"}
+    )
     assert result == {"cleared_atoms": 1, "cleared_bonds": 0}
     assert v3d._plugin_bond_color_overrides == {1: "#0000FF"}
 
@@ -1501,7 +1537,9 @@ def test_reset_cpk_override_nothing_to_clear_skips_redraw(bridge_mod, ctx):
 
 def test_reset_cpk_override_bad_scope_raises(bridge_mod, ctx):
     with pytest.raises(ValueError, match="scope"):
-        bridge_mod.execute_operation(ctx, "reset_cpk_color_override", {"scope": "everything"})
+        bridge_mod.execute_operation(
+            ctx, "reset_cpk_color_override", {"scope": "everything"}
+        )
 
 
 def test_reset_cpk_override_no_v3d_raises(bridge_mod, ctx):
@@ -1717,7 +1755,9 @@ def test_get_molecule_descriptors_no_molecule():
     mod = _real_bridge()
     ctx = MagicMock()
     ctx.current_molecule = None
-    assert mod.execute_operation(ctx, "get_molecule_descriptors", {}) == {"loaded": False}
+    assert mod.execute_operation(ctx, "get_molecule_descriptors", {}) == {
+        "loaded": False
+    }
 
 
 def test_get_molecule_descriptors_with_molecule():
@@ -1814,7 +1854,9 @@ def test_set_atom_charge_requires_arguments():
 def test_set_atom_charge_success():
     # Deprotonated methoxide oxygen: atom 1 in "CO" is the O.
     mod, ctx = _ctx_with("CO")
-    result = mod.execute_operation(ctx, "set_atom_charge", {"atom_index": 1, "charge": -1})
+    result = mod.execute_operation(
+        ctx, "set_atom_charge", {"atom_index": 1, "charge": -1}
+    )
     assert result == {"success": True, "atom_index": 1, "charge": -1}
     assert ctx.current_molecule.GetAtomWithIdx(1).GetFormalCharge() == -1
     ctx.push_undo_checkpoint.assert_called_once()
@@ -1895,7 +1937,9 @@ def test_compute_partial_charges_all_atoms():
 
 def test_compute_partial_charges_filters_by_index():
     mod, ctx = _ctx_with("CCO")
-    result = mod.execute_operation(ctx, "compute_partial_charges", {"atom_indices": [2]})
+    result = mod.execute_operation(
+        ctx, "compute_partial_charges", {"atom_indices": [2]}
+    )
     assert len(result["charges"]) == 1
     assert result["charges"][0]["index"] == 2
 

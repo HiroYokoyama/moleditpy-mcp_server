@@ -11,7 +11,6 @@ import base64
 import json
 
 import pytest
-
 from test_mcp_tester import _has_pyqt6, _load_tester
 
 pytestmark = pytest.mark.skipif(not _has_pyqt6(), reason="PyQt6 not installed")
@@ -231,9 +230,7 @@ def win(mod):
 
 def test_connect_without_host_warns_and_does_nothing(mod, win, monkeypatch):
     warned = []
-    monkeypatch.setattr(
-        mod.QMessageBox, "warning", lambda *a, **k: warned.append(a[2])
-    )
+    monkeypatch.setattr(mod.QMessageBox, "warning", lambda *a, **k: warned.append(a[2]))
     win.host_edit.setText("   ")
     win._on_connect()
     assert warned and win.client is None
@@ -241,9 +238,7 @@ def test_connect_without_host_warns_and_does_nothing(mod, win, monkeypatch):
 
 def test_connect_rejects_non_object_headers(mod, win, monkeypatch):
     warned = []
-    monkeypatch.setattr(
-        mod.QMessageBox, "warning", lambda *a, **k: warned.append(a[2])
-    )
+    monkeypatch.setattr(mod.QMessageBox, "warning", lambda *a, **k: warned.append(a[2]))
     win.headers_edit.setText("[1, 2]")
     win._on_connect()
     assert warned and win.client is None
@@ -272,9 +267,7 @@ def test_call_without_selection_is_noop(mod, win):
 
 def test_call_warns_on_invalid_json_argument(mod, win, monkeypatch):
     warned = []
-    monkeypatch.setattr(
-        mod.QMessageBox, "warning", lambda *a, **k: warned.append(a[2])
-    )
+    monkeypatch.setattr(mod.QMessageBox, "warning", lambda *a, **k: warned.append(a[2]))
     tool = {
         "name": "t",
         "description": "",
@@ -307,9 +300,8 @@ def test_form_shows_placeholder_when_tool_has_no_parameters(mod, win):
 
 
 def _png_bytes():
-    from PyQt6.QtGui import QImage
-
     from PyQt6.QtCore import QBuffer, QByteArray
+    from PyQt6.QtGui import QImage
 
     image = QImage(2, 2, QImage.Format.Format_RGB32)
     image.fill(0)
@@ -381,7 +373,9 @@ def test_main_parses_arguments_and_launches(mod, monkeypatch):
     monkeypatch.setattr(mod, "QApplication", _FakeApp)
     monkeypatch.setattr(mod, "MCPTesterWindow", _FakeWindow)
     monkeypatch.setattr(
-        mod.sys, "argv", ["mcp-gui-tester", "--url", "http://x/mcp", "--protocol", "modern"]
+        mod.sys,
+        "argv",
+        ["mcp-gui-tester", "--url", "http://x/mcp", "--protocol", "modern"],
     )
     with pytest.raises(SystemExit) as excinfo:
         mod.main()

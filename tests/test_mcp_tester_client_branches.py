@@ -11,7 +11,6 @@ import json
 import urllib.error
 
 import pytest
-
 from test_mcp_tester import _has_pyqt6, _load_tester
 
 pytestmark = pytest.mark.skipif(not _has_pyqt6(), reason="PyQt6 not installed")
@@ -85,7 +84,11 @@ def test_error_body_returned_with_error_status_raises(mod):
             _http_error(
                 mod,
                 400,
-                {"jsonrpc": "2.0", "id": 1, "error": {"code": -32020, "message": "bad header"}},
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "error": {"code": -32020, "message": "bad header"},
+                },
             )
         ],
     )
@@ -109,7 +112,10 @@ def test_retry_gives_up_when_no_newer_version_offered(mod):
                     "error": {
                         "code": -32022,
                         "message": "Unsupported protocol version",
-                        "data": {"supported": ["2025-06-18"], "requested": "2026-07-28"},
+                        "data": {
+                            "supported": ["2025-06-18"],
+                            "requested": "2026-07-28",
+                        },
                     },
                 },
             )
@@ -163,7 +169,11 @@ def test_auto_does_not_fall_back_on_other_modern_errors(mod):
             _http_error(
                 mod,
                 400,
-                {"jsonrpc": "2.0", "id": 1, "error": {"code": -32020, "message": "bad header"}},
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "error": {"code": -32020, "message": "bad header"},
+                },
             )
         ],
     )
@@ -226,7 +236,8 @@ def test_error_status_with_a_non_error_json_body_is_returned(mod):
     """Some proxies answer 4xx with a valid JSON-RPC result body."""
     client = mod.MCPClient(URL, protocol="legacy")
     _stub_urlopen(
-        mod, [_http_error(mod, 400, {"jsonrpc": "2.0", "id": 1, "result": {"ok": True}})]
+        mod,
+        [_http_error(mod, 400, {"jsonrpc": "2.0", "id": 1, "result": {"ok": True}})],
     )
     assert client._rpc("ping") == {"ok": True}
 

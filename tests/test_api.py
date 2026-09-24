@@ -6,6 +6,7 @@ The app source is taken from a sibling python_molecular_editor checkout, or
 else from an installed moleditpy package (the CI integration job installs
 it with pip). Skipped when neither is available.
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -31,7 +32,10 @@ def _installed_app_root():
 
 
 def _app_root():
-    for candidate in (_WORKSPACE_ROOT / "python_molecular_editor", _PLUGIN_ROOT / "python_molecular_editor"):
+    for candidate in (
+        _WORKSPACE_ROOT / "python_molecular_editor",
+        _PLUGIN_ROOT / "python_molecular_editor",
+    ):
         if (candidate / "moleditpy").exists():
             return candidate / "moleditpy" / "src" / "moleditpy"
     return _installed_app_root()
@@ -51,7 +55,10 @@ def _load_checker():
 
 
 class TestAPIChecker(unittest.TestCase):
-    @unittest.skipUnless(_APP_PATH is not None, "MoleditPy source not found (sibling checkout or installed package)")
+    @unittest.skipUnless(
+        _APP_PATH is not None,
+        "MoleditPy source not found (sibling checkout or installed package)",
+    )
     def test_no_unknown_api_accesses(self):
         checker_mod = _load_checker()
         api = checker_mod.AppAPIExtractor(_APP_PATH, verbose=False).extract()

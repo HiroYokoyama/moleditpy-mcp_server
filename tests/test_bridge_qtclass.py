@@ -18,7 +18,6 @@ import threading
 from unittest.mock import MagicMock
 
 import pytest
-
 from bridge_qt_stubs import install_bridge_qt_stubs, remove_bridge_qt_stubs
 
 
@@ -32,7 +31,7 @@ def bridge_module():
     }
     install_bridge_qt_stubs()
     try:
-        import mcp_server.bridge as mod  # noqa: PLC0415 - intentional fresh import
+        import mcp_server.bridge as mod
 
         yield mod
     finally:
@@ -102,7 +101,6 @@ def test_mcpbridge_call_defaults_args_to_empty_dict(bridge_module, monkeypatch):
 
     def _fake(c, op, a):
         captured["args"] = a
-        return None
 
     monkeypatch.setattr(bridge_module, "execute_operation", _fake)
     _call_off_thread(bridge, "refresh_ui")
@@ -136,7 +134,9 @@ def test_mcpbridge_timed_out_request_is_not_run_later(bridge_module, monkeypatch
     ctx = MagicMock()
     bridge = bridge_module.MCPBridge(ctx)
     ran = []
-    monkeypatch.setattr(bridge_module, "execute_operation", lambda c, op, a: ran.append(op))
+    monkeypatch.setattr(
+        bridge_module, "execute_operation", lambda c, op, a: ran.append(op)
+    )
     queued = []
     bridge._request._fns[:] = [lambda *a: queued.append(a)]  # hold, do not deliver
     with pytest.raises(TimeoutError):

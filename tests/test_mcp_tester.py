@@ -136,7 +136,7 @@ class TestMCPClient:
 
     @classmethod
     def setup_class(cls) -> None:
-        from mcp_server.server import MCPHttpServer, _TOOLS
+        from mcp_server.server import _TOOLS, MCPHttpServer
 
         cls.mod = _load_tester()
         cls.n_tools = len(_TOOLS)
@@ -169,9 +169,7 @@ class TestMCPClient:
         assert result.get("isError")
 
     def test_call_tool_with_args(self) -> None:
-        result = self.client.call_tool(
-            "load_molecule_from_smiles", {"smiles": "CCO"}
-        )
+        result = self.client.call_tool("load_molecule_from_smiles", {"smiles": "CCO"})
         assert not result.get("isError")
 
     def test_call_unknown_tool(self) -> None:
@@ -372,7 +370,11 @@ class TestTesterGUI:
         )
         content = [
             {"type": "text", "text": "hello"},
-            {"type": "image", "data": base64.b64encode(png_1x1).decode("ascii"), "mimeType": "image/png"},
+            {
+                "type": "image",
+                "data": base64.b64encode(png_1x1).decode("ascii"),
+                "mimeType": "image/png",
+            },
             {"type": "resource", "resource": {"uri": "file:///x.txt"}},
             {"type": "something_else", "value": 42},
         ]

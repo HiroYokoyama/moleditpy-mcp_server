@@ -10,8 +10,8 @@ import hashlib
 import json
 import os
 import re
-import urllib.request
 import urllib.error
+import urllib.request
 
 
 def parse_pyproject_version(filepath="moleditpy/pyproject.toml"):
@@ -373,11 +373,11 @@ def main():
 
                     # Add ORCID and identifiers if present
                     identifiers = []
-                    if "orcid" in c and c["orcid"]:
+                    if c.get("orcid"):
                         identifiers.append(
                             {"scheme": "orcid", "identifier": c["orcid"]}
                         )
-                    if "gnd" in c and c["gnd"]:
+                    if c.get("gnd"):
                         identifiers.append({"scheme": "gnd", "identifier": c["gnd"]})
                     if identifiers:
                         person_or_org["identifiers"] = identifiers
@@ -385,7 +385,7 @@ def main():
                     new_creator = {"person_or_org": person_or_org}
 
                     # Add affiliations if present
-                    if "affiliation" in c and c["affiliation"]:
+                    if c.get("affiliation"):
                         new_creator["affiliations"] = [{"name": c["affiliation"]}]
                     new_creators.append(new_creator)
         metadata["creators"] = new_creators

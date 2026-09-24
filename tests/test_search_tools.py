@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from conftest import load_module, make_bridge, mock_optional_imports
 
 
@@ -21,9 +20,7 @@ def tree(tmp_path: Path) -> Path:
     """A small source tree to search."""
     (tmp_path / "core").mkdir()
     (tmp_path / "core" / "molecule.py").write_text(
-        "class Molecule:\n"
-        "    def add_atom(self, symbol):\n"
-        "        return symbol\n",
+        "class Molecule:\n    def add_atom(self, symbol):\n        return symbol\n",
         encoding="utf-8",
     )
     (tmp_path / "plugins").mkdir()
@@ -343,9 +340,7 @@ def test_dispatch_grep_files_reports_bad_root(srv, tree):
 
 
 def test_dispatch_grep_files_reports_bad_regex(srv, tree):
-    result = srv.dispatch_tool(
-        _bridge_for(tree), "grep_files", {"pattern": "("}
-    )
+    result = srv.dispatch_tool(_bridge_for(tree), "grep_files", {"pattern": "("})
     assert result["isError"] is True
 
 
@@ -365,7 +360,12 @@ def test_dispatch_find_files_defaults_to_every_file(srv, tree):
 def test_dispatch_read_text_file_line_range(srv, tmp_path):
     (tmp_path / "log.txt").write_text("l1\nl2\nl3\nl4\n", encoding="utf-8")
     bridge = make_bridge(
-        {"get_file_io_config": {"base_dir": str(tmp_path), "allowed_extensions": [".txt"]}}
+        {
+            "get_file_io_config": {
+                "base_dir": str(tmp_path),
+                "allowed_extensions": [".txt"],
+            }
+        }
     )
     result = srv.dispatch_tool(
         bridge, "read_text_file", {"path": "log.txt", "start_line": 2, "end_line": 3}
@@ -376,7 +376,12 @@ def test_dispatch_read_text_file_line_range(srv, tmp_path):
 def test_dispatch_read_text_file_without_range_is_unchanged(srv, tmp_path):
     (tmp_path / "log.txt").write_text("l1\nl2\n", encoding="utf-8")
     bridge = make_bridge(
-        {"get_file_io_config": {"base_dir": str(tmp_path), "allowed_extensions": [".txt"]}}
+        {
+            "get_file_io_config": {
+                "base_dir": str(tmp_path),
+                "allowed_extensions": [".txt"],
+            }
+        }
     )
     result = srv.dispatch_tool(bridge, "read_text_file", {"path": "log.txt"})
     assert result["content"][0]["text"] == "l1\nl2\n"
@@ -396,9 +401,7 @@ def test_dispatch_get_app_source_directory_ignores_line_range(srv):
     bridge = make_bridge(
         {"get_app_source": {"type": "directory", "content": "listing\nrow"}}
     )
-    result = srv.dispatch_tool(
-        bridge, "get_app_source", {"path": ".", "start_line": 2}
-    )
+    result = srv.dispatch_tool(bridge, "get_app_source", {"path": ".", "start_line": 2})
     assert result["content"][0]["text"] == "listing\nrow"
 
 
@@ -417,12 +420,16 @@ def test_grep_tool_schema(srv):
     props = tool["inputSchema"]["properties"]
     assert tool["inputSchema"]["required"] == ["pattern"]
     assert props["root"]["enum"] == ["app_source", "plugins", "files"]
-    assert {"glob", "ignore_case", "fixed_string", "context", "max_matches"} <= set(props)
+    assert {"glob", "ignore_case", "fixed_string", "context", "max_matches"} <= set(
+        props
+    )
 
 
 def test_read_tools_expose_line_range(srv):
     for name in ("read_text_file", "get_app_source"):
-        props = next(t for t in srv._TOOLS if t["name"] == name)["inputSchema"]["properties"]
+        props = next(t for t in srv._TOOLS if t["name"] == name)["inputSchema"][
+            "properties"
+        ]
         assert {"start_line", "end_line"} <= set(props)
 
 

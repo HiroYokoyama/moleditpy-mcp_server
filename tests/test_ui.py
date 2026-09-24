@@ -28,11 +28,13 @@ def _extract_method_as_fn(class_name: str, method_name: str):
     """Parse ui.py, pull out one method's source, and exec it into a bare function."""
     tree = ast.parse(UI_SOURCE)
     cls_node = next(
-        n for n in ast.walk(tree)
+        n
+        for n in ast.walk(tree)
         if isinstance(n, ast.ClassDef) and n.name == class_name
     )
     method_node = next(
-        n for n in cls_node.body
+        n
+        for n in cls_node.body
         if isinstance(n, ast.FunctionDef) and n.name == method_name
     )
     segment = ast.get_source_segment(UI_SOURCE, method_node)
@@ -146,8 +148,14 @@ def _load_templates():
 _TEMPLATES, _RENDER = _load_templates()
 
 _EXPECTED_CLIENTS = {
-    "Claude Desktop", "Claude Code (CLI)", "Cursor", "Windsurf", "Zed",
-    "VS Code (Copilot)", "OpenAI Codex CLI", "Google Antigravity",
+    "Claude Desktop",
+    "Claude Code (CLI)",
+    "Cursor",
+    "Windsurf",
+    "Zed",
+    "VS Code (Copilot)",
+    "OpenAI Codex CLI",
+    "Google Antigravity",
     "curl (raw HTTP)",
 }
 

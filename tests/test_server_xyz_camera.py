@@ -8,12 +8,16 @@ import json
 from unittest.mock import MagicMock
 
 import pytest
-
 from conftest import load_module, make_bridge, mock_optional_imports
 
 NEW_TOOLS = (
-    "load_xyz_file", "save_molecule_image", "get_3d_camera", "set_3d_camera",
-    "measure_geometry", "compare_structures", "clear_overlay",
+    "load_xyz_file",
+    "save_molecule_image",
+    "get_3d_camera",
+    "set_3d_camera",
+    "measure_geometry",
+    "compare_structures",
+    "clear_overlay",
 )
 
 WATER = "3\nwater\nO 0.0 0.0 0.0\nH 0.76 0.59 0.0\nH -0.76 0.59 0.0"
@@ -39,7 +43,11 @@ def _sandbox(tmp_path, exts=(".xyz", ".txt")):
 
 
 def _args_of(bridge, operation):
-    return [c.args[1] if len(c.args) > 1 else None for c in bridge.call.call_args_list if c.args[0] == operation]
+    return [
+        c.args[1] if len(c.args) > 1 else None
+        for c in bridge.call.call_args_list
+        if c.args[0] == operation
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -65,18 +73,24 @@ def test_xyz_tools_share_load_options(srv, name):
 
 def test_image_tools_accept_atom_labels(srv):
     for name in ("get_molecule_image", "save_molecule_image"):
-        assert _tool(srv, name)["inputSchema"]["properties"]["atom_labels"]["type"] == "boolean"
+        assert (
+            _tool(srv, name)["inputSchema"]["properties"]["atom_labels"]["type"]
+            == "boolean"
+        )
 
 
-@pytest.mark.parametrize("name,read_only,destructive", [
-    ("get_3d_camera", True, None),
-    ("measure_geometry", True, None),
-    ("load_xyz_file", False, True),
-    ("save_molecule_image", False, True),
-    ("set_3d_camera", False, False),
-    ("clear_overlay", False, False),
-    ("compare_structures", False, False),
-])
+@pytest.mark.parametrize(
+    "name,read_only,destructive",
+    [
+        ("get_3d_camera", True, None),
+        ("measure_geometry", True, None),
+        ("load_xyz_file", False, True),
+        ("save_molecule_image", False, True),
+        ("set_3d_camera", False, False),
+        ("clear_overlay", False, False),
+        ("compare_structures", False, False),
+    ],
+)
 def test_new_tool_annotations(srv, name, read_only, destructive):
     ann = _tool(srv, name)["annotations"]
     assert ann["readOnlyHint"] is read_only
@@ -101,11 +115,28 @@ def test_server_instructions_mention_charge_and_figures(srv):
 
 
 def test_show_xyz_passes_new_options(srv):
-    bridge = make_bridge({"show_xyz": {"success": True, "chemistry_skipped": False, "charge": -1,
-                                       "num_atoms": 3, "num_bonds": 2}})
-    result = srv.dispatch_tool(bridge, "show_xyz_in_viewer", {
-        "xyz_text": WATER, "charge": -1, "skip_chemistry": False, "frame": 0, "keep_camera": True,
-    })
+    bridge = make_bridge(
+        {
+            "show_xyz": {
+                "success": True,
+                "chemistry_skipped": False,
+                "charge": -1,
+                "num_atoms": 3,
+                "num_bonds": 2,
+            }
+        }
+    )
+    result = srv.dispatch_tool(
+        bridge,
+        "show_xyz_in_viewer",
+        {
+            "xyz_text": WATER,
+            "charge": -1,
+            "skip_chemistry": False,
+            "frame": 0,
+            "keep_camera": True,
+        },
+    )
     sent = _args_of(bridge, "show_xyz")[0]
     assert sent["charge"] == -1 and sent["frame"] == 0 and sent["keep_camera"] is True
     assert "charge -1" in _text(result)
@@ -118,10 +149,18 @@ def test_show_xyz_omits_unset_options(srv):
 
 
 def test_show_xyz_reports_skipped_chemistry_and_note(srv):
-    bridge = make_bridge({"show_xyz": {
-        "success": True, "chemistry_skipped": True, "charge": None, "num_atoms": 3, "num_bonds": 2,
-        "note": "Bond perception failed with charge 0; loaded with distance-based bonds.",
-    }})
+    bridge = make_bridge(
+        {
+            "show_xyz": {
+                "success": True,
+                "chemistry_skipped": True,
+                "charge": None,
+                "num_atoms": 3,
+                "num_bonds": 2,
+                "note": "Bond perception failed with charge 0; loaded with distance-based bonds.",
+            }
+        }
+    )
     text = _text(srv.dispatch_tool(bridge, "show_xyz_in_viewer", {"xyz_text": WATER}))
     assert "by distance" in text and "Bond perception failed" in text
 
@@ -135,7 +174,9 @@ def test_show_xyz_reports_frames(srv):
 def test_show_xyz_bridge_error_is_tool_error(srv):
     bridge = MagicMock()
     bridge.call.side_effect = ValueError("'frame' 9 out of range (2 frames)")
-    result = srv.dispatch_tool(bridge, "show_xyz_in_viewer", {"xyz_text": WATER, "frame": 9})
+    result = srv.dispatch_tool(
+        bridge, "show_xyz_in_viewer", {"xyz_text": WATER, "frame": 9}
+    )
     assert result["isError"] is True and "out of range" in _text(result)
 
 
@@ -147,12 +188,21 @@ def test_show_xyz_bridge_error_is_tool_error(srv):
 def test_load_xyz_file_reads_sandbox_and_forwards(srv, tmp_path):
     (tmp_path / "mol").mkdir()
     (tmp_path / "mol" / "water.xyz").write_text(WATER, encoding="utf-8")
-    bridge = make_bridge({
-        "get_file_io_config": _sandbox(tmp_path),
-        "show_xyz": {"success": True, "num_atoms": 3, "num_bonds": 2, "charge": 0,
-                     "chemistry_skipped": False},
-    })
-    result = srv.dispatch_tool(bridge, "load_xyz_file", {"path": "mol/water.xyz", "charge": 0})
+    bridge = make_bridge(
+        {
+            "get_file_io_config": _sandbox(tmp_path),
+            "show_xyz": {
+                "success": True,
+                "num_atoms": 3,
+                "num_bonds": 2,
+                "charge": 0,
+                "chemistry_skipped": False,
+            },
+        }
+    )
+    result = srv.dispatch_tool(
+        bridge, "load_xyz_file", {"path": "mol/water.xyz", "charge": 0}
+    )
     assert result.get("isError") is not True
     sent = _args_of(bridge, "show_xyz")[0]
     assert sent["xyz_text"] == WATER
@@ -196,7 +246,9 @@ def test_load_xyz_file_size_limit(srv, tmp_path, monkeypatch):
 
 
 def test_load_xyz_file_without_sandbox(srv):
-    bridge = make_bridge({"get_file_io_config": {"base_dir": None, "allowed_extensions": []}})
+    bridge = make_bridge(
+        {"get_file_io_config": {"base_dir": None, "allowed_extensions": []}}
+    )
     result = srv.dispatch_tool(bridge, "load_xyz_file", {"path": "water.xyz"})
     assert result["isError"] is True and "not configured" in _text(result)
 
@@ -207,20 +259,33 @@ def test_load_xyz_file_without_sandbox(srv):
 
 
 def _image_bridge(tmp_path, view="3d"):
-    return make_bridge({
-        "get_file_io_config": _sandbox(tmp_path),
-        "get_molecule_image": {
-            "view": view, "width": 640, "height": 480, "mime_type": "image/png",
-            "image_base64": base64.b64encode(PNG).decode("ascii"),
-        },
-    })
+    return make_bridge(
+        {
+            "get_file_io_config": _sandbox(tmp_path),
+            "get_molecule_image": {
+                "view": view,
+                "width": 640,
+                "height": 480,
+                "mime_type": "image/png",
+                "image_base64": base64.b64encode(PNG).decode("ascii"),
+            },
+        }
+    )
 
 
 def test_save_image_writes_png_even_if_png_not_in_allowlist(srv, tmp_path):
     bridge = _image_bridge(tmp_path)
-    result = srv.dispatch_tool(bridge, "save_molecule_image", {
-        "path": "fig/water.png", "view": "3d", "width": 640, "height": 480, "atom_labels": True,
-    })
+    result = srv.dispatch_tool(
+        bridge,
+        "save_molecule_image",
+        {
+            "path": "fig/water.png",
+            "view": "3d",
+            "width": 640,
+            "height": 480,
+            "atom_labels": True,
+        },
+    )
     assert result.get("isError") is not True
     assert (tmp_path / "fig" / "water.png").read_bytes() == PNG
     sent = _args_of(bridge, "get_molecule_image")[0]
@@ -229,33 +294,45 @@ def test_save_image_writes_png_even_if_png_not_in_allowlist(srv, tmp_path):
 
 
 def test_save_image_refuses_non_png(srv, tmp_path):
-    result = srv.dispatch_tool(_image_bridge(tmp_path), "save_molecule_image", {"path": "water.txt"})
+    result = srv.dispatch_tool(
+        _image_bridge(tmp_path), "save_molecule_image", {"path": "water.txt"}
+    )
     assert result["isError"] is True and ".png" in _text(result)
     assert not (tmp_path / "water.txt").exists()
 
 
 def test_save_image_uppercase_suffix_ok(srv, tmp_path):
-    result = srv.dispatch_tool(_image_bridge(tmp_path), "save_molecule_image", {"path": "W.PNG"})
+    result = srv.dispatch_tool(
+        _image_bridge(tmp_path), "save_molecule_image", {"path": "W.PNG"}
+    )
     assert result.get("isError") is not True
 
 
 def test_save_image_no_overwrite_by_default(srv, tmp_path):
     (tmp_path / "water.png").write_bytes(b"old")
-    result = srv.dispatch_tool(_image_bridge(tmp_path), "save_molecule_image", {"path": "water.png"})
+    result = srv.dispatch_tool(
+        _image_bridge(tmp_path), "save_molecule_image", {"path": "water.png"}
+    )
     assert result["isError"] is True and "already exists" in _text(result)
     assert (tmp_path / "water.png").read_bytes() == b"old"
 
 
 def test_save_image_overwrite(srv, tmp_path):
     (tmp_path / "water.png").write_bytes(b"old")
-    srv.dispatch_tool(_image_bridge(tmp_path), "save_molecule_image", {"path": "water.png", "overwrite": True})
+    srv.dispatch_tool(
+        _image_bridge(tmp_path),
+        "save_molecule_image",
+        {"path": "water.png", "overwrite": True},
+    )
     assert (tmp_path / "water.png").read_bytes() == PNG
 
 
 def test_save_image_traversal_refused(srv, tmp_path):
     inner = tmp_path / "box"
     inner.mkdir()
-    result = srv.dispatch_tool(_image_bridge(inner), "save_molecule_image", {"path": "../escape.png"})
+    result = srv.dispatch_tool(
+        _image_bridge(inner), "save_molecule_image", {"path": "../escape.png"}
+    )
     assert result["isError"] is True
     assert not (tmp_path / "escape.png").exists()
 
@@ -280,9 +357,17 @@ def test_save_image_render_failure_writes_nothing(srv, tmp_path):
 
 
 def test_get_image_atom_labels_forwarded_only_when_set(srv):
-    bridge = make_bridge({"get_molecule_image": {
-        "view": "3d", "width": 900, "height": 700, "mime_type": "image/png", "image_base64": "eA==",
-    }})
+    bridge = make_bridge(
+        {
+            "get_molecule_image": {
+                "view": "3d",
+                "width": 900,
+                "height": 700,
+                "mime_type": "image/png",
+                "image_base64": "eA==",
+            }
+        }
+    )
     srv.dispatch_tool(bridge, "get_molecule_image", {"view": "3d", "atom_labels": True})
     srv.dispatch_tool(bridge, "get_molecule_image", {"view": "3d"})
     first, second = _args_of(bridge, "get_molecule_image")
@@ -304,16 +389,29 @@ def test_get_3d_camera_returns_json(srv):
 
 def test_set_3d_camera_forwards_only_given_keys(srv):
     bridge = make_bridge({"set_3d_camera": CAM})
-    result = srv.dispatch_tool(bridge, "set_3d_camera", {
-        "direction": [1, 0, 0], "view_up": [0, 0, 1], "zoom": 1.4, "position": None,
-    })
-    assert _args_of(bridge, "set_3d_camera")[0] == {"direction": [1, 0, 0], "view_up": [0, 0, 1], "zoom": 1.4}
+    result = srv.dispatch_tool(
+        bridge,
+        "set_3d_camera",
+        {
+            "direction": [1, 0, 0],
+            "view_up": [0, 0, 1],
+            "zoom": 1.4,
+            "position": None,
+        },
+    )
+    assert _args_of(bridge, "set_3d_camera")[0] == {
+        "direction": [1, 0, 0],
+        "view_up": [0, 0, 1],
+        "zoom": 1.4,
+    }
     assert _text(result).startswith("Camera set:")
 
 
 def test_set_3d_camera_error_is_tool_error(srv):
     bridge = MagicMock()
-    bridge.call.side_effect = ValueError("'view_up' is parallel to the viewing direction")
+    bridge.call.side_effect = ValueError(
+        "'view_up' is parallel to the viewing direction"
+    )
     result = srv.dispatch_tool(bridge, "set_3d_camera", {"direction": [0, 1, 0]})
     assert result["isError"] is True and "parallel" in _text(result)
 
@@ -324,11 +422,30 @@ def test_set_3d_camera_error_is_tool_error(srv):
 
 
 def test_measure_geometry_formats_lines(srv):
-    bridge = make_bridge({"measure_geometry": {"measurements": [
-        {"atoms": [0, 1], "symbols": ["O", "H"], "type": "distance", "value": 0.96},
-        {"atoms": [1, 0, 2], "symbols": ["H", "O", "H"], "type": "angle", "value": 104.5},
-    ], "units": {}}})
-    text = _text(srv.dispatch_tool(bridge, "measure_geometry", {"atoms": [[0, 1], [1, 0, 2]]}))
+    bridge = make_bridge(
+        {
+            "measure_geometry": {
+                "measurements": [
+                    {
+                        "atoms": [0, 1],
+                        "symbols": ["O", "H"],
+                        "type": "distance",
+                        "value": 0.96,
+                    },
+                    {
+                        "atoms": [1, 0, 2],
+                        "symbols": ["H", "O", "H"],
+                        "type": "angle",
+                        "value": 104.5,
+                    },
+                ],
+                "units": {},
+            }
+        }
+    )
+    text = _text(
+        srv.dispatch_tool(bridge, "measure_geometry", {"atoms": [[0, 1], [1, 0, 2]]})
+    )
     assert "O0-H1: 0.9600 A" in text
     assert "H1-O0-H2: 104.5000 deg" in text
     assert _args_of(bridge, "measure_geometry")[0] == {"atoms": [[0, 1], [1, 0, 2]]}
@@ -339,16 +456,27 @@ def test_measure_geometry_formats_lines(srv):
 # ---------------------------------------------------------------------------
 
 CMP = {
-    "rmsd": 0.1234, "atoms_used": 3, "aligned": True,
+    "rmsd": 0.1234,
+    "atoms_used": 3,
+    "aligned": True,
     "largest_deviations": [{"index": 1, "symbol": "H", "deviation": 0.2}],
 }
 
 
 def test_compare_with_text(srv):
     bridge = make_bridge({"compare_structures": dict(CMP, overlay=True)})
-    text = _text(srv.dispatch_tool(bridge, "compare_structures", {
-        "xyz_text": WATER, "heavy_atoms_only": True, "overlay": True, "frame": -1,
-    }))
+    text = _text(
+        srv.dispatch_tool(
+            bridge,
+            "compare_structures",
+            {
+                "xyz_text": WATER,
+                "heavy_atoms_only": True,
+                "overlay": True,
+                "frame": -1,
+            },
+        )
+    )
     assert "RMSD: 0.1234 A over 3 atoms (aligned)" in text
     assert "H1: 0.2000 A" in text
     assert "Overlay drawn" in text and "stick" in text
@@ -364,7 +492,9 @@ def test_compare_with_line_array(srv):
 
 def test_compare_with_path(srv, tmp_path):
     (tmp_path / "ref.xyz").write_text(WATER, encoding="utf-8")
-    bridge = make_bridge({"get_file_io_config": _sandbox(tmp_path), "compare_structures": CMP})
+    bridge = make_bridge(
+        {"get_file_io_config": _sandbox(tmp_path), "compare_structures": CMP}
+    )
     result = srv.dispatch_tool(bridge, "compare_structures", {"path": "ref.xyz"})
     assert result.get("isError") is not True
     assert _args_of(bridge, "compare_structures")[0]["xyz_text"] == WATER
@@ -377,24 +507,41 @@ def test_compare_needs_exactly_one_source(srv, args):
 
 
 def test_clear_overlay(srv):
-    text = _text(srv.dispatch_tool(make_bridge({"clear_overlay": {"removed": 2}}), "clear_overlay", {}))
+    text = _text(
+        srv.dispatch_tool(
+            make_bridge({"clear_overlay": {"removed": 2}}), "clear_overlay", {}
+        )
+    )
     assert "2 actors" in text
     assert "restored" not in text
 
 
 def test_clear_overlay_reports_restored_style(srv):
-    bridge = make_bridge({"clear_overlay": {"removed": 2, "restored_style": "ball_and_stick"}})
-    assert "restored to ball_and_stick" in _text(srv.dispatch_tool(bridge, "clear_overlay", {}))
+    bridge = make_bridge(
+        {"clear_overlay": {"removed": 2, "restored_style": "ball_and_stick"}}
+    )
+    assert "restored to ball_and_stick" in _text(
+        srv.dispatch_tool(bridge, "clear_overlay", {})
+    )
 
 
 def test_compare_forwards_colors(srv):
     bridge = make_bridge({"compare_structures": CMP})
-    srv.dispatch_tool(bridge, "compare_structures", {
-        "xyz_text": WATER, "overlay": True, "overlay_color": "#00ff00", "current_color": "#0000ff",
-    })
+    srv.dispatch_tool(
+        bridge,
+        "compare_structures",
+        {
+            "xyz_text": WATER,
+            "overlay": True,
+            "overlay_color": "#00ff00",
+            "current_color": "#0000ff",
+        },
+    )
     sent = _args_of(bridge, "compare_structures")[0]
     assert sent["overlay_color"] == "#00ff00" and sent["current_color"] == "#0000ff"
 
 
 def test_compare_schema_has_current_color(srv):
-    assert "current_color" in _tool(srv, "compare_structures")["inputSchema"]["properties"]
+    assert (
+        "current_color" in _tool(srv, "compare_structures")["inputSchema"]["properties"]
+    )

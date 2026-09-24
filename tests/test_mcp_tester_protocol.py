@@ -12,14 +12,12 @@ import json
 import time
 
 import pytest
-
 from test_mcp_tester import (
-    _StubBridge,
     _free_port,
     _has_pyqt6,
     _load_tester,
+    _StubBridge,
 )
-
 
 # ---------------------------------------------------------------------------
 # Protocol helpers (pure functions)
@@ -51,7 +49,9 @@ class TestProtocolHelpers:
         assert self.mod.encode_header_value("line1\nline2").startswith("=?base64?")
 
     def test_mcp_error_details_include_code_and_data(self) -> None:
-        err = self.mod.MCPError(-32022, "Unsupported", {"supported": ["2026-07-28"]}, 400)
+        err = self.mod.MCPError(
+            -32022, "Unsupported", {"supported": ["2026-07-28"]}, 400
+        )
         text = err.details()
         assert "-32022" in text and "400" in text and "2026-07-28" in text
 

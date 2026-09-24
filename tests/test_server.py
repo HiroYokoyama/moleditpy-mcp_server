@@ -7,7 +7,6 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from conftest import load_module, make_bridge, mock_optional_imports
 
 
@@ -56,9 +55,7 @@ def test_known_tools_present(srv):
 
 
 def test_required_tools_have_required_schema_fields(srv):
-    load_tool = next(
-        t for t in srv._TOOLS if t["name"] == "load_molecule_from_smiles"
-    )
+    load_tool = next(t for t in srv._TOOLS if t["name"] == "load_molecule_from_smiles")
     assert "required" in load_tool["inputSchema"]
     assert "smiles" in load_tool["inputSchema"]["required"]
 
@@ -90,8 +87,11 @@ def test_set_atom_charge_and_delete_atoms_require_their_arguments(srv):
 
 def test_manipulation_tools_are_classified_destructive(srv):
     for name in (
-        "add_hydrogens", "remove_hydrogens", "optimize_geometry",
-        "set_atom_charge", "delete_atoms",
+        "add_hydrogens",
+        "remove_hydrogens",
+        "optimize_geometry",
+        "set_atom_charge",
+        "delete_atoms",
     ):
         tool = next(t for t in srv._TOOLS if t["name"] == name)
         assert tool["annotations"]["destructiveHint"] is True
@@ -99,8 +99,10 @@ def test_manipulation_tools_are_classified_destructive(srv):
 
 def test_read_only_manipulation_tools_are_classified_read_only(srv):
     for name in (
-        "get_molecule_image", "get_molecule_descriptors",
-        "substructure_search", "compute_partial_charges",
+        "get_molecule_image",
+        "get_molecule_descriptors",
+        "substructure_search",
+        "compute_partial_charges",
     ):
         tool = next(t for t in srv._TOOLS if t["name"] == name)
         assert tool["annotations"]["readOnlyHint"] is True
@@ -141,17 +143,19 @@ def test_dispatch_get_current_molecule_no_mol(srv):
 
 
 def test_dispatch_get_current_molecule_with_mol(srv):
-    bridge = _bridge({
-        "get_molecule_info": {
-            "loaded": True,
-            "smiles": "CCO",
-            "formula": "C2H6O",
-            "molecular_weight": 46.0684,
-            "num_atoms": 3,
-            "num_bonds": 2,
-            "has_3d_coords": False,
+    bridge = _bridge(
+        {
+            "get_molecule_info": {
+                "loaded": True,
+                "smiles": "CCO",
+                "formula": "C2H6O",
+                "molecular_weight": 46.0684,
+                "num_atoms": 3,
+                "num_bonds": 2,
+                "has_3d_coords": False,
+            }
         }
-    })
+    )
     result = srv.dispatch_tool(bridge, "get_current_molecule", {})
     text = result["content"][0]["text"]
     assert "CCO" in text
@@ -179,21 +183,23 @@ def test_dispatch_get_atom_properties_empty(srv):
 
 
 def test_dispatch_get_atom_properties_with_atoms(srv):
-    bridge = _bridge({
-        "get_atom_properties": {
-            "atoms": [
-                {
-                    "index": 0,
-                    "symbol": "C",
-                    "atomic_num": 6,
-                    "formal_charge": 0,
-                    "hybridization": "SP3",
-                    "total_hs": 4,
-                    "num_radical_electrons": 0,
-                }
-            ]
+    bridge = _bridge(
+        {
+            "get_atom_properties": {
+                "atoms": [
+                    {
+                        "index": 0,
+                        "symbol": "C",
+                        "atomic_num": 6,
+                        "formal_charge": 0,
+                        "hybridization": "SP3",
+                        "total_hs": 4,
+                        "num_radical_electrons": 0,
+                    }
+                ]
+            }
         }
-    })
+    )
     result = srv.dispatch_tool(bridge, "get_atom_properties", {"atom_indices": [0]})
     text = result["content"][0]["text"]
     assert "C" in text
@@ -208,11 +214,13 @@ def test_dispatch_get_bond_info_empty(srv):
 
 
 def test_dispatch_get_bond_info_with_bonds(srv):
-    bridge = _bridge({
-        "get_bond_info": {
-            "bonds": [{"index": 0, "atom1": 0, "atom2": 1, "bond_type": "DOUBLE"}]
+    bridge = _bridge(
+        {
+            "get_bond_info": {
+                "bonds": [{"index": 0, "atom1": 0, "atom2": 1, "bond_type": "DOUBLE"}]
+            }
         }
-    })
+    )
     result = srv.dispatch_tool(bridge, "get_bond_info", {})
     text = result["content"][0]["text"]
     assert "DOUBLE" in text
@@ -259,9 +267,7 @@ def test_dispatch_show_xyz_success(srv):
 
 def test_dispatch_show_xyz_failure(srv):
     bridge = _bridge({"show_xyz": {"success": False}})
-    result = srv.dispatch_tool(
-        bridge, "show_xyz_in_viewer", {"xyz_text": "bad data"}
-    )
+    result = srv.dispatch_tool(bridge, "show_xyz_in_viewer", {"xyz_text": "bad data"})
     assert result.get("isError") is True
 
 
@@ -293,15 +299,17 @@ def test_dispatch_get_selected_atoms_empty(srv):
 
 
 def test_dispatch_get_selected_atoms_with_selection(srv):
-    bridge = _bridge({
-        "get_selected_atoms": {
-            "count": 2,
-            "selected_atoms": [
-                {"index": 0, "symbol": "C", "atomic_num": 6},
-                {"index": 3, "symbol": "O", "atomic_num": 8},
-            ],
+    bridge = _bridge(
+        {
+            "get_selected_atoms": {
+                "count": 2,
+                "selected_atoms": [
+                    {"index": 0, "symbol": "C", "atomic_num": 6},
+                    {"index": 3, "symbol": "O", "atomic_num": 8},
+                ],
+            }
         }
-    })
+    )
     result = srv.dispatch_tool(bridge, "get_selected_atoms", {})
     text = result["content"][0]["text"]
     assert "2 atom" in text
@@ -317,13 +325,15 @@ def test_dispatch_clear_canvas(srv):
 
 
 def test_dispatch_get_app_info(srv):
-    bridge = _bridge({
-        "get_app_info": {
-            "app": "MoleditPy",
-            "version": "4.0.0",
-            "mcp_plugin_version": "2026.06.30",
+    bridge = _bridge(
+        {
+            "get_app_info": {
+                "app": "MoleditPy",
+                "version": "4.0.0",
+                "mcp_plugin_version": "2026.06.30",
+            }
         }
-    })
+    )
     result = srv.dispatch_tool(bridge, "get_app_info", {})
     text = result["content"][0]["text"]
     assert "MoleditPy" in text
@@ -331,15 +341,17 @@ def test_dispatch_get_app_info(srv):
 
 
 def test_dispatch_get_molecule_image(srv):
-    bridge = _bridge({
-        "get_molecule_image": {
-            "view": "3d",
-            "width": 900,
-            "height": 700,
-            "mime_type": "image/png",
-            "image_base64": "Zm9vYmFy",
+    bridge = _bridge(
+        {
+            "get_molecule_image": {
+                "view": "3d",
+                "width": 900,
+                "height": 700,
+                "mime_type": "image/png",
+                "image_base64": "Zm9vYmFy",
+            }
         }
-    })
+    )
     result = srv.dispatch_tool(bridge, "get_molecule_image", {})
     kinds = [block["type"] for block in result["content"]]
     assert "image" in kinds
@@ -349,16 +361,20 @@ def test_dispatch_get_molecule_image(srv):
 
 
 def test_dispatch_get_molecule_image_passes_view_and_size(srv):
-    bridge = _bridge({
-        "get_molecule_image": {
-            "view": "2d",
-            "width": 400,
-            "height": 300,
-            "mime_type": "image/png",
-            "image_base64": "eA==",
+    bridge = _bridge(
+        {
+            "get_molecule_image": {
+                "view": "2d",
+                "width": 400,
+                "height": 300,
+                "mime_type": "image/png",
+                "image_base64": "eA==",
+            }
         }
-    })
-    srv.dispatch_tool(bridge, "get_molecule_image", {"view": "2d", "width": 400, "height": 300})
+    )
+    srv.dispatch_tool(
+        bridge, "get_molecule_image", {"view": "2d", "width": 400, "height": 300}
+    )
     bridge.call.assert_called_once_with(
         "get_molecule_image", {"view": "2d", "width": 400, "height": 300}
     )
@@ -371,26 +387,28 @@ def test_dispatch_get_molecule_descriptors_no_mol(srv):
 
 
 def test_dispatch_get_molecule_descriptors_with_mol(srv):
-    bridge = _bridge({
-        "get_molecule_descriptors": {
-            "loaded": True,
-            "canonical_smiles": "CCO",
-            "formula": "C2H6O",
-            "molecular_weight": 46.0684,
-            "exact_mass": 46.0419,
-            "logp": -0.0014,
-            "tpsa": 20.23,
-            "formal_charge": 0,
-            "num_h_donors": 1,
-            "num_h_acceptors": 1,
-            "num_rotatable_bonds": 0,
-            "num_rings": 0,
-            "num_aromatic_rings": 0,
-            "num_atoms": 3,
-            "num_heavy_atoms": 3,
-            "num_bonds": 2,
+    bridge = _bridge(
+        {
+            "get_molecule_descriptors": {
+                "loaded": True,
+                "canonical_smiles": "CCO",
+                "formula": "C2H6O",
+                "molecular_weight": 46.0684,
+                "exact_mass": 46.0419,
+                "logp": -0.0014,
+                "tpsa": 20.23,
+                "formal_charge": 0,
+                "num_h_donors": 1,
+                "num_h_acceptors": 1,
+                "num_rotatable_bonds": 0,
+                "num_rings": 0,
+                "num_aromatic_rings": 0,
+                "num_atoms": 3,
+                "num_heavy_atoms": 3,
+                "num_bonds": 2,
+            }
         }
-    })
+    )
     result = srv.dispatch_tool(bridge, "get_molecule_descriptors", {})
     text = result["content"][0]["text"]
     assert "CCO" in text
@@ -410,9 +428,15 @@ def test_dispatch_remove_hydrogens(srv):
 
 
 def test_dispatch_optimize_geometry(srv):
-    bridge = _bridge({
-        "optimize_geometry": {"success": True, "force_field": "mmff", "converged": True}
-    })
+    bridge = _bridge(
+        {
+            "optimize_geometry": {
+                "success": True,
+                "force_field": "mmff",
+                "converged": True,
+            }
+        }
+    )
     result = srv.dispatch_tool(bridge, "optimize_geometry", {})
     text = result["content"][0]["text"]
     assert "MMFF" in text
@@ -427,8 +451,12 @@ def test_dispatch_set_atom_charge_missing_args(srv):
 
 
 def test_dispatch_set_atom_charge_ok(srv):
-    bridge = _bridge({"set_atom_charge": {"success": True, "atom_index": 2, "charge": -1}})
-    result = srv.dispatch_tool(bridge, "set_atom_charge", {"atom_index": 2, "charge": -1})
+    bridge = _bridge(
+        {"set_atom_charge": {"success": True, "atom_index": 2, "charge": -1}}
+    )
+    result = srv.dispatch_tool(
+        bridge, "set_atom_charge", {"atom_index": 2, "charge": -1}
+    )
     assert "2" in result["content"][0]["text"]
 
 
@@ -440,9 +468,9 @@ def test_dispatch_delete_atoms_missing_args(srv):
 
 
 def test_dispatch_delete_atoms_ok(srv):
-    bridge = _bridge({
-        "delete_atoms": {"success": True, "deleted": [3, 1], "remaining_atoms": 5}
-    })
+    bridge = _bridge(
+        {"delete_atoms": {"success": True, "deleted": [3, 1], "remaining_atoms": 5}}
+    )
     result = srv.dispatch_tool(bridge, "delete_atoms", {"atom_indices": [1, 3]})
     assert "5" in result["content"][0]["text"]
 
@@ -454,21 +482,31 @@ def test_dispatch_substructure_search_missing_smarts(srv):
 
 
 def test_dispatch_substructure_search_no_matches(srv):
-    bridge = _bridge({
-        "substructure_search": {
-            "loaded": True, "smarts": "[OH]", "num_matches": 0, "matches": []
+    bridge = _bridge(
+        {
+            "substructure_search": {
+                "loaded": True,
+                "smarts": "[OH]",
+                "num_matches": 0,
+                "matches": [],
+            }
         }
-    })
+    )
     result = srv.dispatch_tool(bridge, "substructure_search", {"smarts": "[OH]"})
     assert "No matches" in result["content"][0]["text"]
 
 
 def test_dispatch_substructure_search_with_matches(srv):
-    bridge = _bridge({
-        "substructure_search": {
-            "loaded": True, "smarts": "[OH]", "num_matches": 1, "matches": [[2]]
+    bridge = _bridge(
+        {
+            "substructure_search": {
+                "loaded": True,
+                "smarts": "[OH]",
+                "num_matches": 1,
+                "matches": [[2]],
+            }
         }
-    })
+    )
     result = srv.dispatch_tool(bridge, "substructure_search", {"smarts": "[OH]"})
     text = result["content"][0]["text"]
     assert "1 match" in text
@@ -476,11 +514,13 @@ def test_dispatch_substructure_search_with_matches(srv):
 
 
 def test_dispatch_compute_partial_charges(srv):
-    bridge = _bridge({
-        "compute_partial_charges": {
-            "charges": [{"index": 0, "symbol": "C", "charge": -0.05}]
+    bridge = _bridge(
+        {
+            "compute_partial_charges": {
+                "charges": [{"index": 0, "symbol": "C", "charge": -0.05}]
+            }
         }
-    })
+    )
     result = srv.dispatch_tool(bridge, "compute_partial_charges", {})
     text = result["content"][0]["text"]
     assert "Atom 0 (C)" in text
@@ -531,9 +571,7 @@ def test_mcp_http_server_url(srv):
 
 def test_mcp_http_server_start_stop(srv):
     bridge = MagicMock()
-    server = srv.MCPHttpServer(
-        bridge, server_name="Test", server_version="1.0", port=0
-    )
+    server = srv.MCPHttpServer(bridge, server_name="Test", server_version="1.0", port=0)
     server.start()
     assert server.is_running
     server.stop()
@@ -542,9 +580,7 @@ def test_mcp_http_server_start_stop(srv):
 
 def test_mcp_http_server_stop_idempotent(srv):
     bridge = MagicMock()
-    server = srv.MCPHttpServer(
-        bridge, server_name="Test", server_version="1.0", port=0
-    )
+    server = srv.MCPHttpServer(bridge, server_name="Test", server_version="1.0", port=0)
     server.stop()  # should not raise when not running
     assert not server.is_running
 
@@ -558,11 +594,9 @@ def test_mcp_http_server_stop_closes_socket(srv):
     even with allow_reuse_address; closing it lets start/stop cycle cleanly.
     """
     bridge = MagicMock()
-    server = srv.MCPHttpServer(
-        bridge, server_name="Test", server_version="1.0", port=0
-    )
+    server = srv.MCPHttpServer(bridge, server_name="Test", server_version="1.0", port=0)
     server.start()
-    httpd = server._httpd  # noqa: SLF001
+    httpd = server._httpd
     assert httpd is not None
     sock = httpd.socket
     assert sock.fileno() != -1
@@ -619,9 +653,7 @@ def test_handle_tools_list(srv):
 
 def test_handle_tools_call_dispatches(srv):
     handler = _make_handler(srv)
-    handler.__class__.bridge = make_bridge(
-        {"get_molecule_info": {"loaded": False}}
-    )
+    handler.__class__.bridge = make_bridge({"get_molecule_info": {"loaded": False}})
     result = handler._handle_method(
         "tools/call",
         {"name": "get_current_molecule", "arguments": {}},
@@ -804,38 +836,42 @@ def test_log_message_delegates_to_logger(srv):
 def _file_bridge(srv_mod, tmp_path, extra_exts=None):
     """Bridge pre-configured with a tmp_path sandbox."""
     exts = extra_exts or [".txt", ".inp", ".xyz"]
-    return make_bridge({
-        "get_file_io_config": {
-            "base_dir": str(tmp_path),
-            "allowed_extensions": exts,
-        },
-        "set_file_io_config": {"success": True},
-    })
+    return make_bridge(
+        {
+            "get_file_io_config": {
+                "base_dir": str(tmp_path),
+                "allowed_extensions": exts,
+            },
+            "set_file_io_config": {"success": True},
+        }
+    )
 
 
 def test_write_text_file_creates_file(srv, tmp_path):
     bridge = _file_bridge(srv, tmp_path)
-    result = srv.dispatch_tool(bridge, "write_text_file", {
-        "path": "hello.txt", "content": "Hello, world!"
-    })
+    result = srv.dispatch_tool(
+        bridge, "write_text_file", {"path": "hello.txt", "content": "Hello, world!"}
+    )
     assert result.get("isError") is not True
     assert (tmp_path / "hello.txt").read_text() == "Hello, world!"
 
 
 def test_write_text_file_creates_parents(srv, tmp_path):
     bridge = _file_bridge(srv, tmp_path)
-    srv.dispatch_tool(bridge, "write_text_file", {
-        "path": "subdir/deep/mol.inp", "content": "! ORCA input"
-    })
+    srv.dispatch_tool(
+        bridge,
+        "write_text_file",
+        {"path": "subdir/deep/mol.inp", "content": "! ORCA input"},
+    )
     assert (tmp_path / "subdir" / "deep" / "mol.inp").exists()
 
 
 def test_write_text_file_no_overwrite_by_default(srv, tmp_path):
     bridge = _file_bridge(srv, tmp_path)
     (tmp_path / "existing.txt").write_text("original")
-    result = srv.dispatch_tool(bridge, "write_text_file", {
-        "path": "existing.txt", "content": "new"
-    })
+    result = srv.dispatch_tool(
+        bridge, "write_text_file", {"path": "existing.txt", "content": "new"}
+    )
     assert result.get("isError") is True
     assert (tmp_path / "existing.txt").read_text() == "original"
 
@@ -843,51 +879,53 @@ def test_write_text_file_no_overwrite_by_default(srv, tmp_path):
 def test_write_text_file_overwrite_allowed(srv, tmp_path):
     bridge = _file_bridge(srv, tmp_path)
     (tmp_path / "file.txt").write_text("old")
-    srv.dispatch_tool(bridge, "write_text_file", {
-        "path": "file.txt", "content": "new", "overwrite": True
-    })
+    srv.dispatch_tool(
+        bridge,
+        "write_text_file",
+        {"path": "file.txt", "content": "new", "overwrite": True},
+    )
     assert (tmp_path / "file.txt").read_text() == "new"
 
 
 def test_write_text_file_path_traversal_rejected(srv, tmp_path):
     bridge = _file_bridge(srv, tmp_path)
-    result = srv.dispatch_tool(bridge, "write_text_file", {
-        "path": "../../evil.txt", "content": "bad"
-    })
+    result = srv.dispatch_tool(
+        bridge, "write_text_file", {"path": "../../evil.txt", "content": "bad"}
+    )
     assert result.get("isError") is True
     assert not (tmp_path.parent.parent / "evil.txt").exists()
 
 
 def test_write_text_file_absolute_path_rejected(srv, tmp_path):
     bridge = _file_bridge(srv, tmp_path)
-    result = srv.dispatch_tool(bridge, "write_text_file", {
-        "path": str(tmp_path / "abs.txt"), "content": "bad"
-    })
+    result = srv.dispatch_tool(
+        bridge, "write_text_file", {"path": str(tmp_path / "abs.txt"), "content": "bad"}
+    )
     assert result.get("isError") is True
 
 
 def test_write_text_file_extension_not_allowed(srv, tmp_path):
     bridge = _file_bridge(srv, tmp_path, extra_exts=[".txt"])
-    result = srv.dispatch_tool(bridge, "write_text_file", {
-        "path": "script.exe", "content": "bad"
-    })
+    result = srv.dispatch_tool(
+        bridge, "write_text_file", {"path": "script.exe", "content": "bad"}
+    )
     assert result.get("isError") is True
 
 
 def test_write_text_file_empty_path_rejected(srv, tmp_path):
     bridge = _file_bridge(srv, tmp_path)
-    result = srv.dispatch_tool(bridge, "write_text_file", {
-        "path": "  ", "content": "bad"
-    })
+    result = srv.dispatch_tool(
+        bridge, "write_text_file", {"path": "  ", "content": "bad"}
+    )
     assert result.get("isError") is True
     assert "path" in result["content"][0]["text"]
 
 
 def test_write_text_file_no_extension_rejected(srv, tmp_path):
     bridge = _file_bridge(srv, tmp_path)
-    result = srv.dispatch_tool(bridge, "write_text_file", {
-        "path": "README", "content": "hi"
-    })
+    result = srv.dispatch_tool(
+        bridge, "write_text_file", {"path": "README", "content": "hi"}
+    )
     assert result.get("isError") is True
     assert "no extension" in result["content"][0]["text"]
 
@@ -895,9 +933,9 @@ def test_write_text_file_no_extension_rejected(srv, tmp_path):
 def test_write_text_file_content_too_large_rejected(srv, tmp_path):
     bridge = _file_bridge(srv, tmp_path)
     huge = "x" * (5 * 1024 * 1024)
-    result = srv.dispatch_tool(bridge, "write_text_file", {
-        "path": "big.txt", "content": huge
-    })
+    result = srv.dispatch_tool(
+        bridge, "write_text_file", {"path": "big.txt", "content": huge}
+    )
     assert result.get("isError") is True
     assert "MB limit" in result["content"][0]["text"]
     assert not (tmp_path / "big.txt").exists()
@@ -905,9 +943,9 @@ def test_write_text_file_content_too_large_rejected(srv, tmp_path):
 
 def test_write_file_with_xyz_block_empty_path_rejected(srv, tmp_path):
     bridge = _file_bridge(srv, tmp_path)
-    result = srv.dispatch_tool(bridge, "write_file_with_xyz_block", {
-        "path": "", "content": "ignored"
-    })
+    result = srv.dispatch_tool(
+        bridge, "write_file_with_xyz_block", {"path": "", "content": "ignored"}
+    )
     assert result.get("isError") is True
     assert "path" in result["content"][0]["text"]
 
@@ -996,9 +1034,9 @@ def test_list_directory_empty_reports_empty(srv, tmp_path):
 def test_delete_file_requires_confirm(srv, tmp_path):
     (tmp_path / "bye.txt").write_text("delete me")
     bridge = _file_bridge(srv, tmp_path)
-    result = srv.dispatch_tool(bridge, "delete_file", {
-        "path": "bye.txt", "confirm": False
-    })
+    result = srv.dispatch_tool(
+        bridge, "delete_file", {"path": "bye.txt", "confirm": False}
+    )
     assert result.get("isError") is True
     assert (tmp_path / "bye.txt").exists()
 
@@ -1006,18 +1044,18 @@ def test_delete_file_requires_confirm(srv, tmp_path):
 def test_delete_file_with_confirm(srv, tmp_path):
     (tmp_path / "gone.txt").write_text("bye")
     bridge = _file_bridge(srv, tmp_path)
-    result = srv.dispatch_tool(bridge, "delete_file", {
-        "path": "gone.txt", "confirm": True
-    })
+    result = srv.dispatch_tool(
+        bridge, "delete_file", {"path": "gone.txt", "confirm": True}
+    )
     assert result.get("isError") is not True
     assert not (tmp_path / "gone.txt").exists()
 
 
 def test_delete_file_traversal_rejected(srv, tmp_path):
     bridge = _file_bridge(srv, tmp_path)
-    result = srv.dispatch_tool(bridge, "delete_file", {
-        "path": "../../important.txt", "confirm": True
-    })
+    result = srv.dispatch_tool(
+        bridge, "delete_file", {"path": "../../important.txt", "confirm": True}
+    )
     assert result.get("isError") is True
 
 
@@ -1030,9 +1068,9 @@ def test_delete_file_missing_path(srv):
 
 def test_delete_file_not_exists_rejected(srv, tmp_path):
     bridge = _file_bridge(srv, tmp_path)
-    result = srv.dispatch_tool(bridge, "delete_file", {
-        "path": "missing.txt", "confirm": True
-    })
+    result = srv.dispatch_tool(
+        bridge, "delete_file", {"path": "missing.txt", "confirm": True}
+    )
     assert result.get("isError") is True
     assert "does not exist" in result["content"][0]["text"]
 
@@ -1040,38 +1078,47 @@ def test_delete_file_not_exists_rejected(srv, tmp_path):
 def test_delete_file_rejects_directory(srv, tmp_path):
     (tmp_path / "dir.txt").mkdir()
     bridge = _file_bridge(srv, tmp_path)
-    result = srv.dispatch_tool(bridge, "delete_file", {
-        "path": "dir.txt", "confirm": True
-    })
+    result = srv.dispatch_tool(
+        bridge, "delete_file", {"path": "dir.txt", "confirm": True}
+    )
     assert result.get("isError") is True
     assert "not a regular file" in result["content"][0]["text"]
 
 
 def test_get_file_io_config_no_base_dir(srv):
-    bridge = make_bridge({
-        "get_file_io_config": {"base_dir": None, "allowed_extensions": [".txt"]}
-    })
+    bridge = make_bridge(
+        {"get_file_io_config": {"base_dir": None, "allowed_extensions": [".txt"]}}
+    )
     result = srv.dispatch_tool(bridge, "get_file_io_config", {})
     assert "not configured" in result["content"][0]["text"]
 
 
 def test_set_file_io_config_valid(srv, tmp_path):
     bridge = make_bridge({"set_file_io_config": {"success": True}})
-    result = srv.dispatch_tool(bridge, "set_file_io_config", {
-        "base_dir": str(tmp_path), "allowed_extensions": [".inp", ".txt"]
-    })
+    result = srv.dispatch_tool(
+        bridge,
+        "set_file_io_config",
+        {"base_dir": str(tmp_path), "allowed_extensions": [".inp", ".txt"]},
+    )
     assert result.get("isError") is not True
-    bridge.call.assert_called_with("set_file_io_config", {
-        "base_dir": str(tmp_path.resolve()),
-        "allowed_extensions": [".inp", ".txt"],
-    })
+    bridge.call.assert_called_with(
+        "set_file_io_config",
+        {
+            "base_dir": str(tmp_path.resolve()),
+            "allowed_extensions": [".inp", ".txt"],
+        },
+    )
 
 
 def test_set_file_io_config_nonexistent_dir(srv, tmp_path):
     bridge = make_bridge({"set_file_io_config": {"success": True}})
-    result = srv.dispatch_tool(bridge, "set_file_io_config", {
-        "base_dir": str(tmp_path / "does_not_exist"),
-    })
+    result = srv.dispatch_tool(
+        bridge,
+        "set_file_io_config",
+        {
+            "base_dir": str(tmp_path / "does_not_exist"),
+        },
+    )
     assert result.get("isError") is True
 
 
@@ -1083,12 +1130,12 @@ def test_set_file_io_config_no_args_rejected(srv):
 
 
 def test_file_io_no_base_dir_configured(srv, tmp_path):
-    bridge = make_bridge({
-        "get_file_io_config": {"base_dir": None, "allowed_extensions": [".txt"]}
-    })
-    result = srv.dispatch_tool(bridge, "write_text_file", {
-        "path": "test.txt", "content": "x"
-    })
+    bridge = make_bridge(
+        {"get_file_io_config": {"base_dir": None, "allowed_extensions": [".txt"]}}
+    )
+    result = srv.dispatch_tool(
+        bridge, "write_text_file", {"path": "test.txt", "content": "x"}
+    )
     assert result.get("isError") is True
     assert "not configured" in result["content"][0]["text"]
 
@@ -1099,34 +1146,30 @@ def test_file_io_no_base_dir_configured(srv, tmp_path):
 
 
 def test_run_python_stdout(srv):
-    bridge = make_bridge({
-        "run_python": {"stdout": "hello\n", "stderr": "", "result": "None"}
-    })
+    bridge = make_bridge(
+        {"run_python": {"stdout": "hello\n", "stderr": "", "result": "None"}}
+    )
     result = srv.dispatch_tool(bridge, "run_python", {"code": "print('hello')"})
     assert result.get("isError") is not True
     assert "hello" in result["content"][0]["text"]
 
 
 def test_run_python_result_value(srv):
-    bridge = make_bridge({
-        "run_python": {"stdout": "", "stderr": "", "result": "42"}
-    })
+    bridge = make_bridge({"run_python": {"stdout": "", "stderr": "", "result": "42"}})
     result = srv.dispatch_tool(bridge, "run_python", {"code": "result = 42"})
     assert "42" in result["content"][0]["text"]
 
 
 def test_run_python_no_output(srv):
-    bridge = make_bridge({
-        "run_python": {"stdout": "", "stderr": "", "result": "None"}
-    })
+    bridge = make_bridge({"run_python": {"stdout": "", "stderr": "", "result": "None"}})
     result = srv.dispatch_tool(bridge, "run_python", {"code": "pass"})
     assert "(no output)" in result["content"][0]["text"]
 
 
 def test_run_python_stderr(srv):
-    bridge = make_bridge({
-        "run_python": {"stdout": "", "stderr": "warn!\n", "result": "None"}
-    })
+    bridge = make_bridge(
+        {"run_python": {"stdout": "", "stderr": "warn!\n", "result": "None"}}
+    )
     result = srv.dispatch_tool(bridge, "run_python", {"code": "pass"})
     assert result.get("isError") is not True
     assert "warn!" in result["content"][0]["text"]
@@ -1145,7 +1188,9 @@ def test_run_python_empty_code(srv):
 
 def test_load_molecule_by_name_ok(srv):
     bridge = make_bridge({"load_smiles": {"success": True}})
-    with patch.object(srv, "_fetch_smiles_by_name", return_value="CC(=O)Oc1ccccc1C(=O)O"):
+    with patch.object(
+        srv, "_fetch_smiles_by_name", return_value="CC(=O)Oc1ccccc1C(=O)O"
+    ):
         result = srv.dispatch_tool(bridge, "load_molecule_by_name", {"name": "aspirin"})
     assert result.get("isError") is not True
     text = result["content"][0]["text"]
@@ -1155,8 +1200,12 @@ def test_load_molecule_by_name_ok(srv):
 
 def test_load_molecule_by_name_not_found(srv):
     bridge = make_bridge({})
-    with patch.object(srv, "_fetch_smiles_by_name", side_effect=ValueError("not found")):
-        result = srv.dispatch_tool(bridge, "load_molecule_by_name", {"name": "zzznonsense"})
+    with patch.object(
+        srv, "_fetch_smiles_by_name", side_effect=ValueError("not found")
+    ):
+        result = srv.dispatch_tool(
+            bridge, "load_molecule_by_name", {"name": "zzznonsense"}
+        )
     assert result.get("isError") is True
 
 
@@ -1172,18 +1221,22 @@ def _mock_urlopen_json(payload):
 
 def test_fetch_smiles_new_pubchem_key(srv):
     """PubChem's 2025 API returns 'SMILES' instead of 'IsomericSMILES'."""
-    payload = {"PropertyTable": {"Properties": [
-        {"CID": 2244, "SMILES": "CC(=O)OC1=CC=CC=C1C(=O)O"}
-    ]}}
+    payload = {
+        "PropertyTable": {
+            "Properties": [{"CID": 2244, "SMILES": "CC(=O)OC1=CC=CC=C1C(=O)O"}]
+        }
+    }
     with patch.object(srv.urllib.request, "urlopen", _mock_urlopen_json(payload)):
         assert srv._fetch_smiles_by_name("aspirin") == "CC(=O)OC1=CC=CC=C1C(=O)O"
 
 
 def test_fetch_smiles_legacy_pubchem_key(srv):
     """Older responses with 'IsomericSMILES' are still accepted."""
-    payload = {"PropertyTable": {"Properties": [
-        {"CID": 2244, "IsomericSMILES": "CC(=O)OC1=CC=CC=C1C(=O)O"}
-    ]}}
+    payload = {
+        "PropertyTable": {
+            "Properties": [{"CID": 2244, "IsomericSMILES": "CC(=O)OC1=CC=CC=C1C(=O)O"}]
+        }
+    }
     with patch.object(srv.urllib.request, "urlopen", _mock_urlopen_json(payload)):
         assert srv._fetch_smiles_by_name("aspirin") == "CC(=O)OC1=CC=CC=C1C(=O)O"
 
@@ -1226,7 +1279,9 @@ def test_fetch_smiles_http_error(srv):
 
 
 def test_fetch_smiles_network_error(srv):
-    with patch.object(srv.urllib.request, "urlopen", MagicMock(side_effect=OSError("boom"))):
+    with patch.object(
+        srv.urllib.request, "urlopen", MagicMock(side_effect=OSError("boom"))
+    ):
         with pytest.raises(ValueError, match="PubChem lookup error"):
             srv._fetch_smiles_by_name("aspirin")
 
@@ -1255,16 +1310,18 @@ def test_get_mapped_smiles_tool_defined(srv):
 
 
 def test_get_mapped_smiles_dispatch(srv):
-    bridge = make_bridge({
-        "get_mapped_smiles": {
-            "loaded": True,
-            "mapped_smiles": "[CH3:1][OH:2]",
-            "atoms": [
-                {"index": 0, "map_num": 1, "symbol": "C"},
-                {"index": 1, "map_num": 2, "symbol": "O"},
-            ],
+    bridge = make_bridge(
+        {
+            "get_mapped_smiles": {
+                "loaded": True,
+                "mapped_smiles": "[CH3:1][OH:2]",
+                "atoms": [
+                    {"index": 0, "map_num": 1, "symbol": "C"},
+                    {"index": 1, "map_num": 2, "symbol": "O"},
+                ],
+            }
         }
-    })
+    )
     result = srv.dispatch_tool(bridge, "get_mapped_smiles", {})
     assert result.get("isError") is not True
     text = result["content"][0]["text"]
@@ -1274,9 +1331,9 @@ def test_get_mapped_smiles_dispatch(srv):
 
 
 def test_get_mapped_smiles_dispatch_no_molecule(srv):
-    bridge = make_bridge({
-        "get_mapped_smiles": {"loaded": False, "mapped_smiles": None, "atoms": []}
-    })
+    bridge = make_bridge(
+        {"get_mapped_smiles": {"loaded": False, "mapped_smiles": None, "atoms": []}}
+    )
     result = srv.dispatch_tool(bridge, "get_mapped_smiles", {})
     assert result.get("isError") is not True
     assert "No molecule" in result["content"][0]["text"]
@@ -1289,16 +1346,18 @@ def test_apply_reaction_smarts_tool_defined(srv):
 
 
 def test_apply_reaction_smarts_dispatch(srv):
-    bridge = make_bridge({
-        "apply_reaction_smarts": {
-            "success": True,
-            "smiles": "Clc1ccccc1",
-            "num_products": 6,
-            "selected_product": 2,
-            "converted_3d": True,
-            "mapped_smiles": "[Cl:1][c:2]1[cH:3][cH:4][cH:5][cH:6][cH:7]1",
+    bridge = make_bridge(
+        {
+            "apply_reaction_smarts": {
+                "success": True,
+                "smiles": "Clc1ccccc1",
+                "num_products": 6,
+                "selected_product": 2,
+                "converted_3d": True,
+                "mapped_smiles": "[Cl:1][c:2]1[cH:3][cH:4][cH:5][cH:6][cH:7]1",
+            }
         }
-    })
+    )
     result = srv.dispatch_tool(
         bridge,
         "apply_reaction_smarts",
@@ -1374,18 +1433,18 @@ def test_refresh_ui(srv):
 
 def test_highlight_bonds_ok(srv):
     bridge = make_bridge({"highlight_bonds": {"success": True, "bonds_colored": 2}})
-    result = srv.dispatch_tool(bridge, "highlight_bonds", {
-        "bond_colors": {"0": "#FF0000", "2": "#0000FF"}
-    })
+    result = srv.dispatch_tool(
+        bridge, "highlight_bonds", {"bond_colors": {"0": "#FF0000", "2": "#0000FF"}}
+    )
     assert result.get("isError") is not True
     assert "2 bond(s)" in result["content"][0]["text"]
 
 
 def test_set_bond_color_override_atom_pairs(srv):
     bridge = make_bridge({"highlight_bonds": {"success": True, "bonds_colored": 1}})
-    result = srv.dispatch_tool(bridge, "set_bond_color_override", {
-        "atom_pair_colors": {"0-3": "#00FF00"}
-    })
+    result = srv.dispatch_tool(
+        bridge, "set_bond_color_override", {"atom_pair_colors": {"0-3": "#00FF00"}}
+    )
     assert result.get("isError") is not True
     assert "persists across redraws" in result["content"][0]["text"]
     args = bridge.call.call_args[0][1]
@@ -1411,7 +1470,9 @@ def test_highlight_bonds_empty(srv):
 
 def test_get_plugin_dev_manual_ok(srv):
     bridge = make_bridge({})
-    with patch.object(srv, "_fetch_plugin_dev_manual", return_value="# Plugin Dev Manual\n..."):
+    with patch.object(
+        srv, "_fetch_plugin_dev_manual", return_value="# Plugin Dev Manual\n..."
+    ):
         result = srv.dispatch_tool(bridge, "get_plugin_dev_manual", {})
     assert result.get("isError") is not True
     assert "Plugin Dev Manual" in result["content"][0]["text"]
@@ -1419,7 +1480,9 @@ def test_get_plugin_dev_manual_ok(srv):
 
 def test_get_plugin_dev_manual_network_error(srv):
     bridge = make_bridge({})
-    with patch.object(srv, "_fetch_plugin_dev_manual", side_effect=ValueError("network error")):
+    with patch.object(
+        srv, "_fetch_plugin_dev_manual", side_effect=ValueError("network error")
+    ):
         result = srv.dispatch_tool(bridge, "get_plugin_dev_manual", {})
     assert result.get("isError") is True
 
@@ -1447,20 +1510,35 @@ def test_fetch_plugin_dev_manual_http_error(srv):
 
 
 def test_fetch_plugin_dev_manual_generic_error(srv):
-    with patch.object(srv.urllib.request, "urlopen", MagicMock(side_effect=OSError("offline"))):
-        with pytest.raises(ValueError, match="Failed to fetch plugin development manual"):
+    with patch.object(
+        srv.urllib.request, "urlopen", MagicMock(side_effect=OSError("offline"))
+    ):
+        with pytest.raises(
+            ValueError, match="Failed to fetch plugin development manual"
+        ):
             srv._fetch_plugin_dev_manual()
 
 
 def test_get_app_source_ok(srv):
-    bridge = make_bridge({"get_app_source": {"type": "file", "content": "# plugin_interface\n"}})
-    result = srv.dispatch_tool(bridge, "get_app_source", {"path": "plugins/plugin_interface.py"})
+    bridge = make_bridge(
+        {"get_app_source": {"type": "file", "content": "# plugin_interface\n"}}
+    )
+    result = srv.dispatch_tool(
+        bridge, "get_app_source", {"path": "plugins/plugin_interface.py"}
+    )
     assert result.get("isError") is not True
     assert "plugin_interface" in result["content"][0]["text"]
 
 
 def test_get_app_source_directory(srv):
-    bridge = make_bridge({"get_app_source": {"type": "directory", "content": "Directory listing: .\n  [dir] plugins"}})
+    bridge = make_bridge(
+        {
+            "get_app_source": {
+                "type": "directory",
+                "content": "Directory listing: .\n  [dir] plugins",
+            }
+        }
+    )
     result = srv.dispatch_tool(bridge, "get_app_source", {"path": "."})
     assert result.get("isError") is not True
     assert "plugins" in result["content"][0]["text"]
@@ -1473,7 +1551,9 @@ def test_get_app_source_empty_path(srv):
 
 
 def test_get_plugin_dir_ok(srv):
-    bridge = make_bridge({"get_plugin_dir": {"plugin_dir": "/home/user/.moleditpy/plugins"}})
+    bridge = make_bridge(
+        {"get_plugin_dir": {"plugin_dir": "/home/user/.moleditpy/plugins"}}
+    )
     result = srv.dispatch_tool(bridge, "get_plugin_dir", {})
     assert result.get("isError") is not True
     assert ".moleditpy/plugins" in result["content"][0]["text"]
@@ -1492,7 +1572,13 @@ def test_reload_plugins_ok(srv):
 
 
 def test_list_app_source_tree_ok(srv):
-    bridge = make_bridge({"list_app_source_tree": {"content": "moleditpy/\n├── plugins/\n│   └── plugin_interface.py"}})
+    bridge = make_bridge(
+        {
+            "list_app_source_tree": {
+                "content": "moleditpy/\n├── plugins/\n│   └── plugin_interface.py"
+            }
+        }
+    )
     result = srv.dispatch_tool(bridge, "list_app_source_tree", {})
     assert result.get("isError") is not True
     text = result["content"][0]["text"]
@@ -1501,7 +1587,9 @@ def test_list_app_source_tree_ok(srv):
 
 
 def test_list_app_source_tree_subtree(srv):
-    bridge = make_bridge({"list_app_source_tree": {"content": "plugins/\n└── plugin_interface.py"}})
+    bridge = make_bridge(
+        {"list_app_source_tree": {"content": "plugins/\n└── plugin_interface.py"}}
+    )
     result = srv.dispatch_tool(bridge, "list_app_source_tree", {"path": "plugins"})
     assert result.get("isError") is not True
 
@@ -1518,13 +1606,18 @@ _XYZ_ATOMS = [
 
 
 def _xyz_bridge(tmp_path, has_data=True):
-    return make_bridge({
-        "get_file_io_config": {
-            "base_dir": str(tmp_path),
-            "allowed_extensions": [".txt", ".inp", ".xyz", ".gjf"],
-        },
-        "get_xyz_atoms": {"atoms": _XYZ_ATOMS if has_data else [], "has_data": has_data},
-    })
+    return make_bridge(
+        {
+            "get_file_io_config": {
+                "base_dir": str(tmp_path),
+                "allowed_extensions": [".txt", ".inp", ".xyz", ".gjf"],
+            },
+            "get_xyz_atoms": {
+                "atoms": _XYZ_ATOMS if has_data else [],
+                "has_data": has_data,
+            },
+        }
+    )
 
 
 def test_format_xyz_block_default_symbol(srv):
@@ -1589,11 +1682,15 @@ def test_write_xyz_tool_is_registered(srv):
 
 def test_write_xyz_block_basic_file(srv, tmp_path):
     bridge = _xyz_bridge(tmp_path)
-    result = srv.dispatch_tool(bridge, "write_file_with_xyz_block", {
-        "path": "mol.inp",
-        "header": "! B3LYP def2-SVP\n* xyz 0 1",
-        "footer": "*",
-    })
+    result = srv.dispatch_tool(
+        bridge,
+        "write_file_with_xyz_block",
+        {
+            "path": "mol.inp",
+            "header": "! B3LYP def2-SVP\n* xyz 0 1",
+            "footer": "*",
+        },
+    )
     assert result.get("isError") is not True
     text = (tmp_path / "mol.inp").read_text()
     lines = text.splitlines()
@@ -1606,9 +1703,15 @@ def test_write_xyz_block_basic_file(srv, tmp_path):
 
 def test_write_xyz_block_standard_xyz_header(srv, tmp_path):
     bridge = _xyz_bridge(tmp_path)
-    srv.dispatch_tool(bridge, "write_file_with_xyz_block", {
-        "path": "mol.xyz", "xyz_header": True, "comment": "formaldehyde",
-    })
+    srv.dispatch_tool(
+        bridge,
+        "write_file_with_xyz_block",
+        {
+            "path": "mol.xyz",
+            "xyz_header": True,
+            "comment": "formaldehyde",
+        },
+    )
     lines = (tmp_path / "mol.xyz").read_text().splitlines()
     assert lines[0] == "3"
     assert lines[1] == "formaldehyde"
@@ -1617,9 +1720,15 @@ def test_write_xyz_block_standard_xyz_header(srv, tmp_path):
 
 def test_write_xyz_block_atom_order_subset_count(srv, tmp_path):
     bridge = _xyz_bridge(tmp_path)
-    result = srv.dispatch_tool(bridge, "write_file_with_xyz_block", {
-        "path": "sub.xyz", "atom_order": [1], "xyz_header": True,
-    })
+    result = srv.dispatch_tool(
+        bridge,
+        "write_file_with_xyz_block",
+        {
+            "path": "sub.xyz",
+            "atom_order": [1],
+            "xyz_header": True,
+        },
+    )
     lines = (tmp_path / "sub.xyz").read_text().splitlines()
     assert lines[0] == "1"
     assert lines[2].split()[0] == "O"
@@ -1650,9 +1759,14 @@ def test_write_xyz_block_extension_checked(srv, tmp_path):
 
 def test_write_xyz_block_bad_atom_order_is_tool_error(srv, tmp_path):
     bridge = _xyz_bridge(tmp_path)
-    result = srv.dispatch_tool(bridge, "write_file_with_xyz_block", {
-        "path": "mol.xyz", "atom_order": [0, 0],
-    })
+    result = srv.dispatch_tool(
+        bridge,
+        "write_file_with_xyz_block",
+        {
+            "path": "mol.xyz",
+            "atom_order": [0, 0],
+        },
+    )
     assert result.get("isError") is True
 
 
@@ -1669,19 +1783,38 @@ def test_write_xyz_block_content_too_large_rejected(srv, tmp_path, monkeypatch):
 # list_available_plugins / open_plugin_installer
 # ---------------------------------------------------------------------------
 
-_REGISTRY_JSON = json.dumps([
-    {"name": "Cool Analyzer", "version": "1.0.0", "visible": True,
-     "description": "Analyzes things.", "tags": ["Analysis"]},
-    {"name": "Hidden Legacy", "version": "0.1", "visible": False,
-     "description": "Old.", "tags": []},
-    {"name": "ORCA Input Generator Neo", "version": "2026.01.01", "visible": True,
-     "description": "Generates ORCA inputs.", "tags": ["DFT", "Generator"]},
-]).encode("utf-8")
+_REGISTRY_JSON = json.dumps(
+    [
+        {
+            "name": "Cool Analyzer",
+            "version": "1.0.0",
+            "visible": True,
+            "description": "Analyzes things.",
+            "tags": ["Analysis"],
+        },
+        {
+            "name": "Hidden Legacy",
+            "version": "0.1",
+            "visible": False,
+            "description": "Old.",
+            "tags": [],
+        },
+        {
+            "name": "ORCA Input Generator Neo",
+            "version": "2026.01.01",
+            "visible": True,
+            "description": "Generates ORCA inputs.",
+            "tags": ["DFT", "Generator"],
+        },
+    ]
+).encode("utf-8")
 
 
 def _mock_urlopen(payload):
     cm = MagicMock()
-    cm.__enter__ = MagicMock(return_value=MagicMock(read=MagicMock(return_value=payload)))
+    cm.__enter__ = MagicMock(
+        return_value=MagicMock(read=MagicMock(return_value=payload))
+    )
     cm.__exit__ = MagicMock(return_value=False)
     return MagicMock(return_value=cm)
 
@@ -1716,7 +1849,9 @@ def test_list_available_plugins_no_match(srv):
 
 def test_list_available_plugins_network_error(srv):
     bridge = make_bridge({})
-    with patch.object(srv.urllib.request, "urlopen", MagicMock(side_effect=OSError("offline"))):
+    with patch.object(
+        srv.urllib.request, "urlopen", MagicMock(side_effect=OSError("offline"))
+    ):
         result = srv.dispatch_tool(bridge, "list_available_plugins", {})
     assert result.get("isError") is True
     assert "Could not fetch" in result["content"][0]["text"]
@@ -1744,11 +1879,15 @@ def test_new_plugin_tools_registered(srv):
 
 def test_write_xyz_block_header_footer_as_line_arrays(srv, tmp_path):
     bridge = _xyz_bridge(tmp_path)
-    result = srv.dispatch_tool(bridge, "write_file_with_xyz_block", {
-        "path": "arr.inp",
-        "header": ["! B3LYP def2-SVP", "* xyz 0 1"],
-        "footer": ["*", "# end"],
-    })
+    result = srv.dispatch_tool(
+        bridge,
+        "write_file_with_xyz_block",
+        {
+            "path": "arr.inp",
+            "header": ["! B3LYP def2-SVP", "* xyz 0 1"],
+            "footer": ["*", "# end"],
+        },
+    )
     assert result.get("isError") is not True
     lines = (tmp_path / "arr.inp").read_text().splitlines()
     assert lines[0] == "! B3LYP def2-SVP"
@@ -1760,9 +1899,14 @@ def test_write_xyz_block_header_footer_as_line_arrays(srv, tmp_path):
 
 def test_write_xyz_block_string_header_still_works(srv, tmp_path):
     bridge = _xyz_bridge(tmp_path)
-    srv.dispatch_tool(bridge, "write_file_with_xyz_block", {
-        "path": "str.inp", "header": "%mem 4GB\n! Opt",
-    })
+    srv.dispatch_tool(
+        bridge,
+        "write_file_with_xyz_block",
+        {
+            "path": "str.inp",
+            "header": "%mem 4GB\n! Opt",
+        },
+    )
     lines = (tmp_path / "str.inp").read_text().splitlines()
     assert lines[0] == "%mem 4GB"
     assert lines[1] == "! Opt"
@@ -1770,15 +1914,22 @@ def test_write_xyz_block_string_header_still_works(srv, tmp_path):
 
 def test_write_text_file_content_as_line_array(srv, tmp_path):
     bridge = _file_bridge(srv, tmp_path)
-    srv.dispatch_tool(bridge, "write_text_file", {
-        "path": "arr.txt", "content": ["line1", "line2"],
-    })
+    srv.dispatch_tool(
+        bridge,
+        "write_text_file",
+        {
+            "path": "arr.txt",
+            "content": ["line1", "line2"],
+        },
+    )
     assert (tmp_path / "arr.txt").read_text() == "line1\nline2"
 
 
 def test_run_python_code_as_line_array(srv):
     bridge = make_bridge({"run_python": {"stdout": "", "stderr": "", "result": "4"}})
-    result = srv.dispatch_tool(bridge, "run_python", {"code": ["x = 2 + 2", "result = x"]})
+    result = srv.dispatch_tool(
+        bridge, "run_python", {"code": ["x = 2 + 2", "result = x"]}
+    )
     assert result.get("isError") is not True
     op, args = bridge.call.call_args[0][0], bridge.call.call_args[0][1]
     assert op == "run_python"
@@ -1787,7 +1938,9 @@ def test_run_python_code_as_line_array(srv):
 
 def test_show_xyz_text_as_line_array(srv):
     bridge = make_bridge({"show_xyz": {"success": True}})
-    srv.dispatch_tool(bridge, "show_xyz_in_viewer", {"xyz_text": ["C 0 0 0", "O 1 0 0"]})
+    srv.dispatch_tool(
+        bridge, "show_xyz_in_viewer", {"xyz_text": ["C 0 0 0", "O 1 0 0"]}
+    )
     args = bridge.call.call_args[0][1]
     assert args["xyz_text"] == "C 0 0 0\nO 1 0 0"
 
@@ -1806,9 +1959,13 @@ def test_load_mol_block_as_line_array(srv):
 
 def test_set_cpk_color_override_dispatch(srv):
     bridge = make_bridge({"highlight_atoms": {"success": True}})
-    result = srv.dispatch_tool(bridge, "set_cpk_color_override", {
-        "atom_colors": {"0": "#FF0000"},
-    })
+    result = srv.dispatch_tool(
+        bridge,
+        "set_cpk_color_override",
+        {
+            "atom_colors": {"0": "#FF0000"},
+        },
+    )
     assert result.get("isError") is not True
     assert "persists across redraws" in result["content"][0]["text"]
 
@@ -1822,14 +1979,20 @@ def test_set_cpk_color_override_missing_arg(srv):
 
 def test_highlight_atoms_legacy_alias_still_dispatches(srv):
     bridge = make_bridge({"highlight_atoms": {"success": True}})
-    result = srv.dispatch_tool(bridge, "highlight_atoms", {
-        "atom_colors": {"0": "#FF0000"},
-    })
+    result = srv.dispatch_tool(
+        bridge,
+        "highlight_atoms",
+        {
+            "atom_colors": {"0": "#FF0000"},
+        },
+    )
     assert result.get("isError") is not True
 
 
 def test_reset_cpk_color_override_dispatch(srv):
-    bridge = make_bridge({"reset_cpk_color_override": {"cleared_atoms": 3, "cleared_bonds": 0}})
+    bridge = make_bridge(
+        {"reset_cpk_color_override": {"cleared_atoms": 3, "cleared_bonds": 0}}
+    )
     result = srv.dispatch_tool(bridge, "reset_cpk_color_override", {"scope": "atoms"})
     assert result.get("isError") is not True
     assert "3 atom(s)" in result["content"][0]["text"]

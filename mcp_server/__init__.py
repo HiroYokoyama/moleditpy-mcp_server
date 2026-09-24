@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 MoleditPy MCP Server Plugin
 
@@ -36,7 +35,7 @@ PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=4.0.0, <5.0.0"
 
 logger = logging.getLogger(__name__)
 
-_plugin: Optional["MCPServerPlugin"] = None
+_plugin: MCPServerPlugin | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -56,7 +55,7 @@ class MCPServerPlugin:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def start(self, port: Optional[int] = None) -> bool:
+    def start(self, port: int | None = None) -> bool:
         """Start the MCP server. Returns True on success."""
         if self._server is not None and self._server.is_running:
             self.context.show_status_message("MCP Server is already running.", 3000)
@@ -68,6 +67,7 @@ class MCPServerPlugin:
         try:
             from .bridge import MCPBridge  # pylint: disable=import-outside-toplevel
             from .server import MCPHttpServer  # pylint: disable=import-outside-toplevel
+
             self._bridge = MCPBridge(self.context)
             self._server = MCPHttpServer(
                 self._bridge,
@@ -86,9 +86,7 @@ class MCPServerPlugin:
             # (import failure, missing PluginContext attribute, socket error,
             # etc.) escape into the menu-action callback and crash the app —
             # it always reports failure via the status bar instead.
-            self.context.show_status_message(
-                f"MCP Server failed to start: {exc}", 6000
-            )
+            self.context.show_status_message(f"MCP Server failed to start: {exc}", 6000)
             logger.exception("MCP Server start failed")
             self._bridge = None
             self._server = None
@@ -114,6 +112,7 @@ class MCPServerPlugin:
             win.activateWindow()
             return
         from .ui import MCPStatusDialog  # pylint: disable=import-outside-toplevel
+
         dlg = MCPStatusDialog(self)
         self.context.register_window("status_dialog", dlg)
         dlg.show()
@@ -144,9 +143,7 @@ def initialize(context: Any) -> None:
     global _plugin
     _plugin = MCPServerPlugin(context)
 
-    context.add_plugin_menu(
-        "MCP Server/Status && Settings...", _plugin.show_status
-    )
+    context.add_plugin_menu("MCP Server/Status && Settings...", _plugin.show_status)
     context.add_plugin_menu("MCP Server/Start Server", _plugin.start)
     context.add_plugin_menu("MCP Server/Stop Server", _plugin.stop)
 

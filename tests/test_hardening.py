@@ -10,10 +10,9 @@ import http.client
 import json
 import socket
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import pytest
-
 from conftest import load_module, make_bridge, mock_optional_imports
 from test_bridge import _real_bridge
 
@@ -30,7 +29,9 @@ def srv():
 
 
 class _StubBridge:
-    def call(self, operation: str, args: Optional[dict] = None, timeout: float = 10.0) -> Any:
+    def call(
+        self, operation: str, args: dict | None = None, timeout: float = 10.0
+    ) -> Any:
         if operation == "get_app_info":
             return {"app": "MoleditPy", "version": "t", "mcp_plugin_version": "t"}
         raise ValueError(f"unexpected {operation}")
@@ -55,12 +56,15 @@ def live():
 
 
 def _post(
-    port: int, body: bytes, headers: Optional[Dict[str, str]] = None, path: str = "/mcp"
-) -> Tuple[int, Dict[str, str], bytes]:
+    port: int, body: bytes, headers: dict[str, str] | None = None, path: str = "/mcp"
+) -> tuple[int, dict[str, str], bytes]:
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
     try:
         conn.request(
-            "POST", path, body=body, headers={"Content-Type": "application/json", **(headers or {})}
+            "POST",
+            path,
+            body=body,
+            headers={"Content-Type": "application/json", **(headers or {})},
         )
         resp = conn.getresponse()
         return resp.status, {k.lower(): v for k, v in resp.getheaders()}, resp.read()
@@ -124,7 +128,9 @@ def test_wrong_path_post_is_a_clean_404(live):
 
 
 def test_batch_request_is_invalid_request(live):
-    status, _, body = _post(live.port, json.dumps([{"jsonrpc": "2.0", "id": 1, "method": "ping"}]).encode())
+    status, _, body = _post(
+        live.port, json.dumps([{"jsonrpc": "2.0", "id": 1, "method": "ping"}]).encode()
+    )
     assert status == 400
     assert json.loads(body)["error"]["code"] == -32600
 
@@ -171,7 +177,7 @@ def test_second_server_on_same_port_fails_to_start(live):
 # ---------------------------------------------------------------------------
 
 
-def _bare_handler(srv_mod: Any, headers: Dict[str, str]) -> Any:
+def _bare_handler(srv_mod: Any, headers: dict[str, str]) -> Any:
     from unittest.mock import MagicMock
 
     handler = object.__new__(srv_mod._MCPHandler)
@@ -229,13 +235,17 @@ def test_null_or_non_string_smiles_is_a_clean_tool_error(srv, value):
 def test_blank_root_falls_back_to_default(srv, tmp_path):
     (tmp_path / "a.py").write_text("needle\n", encoding="utf-8")
     bridge = make_bridge({"get_app_source_root": {"root": str(tmp_path)}})
-    result = srv.dispatch_tool(bridge, "grep_files", {"pattern": "needle", "root": "  "})
+    result = srv.dispatch_tool(
+        bridge, "grep_files", {"pattern": "needle", "root": "  "}
+    )
     assert "a.py:1:" in result["content"][0]["text"]
 
 
 def test_set_file_io_config_rejects_a_bare_string_extension_list(srv):
     bridge = make_bridge({"set_file_io_config": {"success": True}})
-    result = srv.dispatch_tool(bridge, "set_file_io_config", {"allowed_extensions": ".inp"})
+    result = srv.dispatch_tool(
+        bridge, "set_file_io_config", {"allowed_extensions": ".inp"}
+    )
     assert result["isError"] is True
     bridge.call.assert_not_called()
 
@@ -250,7 +260,9 @@ def test_set_file_io_config_rejects_empty_base_dir(srv):
 
 def test_set_file_io_config_normalizes_extensions(srv):
     bridge = make_bridge({"set_file_io_config": {"success": True}})
-    srv.dispatch_tool(bridge, "set_file_io_config", {"allowed_extensions": ["INP", ".xyz", "inp"]})
+    srv.dispatch_tool(
+        bridge, "set_file_io_config", {"allowed_extensions": ["INP", ".xyz", "inp"]}
+    )
     _, args = bridge.call.call_args[0]
     assert args["allowed_extensions"] == [".inp", ".xyz"]
 
@@ -279,7 +291,7 @@ def test_search_works_when_the_root_lives_inside_a_venv(srv, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def _ctx(smiles: str, embed: bool = False) -> Tuple[Any, Any]:
+def _ctx(smiles: str, embed: bool = False) -> tuple[Any, Any]:
     from unittest.mock import MagicMock
 
     pytest.importorskip("rdkit")
@@ -305,8 +317,16 @@ def test_partial_charges_without_parameters_are_json_safe():
 
 
 def test_partial_charges_n_a_is_rendered(srv):
-    bridge = make_bridge({"compute_partial_charges": {"charges": [{"index": 0, "symbol": "Sn", "charge": None}]}})
-    text = srv.dispatch_tool(bridge, "compute_partial_charges", {})["content"][0]["text"]
+    bridge = make_bridge(
+        {
+            "compute_partial_charges": {
+                "charges": [{"index": 0, "symbol": "Sn", "charge": None}]
+            }
+        }
+    )
+    text = srv.dispatch_tool(bridge, "compute_partial_charges", {})["content"][0][
+        "text"
+    ]
     assert "n/a" in text
 
 
@@ -331,7 +351,9 @@ def test_highlight_atoms_bad_key_applies_nothing():
     mod = _real_bridge()
     ctx = MagicMock()
     with pytest.raises(ValueError, match="Invalid atom index 'x'"):
-        mod.execute_operation(ctx, "highlight_atoms", {"atom_colors": {"0": "#F00", "x": "#0F0"}})
+        mod.execute_operation(
+            ctx, "highlight_atoms", {"atom_colors": {"0": "#F00", "x": "#0F0"}}
+        )
     ctx.get_3d_controller.return_value.set_atom_color.assert_not_called()
 
 
@@ -347,5 +369,7 @@ def test_reaction_that_matches_but_breaks_valence_is_not_called_a_non_match():
 
 
 def test_ui_placeholder_no_longer_claims_unrestricted():
-    source = (Path(__file__).resolve().parents[1] / "mcp_server" / "ui.py").read_text("utf-8")
+    source = (Path(__file__).resolve().parents[1] / "mcp_server" / "ui.py").read_text(
+        "utf-8"
+    )
     assert "(unrestricted)" not in source

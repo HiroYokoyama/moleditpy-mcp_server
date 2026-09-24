@@ -9,6 +9,7 @@ still there and still shaped as the bridge expects.
 
 Skipped automatically when moleditpy is not installed.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -19,16 +20,28 @@ import pytest
 os.environ.setdefault("MOLEDITPY_HEADLESS", "1")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-view_3d_logic = pytest.importorskip("moleditpy.ui.view_3d_logic", reason="moleditpy not installed")
-constants = pytest.importorskip("moleditpy.utils.constants", reason="moleditpy not installed")
-pi = pytest.importorskip("moleditpy.plugins.plugin_interface", reason="moleditpy not installed")
+view_3d_logic = pytest.importorskip(
+    "moleditpy.ui.view_3d_logic", reason="moleditpy not installed"
+)
+constants = pytest.importorskip(
+    "moleditpy.utils.constants", reason="moleditpy not installed"
+)
+pi = pytest.importorskip(
+    "moleditpy.plugins.plugin_interface", reason="moleditpy not installed"
+)
 
 
 def _manager_class():
     for obj in vars(view_3d_logic).values():
-        if inspect.isclass(obj) and hasattr(obj, "set_3d_style") and hasattr(obj, "draw_molecule_3d"):
+        if (
+            inspect.isclass(obj)
+            and hasattr(obj, "set_3d_style")
+            and hasattr(obj, "draw_molecule_3d")
+        ):
             return obj
-    pytest.fail("no class with set_3d_style/draw_molecule_3d in moleditpy.ui.view_3d_logic")
+    pytest.fail(
+        "no class with set_3d_style/draw_molecule_3d in moleditpy.ui.view_3d_logic"
+    )
 
 
 def test_manager_has_style_switch_and_redraw():

@@ -11,6 +11,7 @@ real RDKit bond perception and fail loudly if the contract moves.
 Skipped automatically when moleditpy (or RDKit) is not installed.
 Install with: pip install moleditpy
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -24,8 +25,12 @@ os.environ.setdefault("MOLEDITPY_HEADLESS", "1")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 pytest.importorskip("rdkit", reason="rdkit not installed")
-io_logic = pytest.importorskip("moleditpy.ui.io_logic", reason="moleditpy not installed")
-pi = pytest.importorskip("moleditpy.plugins.plugin_interface", reason="moleditpy not installed")
+io_logic = pytest.importorskip(
+    "moleditpy.ui.io_logic", reason="moleditpy not installed"
+)
+pi = pytest.importorskip(
+    "moleditpy.plugins.plugin_interface", reason="moleditpy not installed"
+)
 
 WATER = "3\nwater\nO 0.0 0.0 0.117\nH 0.0 0.757 -0.469\nH 0.0 -0.757 -0.469"
 HYDROXIDE = "2\nhydroxide\nO 0.0 0.0 0.0\nH 0.0 0.0 0.97"
@@ -51,6 +56,7 @@ def app(monkeypatch):
     The class-level prompt_for_charge is replaced by one that fails the test:
     reaching it means the real modal dialog would have opened.
     """
+
     def _dialog(self):
         raise AssertionError("the app's modal charge dialog would have opened")
 
@@ -100,7 +106,9 @@ def test_ion_without_charge_falls_back_instead_of_dialog(bridge, app):
 
 def test_ion_with_charge_perceives_bonds(bridge, app):
     ctx, _, _ = app
-    result = bridge.execute_operation(ctx, "show_xyz", {"xyz_text": HYDROXIDE, "charge": -1})
+    result = bridge.execute_operation(
+        ctx, "show_xyz", {"xyz_text": HYDROXIDE, "charge": -1}
+    )
     assert result["chemistry_skipped"] is False
     assert result["charge"] == -1
     assert ctx.get_main_window().io_manager is not None
@@ -108,7 +116,9 @@ def test_ion_with_charge_perceives_bonds(bridge, app):
 
 def test_wrong_charge_falls_back_once(bridge, app):
     ctx, _, _ = app
-    result = bridge.execute_operation(ctx, "show_xyz", {"xyz_text": HYDROXIDE, "charge": 3})
+    result = bridge.execute_operation(
+        ctx, "show_xyz", {"xyz_text": HYDROXIDE, "charge": 3}
+    )
     assert result["success"] is True
     assert result["chemistry_skipped"] is True
     assert "charge 3" in result["note"]
@@ -116,7 +126,9 @@ def test_wrong_charge_falls_back_once(bridge, app):
 
 def test_skip_chemistry(bridge, app):
     ctx, _, _ = app
-    result = bridge.execute_operation(ctx, "show_xyz", {"xyz_text": WATER, "skip_chemistry": True})
+    result = bridge.execute_operation(
+        ctx, "show_xyz", {"xyz_text": WATER, "skip_chemistry": True}
+    )
     assert result["chemistry_skipped"] is True
     assert result["num_bonds"] == 2  # distance-based bonds still connect the atoms
 

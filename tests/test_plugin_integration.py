@@ -4,6 +4,7 @@ Integration tests against the real PluginContext.
 Skipped automatically when moleditpy is not installed.
 Install with: pip install moleditpy
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock

@@ -19,7 +19,6 @@ import sys
 from unittest.mock import MagicMock
 
 import pytest
-
 from ui_qt_stubs import (
     QApplication,
     QFileDialog,
@@ -38,7 +37,7 @@ def ui_module():
     }
     install_ui_qt_stubs()
     try:
-        import mcp_server.ui as mod  # noqa: PLC0415 - intentional fresh import
+        import mcp_server.ui as mod
 
         yield mod
     finally:
@@ -237,7 +236,10 @@ def test_base_dir_changed_nonexistent_dir_rejected(ui_module, tmp_path):
     dlg = ui_module.MCPStatusDialog(plugin)
     dlg._base_dir_edit.setText(str(missing))
     dlg._on_base_dir_changed()
-    assert "file_io_base_dir" not in settings or settings["file_io_base_dir"] == "/prev/good"
+    assert (
+        "file_io_base_dir" not in settings
+        or settings["file_io_base_dir"] == "/prev/good"
+    )
     plugin.context.show_status_message.assert_any_call(
         f"'{missing}' is not an existing directory — "
         "File I/O base directory was not changed.",
@@ -292,7 +294,9 @@ def test_browse_base_dir_cancel_leaves_unchanged(ui_module):
 def test_protocol_combo_lists_all_modes(ui_module):
     plugin, _ = make_plugin()
     dlg = ui_module.MCPStatusDialog(plugin)
-    values = [dlg._protocol_combo.itemData(i) for i in range(dlg._protocol_combo.count())]
+    values = [
+        dlg._protocol_combo.itemData(i) for i in range(dlg._protocol_combo.count())
+    ]
     assert values == ["auto", "legacy", "modern"]
 
 

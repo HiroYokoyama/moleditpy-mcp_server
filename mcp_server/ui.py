@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Status and settings dialog for the MCP Server plugin."""
 
 from __future__ import annotations

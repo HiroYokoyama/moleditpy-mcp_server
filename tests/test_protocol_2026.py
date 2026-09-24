@@ -8,7 +8,6 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-
 from conftest import load_module, mock_optional_imports
 
 
@@ -134,7 +133,9 @@ def test_is_modern_request_true_from_header_only(srv):
 
 def test_is_modern_request_false_for_legacy_initialize(srv):
     message = {"method": "initialize", "params": {"protocolVersion": "2025-06-18"}}
-    assert srv.is_modern_request(message, {"mcp-protocol-version": "2025-06-18"}) is False
+    assert (
+        srv.is_modern_request(message, {"mcp-protocol-version": "2025-06-18"}) is False
+    )
 
 
 def test_is_modern_request_tolerates_non_dict_meta(srv):
@@ -270,9 +271,10 @@ def test_handle_discover_via_handler(srv):
 
 def test_bare_discover_probe_is_accepted(srv):
     """A client probing for supported versions has none to declare yet."""
-    assert srv.validate_modern_request(
-        {"method": "server/discover", "params": {}}, {}
-    ) is None
+    assert (
+        srv.validate_modern_request({"method": "server/discover", "params": {}}, {})
+        is None
+    )
 
 
 def test_discover_with_headers_is_still_validated(srv):
@@ -398,9 +400,7 @@ def test_modern_request_rejected_in_legacy_mode(srv):
 
 def test_legacy_initialize_rejected_in_modern_mode(srv):
     handler = _make_handler(srv, mode="modern")
-    handler._process(
-        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
-    )
+    handler._process({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
     handler.send_response.assert_called_once_with(404)
     error = _sent_body(handler)["error"]
     assert error["code"] == -32601
@@ -417,9 +417,7 @@ def test_modern_request_served_in_modern_mode(srv):
 
 def test_legacy_request_served_in_auto_mode(srv):
     handler = _make_handler(srv, mode="auto")
-    handler._process(
-        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
-    )
+    handler._process({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
     handler.send_response.assert_called_once_with(200)
     assert _sent_body(handler)["result"]["protocolVersion"] == srv._PROTOCOL_VERSION
 
@@ -516,7 +514,10 @@ def test_http_server_defaults_to_auto_mode(srv):
 
 @pytest.mark.parametrize("mode", ["auto", "legacy", "modern"])
 def test_http_server_accepts_valid_modes(srv, mode):
-    assert srv.MCPHttpServer(MagicMock(), "n", "v", protocol_mode=mode).protocol_mode == mode
+    assert (
+        srv.MCPHttpServer(MagicMock(), "n", "v", protocol_mode=mode).protocol_mode
+        == mode
+    )
 
 
 def test_http_server_rejects_unknown_mode(srv):
@@ -527,7 +528,9 @@ def test_http_server_rejects_unknown_mode(srv):
 def test_start_stores_config_on_the_server_instance(srv):
     """Per-instance config keeps two servers in one process independent."""
     first = srv.MCPHttpServer(MagicMock(), "first", "1", port=0, protocol_mode="modern")
-    second = srv.MCPHttpServer(MagicMock(), "second", "2", port=0, protocol_mode="legacy")
+    second = srv.MCPHttpServer(
+        MagicMock(), "second", "2", port=0, protocol_mode="legacy"
+    )
     first.start()
     second.start()
     try:

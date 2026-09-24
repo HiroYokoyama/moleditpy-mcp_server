@@ -13,8 +13,8 @@ import importlib.machinery
 import importlib.util
 import os
 import sys
+from collections.abc import Generator
 from pathlib import Path
-from typing import Generator
 from unittest.mock import MagicMock
 
 # If pytest-qt is installed alongside PySide6, its binding auto-detection
@@ -50,9 +50,7 @@ BLOCKED_TOPS: frozenset[str] = frozenset(
 
 
 class _MagicLoader(importlib.abc.Loader):
-    def create_module(
-        self, spec: importlib.machinery.ModuleSpec
-    ) -> MagicMock:
+    def create_module(self, spec: importlib.machinery.ModuleSpec) -> MagicMock:
         m = MagicMock()
         m.__name__ = spec.name
         m.__spec__ = spec

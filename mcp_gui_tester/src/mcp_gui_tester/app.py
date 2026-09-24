@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 MCP server tester — a standalone PyQt6 GUI for any MCP server that speaks
 the Streamable HTTP transport (JSON-RPC over POST).
@@ -30,7 +29,7 @@ import urllib.parse
 import urllib.request
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QPixmap
@@ -90,7 +89,9 @@ ERR_METHOD_NOT_FOUND = -32601
 ERR_HEADER_MISMATCH = -32020
 ERR_UNSUPPORTED_PROTOCOL_VERSION = -32022
 #: Error codes only a modern server emits — they identify the server's era.
-MODERN_ERROR_CODES = frozenset({ERR_HEADER_MISMATCH, -32021, ERR_UNSUPPORTED_PROTOCOL_VERSION})
+MODERN_ERROR_CODES = frozenset(
+    {ERR_HEADER_MISMATCH, -32021, ERR_UNSUPPORTED_PROTOCOL_VERSION}
+)
 
 
 def encode_header_value(value: str) -> str:
@@ -111,12 +112,12 @@ def encode_header_value(value: str) -> str:
     return f"=?base64?{encoded}?="
 
 
-def format_annotations(tool: Dict[str, Any]) -> str:
+def format_annotations(tool: dict[str, Any]) -> str:
     """Render a tool's behaviour hints as a compact, comma-separated label."""
     annotations = tool.get("annotations") or {}
     if not isinstance(annotations, dict):
         return ""
-    parts: List[str] = []
+    parts: list[str] = []
     if annotations.get("readOnlyHint"):
         parts.append("read-only")
     else:
@@ -129,7 +130,7 @@ def format_annotations(tool: Dict[str, Any]) -> str:
     return ", ".join(parts)
 
 
-def tool_color(tool: Dict[str, Any]) -> Optional[str]:
+def tool_color(tool: dict[str, Any]) -> str | None:
     """List colour for a tool: destructive stands out, read-only recedes."""
     annotations = tool.get("annotations") or {}
     if not isinstance(annotations, dict):
@@ -141,7 +142,7 @@ def tool_color(tool: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def is_destructive(tool: Dict[str, Any]) -> bool:
+def is_destructive(tool: dict[str, Any]) -> bool:
     annotations = tool.get("annotations") or {}
     return bool(isinstance(annotations, dict) and annotations.get("destructiveHint"))
 
@@ -154,7 +155,7 @@ class MCPError(RuntimeError):
         code: int,
         message: str,
         data: Any = None,
-        http_status: Optional[int] = None,
+        http_status: int | None = None,
     ) -> None:
         super().__init__(f"JSON-RPC error {code}: {message}")
         self.code = code
@@ -202,7 +203,7 @@ def _looks_like_json(text: str) -> bool:
     stripped = text.strip()
     if not stripped:
         return False
-    if stripped[0] in "[{\"":
+    if stripped[0] in '[{"':
         return True
     if stripped in ("true", "false", "null"):
         return True
@@ -226,13 +227,15 @@ class ArgumentHistory:
     history file is ignored silently rather than raised.
     """
 
-    def __init__(self, path: Optional[Path] = None, max_tools: int = _HISTORY_MAX_TOOLS) -> None:
+    def __init__(
+        self, path: Path | None = None, max_tools: int = _HISTORY_MAX_TOOLS
+    ) -> None:
         # path=None (the default) keeps history in memory only for the
         # current session — nothing is written to disk. Pass a path to
         # opt in to persistence (used by the tests).
         self.path = path
         self.max_tools = max_tools
-        self.data: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+        self.data: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self._load()
 
     def _load(self) -> None:
@@ -248,10 +251,10 @@ class ArgumentHistory:
         except Exception:  # pylint: disable=broad-except
             pass  # corrupt/unreadable history must never crash the app
 
-    def get(self, tool_name: str) -> Optional[Dict[str, Any]]:
+    def get(self, tool_name: str) -> dict[str, Any] | None:
         return self.data.get(tool_name)
 
-    def remember(self, tool_name: str, arguments: Dict[str, Any]) -> None:
+    def remember(self, tool_name: str, arguments: dict[str, Any]) -> None:
         self.data.pop(tool_name, None)
         self.data[tool_name] = arguments
         while len(self.data) > self.max_tools:
@@ -288,19 +291,19 @@ class MCPClient:
     def __init__(
         self,
         url: str,
-        headers: Optional[Dict[str, str]] = None,
+        headers: dict[str, str] | None = None,
         protocol: str = "auto",
     ) -> None:
         self.url = url
-        self.headers: Dict[str, str] = dict(headers or {})
+        self.headers: dict[str, str] = dict(headers or {})
         self.protocol = protocol if protocol in ("auto", "modern", "legacy") else "auto"
-        self.era: Optional[str] = None
-        self.protocol_version: Optional[str] = None
-        self.supported_versions: List[str] = []
-        self.server_info: Dict[str, Any] = {}
-        self.capabilities: Dict[str, Any] = {}
+        self.era: str | None = None
+        self.protocol_version: str | None = None
+        self.supported_versions: list[str] = []
+        self.server_info: dict[str, Any] = {}
+        self.capabilities: dict[str, Any] = {}
         self.instructions: str = ""
-        self.session_id: Optional[str] = None
+        self.session_id: str | None = None
         self._next_id = 0
         self._lock = threading.Lock()
 
@@ -309,11 +312,13 @@ class MCPClient:
     # ------------------------------------------------------------------
 
     def _post(
-        self, payload: Dict[str, Any], extra_headers: Optional[Dict[str, str]] = None
-    ) -> Dict[str, Any]:
+        self, payload: dict[str, Any], extra_headers: dict[str, str] | None = None
+    ) -> dict[str, Any]:
         """POST one JSON-RPC message; raise MCPError for JSON-RPC errors."""
-        req_headers = {"Content-Type": "application/json",
-                       "Accept": "application/json, text/event-stream"}
+        req_headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        }
         req_headers.update(extra_headers or {})
         req_headers.update(self.headers)
         req = urllib.request.Request(
@@ -338,7 +343,9 @@ class MCPClient:
             try:
                 data = json.loads(raw)
             except json.JSONDecodeError:
-                raise RuntimeError(f"HTTP {exc.code}: {raw.strip() or exc.reason}") from exc
+                raise RuntimeError(
+                    f"HTTP {exc.code}: {raw.strip() or exc.reason}"
+                ) from exc
             self._raise_for_error(data, status)
             return data
         if not body.strip():
@@ -348,7 +355,7 @@ class MCPClient:
         return data
 
     @staticmethod
-    def _raise_for_error(data: Dict[str, Any], status: Optional[int]) -> None:
+    def _raise_for_error(data: dict[str, Any], status: int | None) -> None:
         if isinstance(data, dict) and "error" in data:
             err = data["error"] or {}
             raise MCPError(
@@ -360,15 +367,15 @@ class MCPClient:
             self._next_id += 1
             return self._next_id
 
-    def _rpc(self, method: str, params: Optional[Dict[str, Any]] = None) -> Any:
+    def _rpc(self, method: str, params: dict[str, Any] | None = None) -> Any:
         """Send *method* using whichever era has been established."""
         if self.era == "modern" or (self.era is None and self.protocol == "modern"):
             return self._modern_rpc(method, params)
         return self._legacy_rpc(method, params)
 
-    def _modern_rpc(self, method: str, params: Optional[Dict[str, Any]] = None) -> Any:
+    def _modern_rpc(self, method: str, params: dict[str, Any] | None = None) -> Any:
         version = self.protocol_version or MODERN_PROTOCOL_VERSION
-        body: Dict[str, Any] = dict(params or {})
+        body: dict[str, Any] = dict(params or {})
         body["_meta"] = {
             _META_PROTOCOL_VERSION: version,
             _META_CLIENT_INFO: CLIENT_INFO,
@@ -397,8 +404,8 @@ class MCPClient:
             self.protocol_version = retry
             return self._modern_rpc(method, params)
 
-    def _legacy_rpc(self, method: str, params: Optional[Dict[str, Any]] = None) -> Any:
-        payload: Dict[str, Any] = {
+    def _legacy_rpc(self, method: str, params: dict[str, Any] | None = None) -> Any:
+        payload: dict[str, Any] = {
             "jsonrpc": "2.0",
             "method": method,
             "id": self._next_message_id(),
@@ -412,7 +419,7 @@ class MCPClient:
     # Connection / discovery
     # ------------------------------------------------------------------
 
-    def connect(self) -> Dict[str, Any]:
+    def connect(self) -> dict[str, Any]:
         """
         Establish which era the server speaks and collect its metadata.
 
@@ -440,7 +447,7 @@ class MCPClient:
                 raise
         return self._connect_legacy()
 
-    def _connect_modern(self) -> Dict[str, Any]:
+    def _connect_modern(self) -> dict[str, Any]:
         self.era = "modern"
         self.protocol_version = self.protocol_version or MODERN_PROTOCOL_VERSION
         result = self._modern_rpc("server/discover") or {}
@@ -455,16 +462,19 @@ class MCPClient:
             self.protocol_version = self.supported_versions[0]
         return self.summary()
 
-    def _connect_legacy(self) -> Dict[str, Any]:
+    def _connect_legacy(self) -> dict[str, Any]:
         self.era = "legacy"
-        result = self._legacy_rpc(
-            "initialize",
-            {
-                "protocolVersion": LEGACY_PROTOCOL_VERSION,
-                "capabilities": {},
-                "clientInfo": CLIENT_INFO,
-            },
-        ) or {}
+        result = (
+            self._legacy_rpc(
+                "initialize",
+                {
+                    "protocolVersion": LEGACY_PROTOCOL_VERSION,
+                    "capabilities": {},
+                    "clientInfo": CLIENT_INFO,
+                },
+            )
+            or {}
+        )
         self.protocol_version = result.get("protocolVersion", LEGACY_PROTOCOL_VERSION)
         self.server_info = result.get("serverInfo", {})
         self.capabilities = result.get("capabilities", {})
@@ -472,7 +482,7 @@ class MCPClient:
         self.supported_versions = [self.protocol_version]
         return self.summary()
 
-    def summary(self) -> Dict[str, Any]:
+    def summary(self) -> dict[str, Any]:
         return {
             "era": self.era,
             "protocolVersion": self.protocol_version,
@@ -487,18 +497,18 @@ class MCPClient:
     # Methods
     # ------------------------------------------------------------------
 
-    def initialize(self) -> Dict[str, Any]:
+    def initialize(self) -> dict[str, Any]:
         """Legacy handshake (kept for callers that want it explicitly)."""
         return self._connect_legacy()
 
     def ping(self) -> Any:
         return self._rpc("ping")
 
-    def list_tools(self) -> List[Dict[str, Any]]:
+    def list_tools(self) -> list[dict[str, Any]]:
         result = self._rpc("tools/list") or {}
         return result.get("tools", [])
 
-    def call_tool(self, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         return self._rpc("tools/call", {"name": name, "arguments": arguments})
 
 
@@ -538,7 +548,7 @@ class ParamField:
     def __init__(
         self,
         name: str,
-        schema: Dict[str, Any],
+        schema: dict[str, Any],
         required: bool,
     ) -> None:
         self.name = name
@@ -552,7 +562,7 @@ class ParamField:
         self.union_types = frozenset(
             alt.get("type") for alt in schema.get("oneOf", []) if isinstance(alt, dict)
         )
-        self.include_box: Optional[QCheckBox] = None
+        self.include_box: QCheckBox | None = None
         self.widget = self._build_widget()
 
     def _build_widget(self) -> QWidget:
@@ -724,7 +734,9 @@ class ParamField:
                 pass
         elif isinstance(self.widget, QPlainTextEdit):
             if isinstance(value, (list, dict)):
-                self.widget.setPlainText(json.dumps(value, indent=2, ensure_ascii=False))
+                self.widget.setPlainText(
+                    json.dumps(value, indent=2, ensure_ascii=False)
+                )
             else:
                 self.widget.setPlainText(str(value))
         else:
@@ -745,16 +757,16 @@ class MCPTesterWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("MCP Server Tester")
         self.resize(1050, 700)
-        self.client: Optional[MCPClient] = None
-        self.tools: List[Dict[str, Any]] = []
-        self.fields: List[ParamField] = []
+        self.client: MCPClient | None = None
+        self.tools: list[dict[str, Any]] = []
+        self.fields: list[ParamField] = []
         # One worker per request: a shared worker whose handlers are swapped
         # on every call routes an in-flight call's result to whichever
         # handler was connected last (e.g. a tool result into the tool-list
         # refresh). Referenced here until done so they are not collected.
         self._workers: set = set()
         self.history = ArgumentHistory()
-        self._call_started: Optional[float] = None
+        self._call_started: float | None = None
 
         # --- top bar: host/port + connect ------------------------------
         host, port, path = _split_url(url)
@@ -784,7 +796,7 @@ class MCPTesterWindow(QMainWindow):
             "mirrored MCP-Protocol-Version / Mcp-Method / Mcp-Name headers."
         )
         proto_index = self.protocol_combo.findData(protocol)
-        self.protocol_combo.setCurrentIndex(proto_index if proto_index >= 0 else 0)
+        self.protocol_combo.setCurrentIndex(max(proto_index, 0))
         top_lay.addWidget(self.protocol_combo)
         top_lay.addWidget(QLabel("Headers:"))
         self.headers_edit = QLineEdit()
@@ -929,7 +941,7 @@ class MCPTesterWindow(QMainWindow):
             QMessageBox.warning(self, "MCP Tester", "Enter the server host first.")
             return
         headers_text = self.headers_edit.text().strip()
-        headers: Dict[str, str] = {}
+        headers: dict[str, str] = {}
         if headers_text:
             try:
                 parsed_headers = json.loads(headers_text)
@@ -937,7 +949,9 @@ class MCPTesterWindow(QMainWindow):
                 QMessageBox.warning(self, "MCP Tester", f"Invalid headers JSON: {exc}")
                 return
             if not isinstance(parsed_headers, dict):
-                QMessageBox.warning(self, "MCP Tester", "Headers must be a JSON object.")
+                QMessageBox.warning(
+                    self, "MCP Tester", "Headers must be a JSON object."
+                )
                 return
             headers = parsed_headers
         path = self.path_edit.text().strip()
@@ -952,14 +966,14 @@ class MCPTesterWindow(QMainWindow):
         self.connect_btn.setEnabled(False)
         self.status_label.setText("Connecting…")
 
-        def _connect(client: MCPClient) -> Dict[str, Any]:
+        def _connect(client: MCPClient) -> dict[str, Any]:
             info = client.connect()
             tools = client.list_tools()
             return {"info": info, "tools": tools}
 
         self._run(_connect, self.client, on_done=self._on_connected)
 
-    def _on_connected(self, result: Dict[str, Any]) -> None:
+    def _on_connected(self, result: dict[str, Any]) -> None:
         self.connect_btn.setEnabled(True)
         self.refresh_btn.setEnabled(True)
         info = result["info"]
@@ -974,7 +988,7 @@ class MCPTesterWindow(QMainWindow):
         self._populate_tool_list()
 
     @staticmethod
-    def _format_server_info(info: Dict[str, Any]) -> str:
+    def _format_server_info(info: dict[str, Any]) -> str:
         """Human-readable summary for the Server tab."""
         lines = [
             f"Era:               {info.get('era', '?')}",
@@ -1000,7 +1014,7 @@ class MCPTesterWindow(QMainWindow):
         self.status_label.setText("Refreshing tools…")
         self._run(self.client.list_tools, on_done=self._on_refreshed)
 
-    def _on_refreshed(self, tools: List[Dict[str, Any]]) -> None:
+    def _on_refreshed(self, tools: list[dict[str, Any]]) -> None:
         self.refresh_btn.setEnabled(True)
         current_item = self.tool_list.currentItem()
         current_name = (
@@ -1045,7 +1059,7 @@ class MCPTesterWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _on_tool_selected(
-        self, current: Optional[QListWidgetItem], _prev: Optional[QListWidgetItem]
+        self, current: QListWidgetItem | None, _prev: QListWidgetItem | None
     ) -> None:
         if current is None:
             self._clear_form()
@@ -1061,7 +1075,7 @@ class MCPTesterWindow(QMainWindow):
             return
         self._build_form(item.data(Qt.ItemDataRole.UserRole), prefill=False)
 
-    def _build_form(self, tool: Dict[str, Any], prefill: bool) -> None:
+    def _build_form(self, tool: dict[str, Any], prefill: bool) -> None:
         self._clear_form()
         hints = format_annotations(tool)
         self.desc_label.setText(
@@ -1070,7 +1084,7 @@ class MCPTesterWindow(QMainWindow):
             + f"<br>{tool.get('description', '')}"
         )
         schema = tool.get("inputSchema", {})
-        props: Dict[str, Any] = schema.get("properties", {})
+        props: dict[str, Any] = schema.get("properties", {})
         required = set(schema.get("required", []))
         remembered = self.history.get(tool["name"]) if prefill else None
         for prop_name, prop_schema in props.items():
@@ -1120,9 +1134,7 @@ class MCPTesterWindow(QMainWindow):
             return
         tool = item.data(Qt.ItemDataRole.UserRole)
         try:
-            arguments = {
-                f.name: f.value() for f in self.fields if f.is_included()
-            }
+            arguments = {f.name: f.value() for f in self.fields if f.is_included()}
         except ValueError as exc:
             QMessageBox.warning(self, "MCP Tester", str(exc))
             return
@@ -1152,7 +1164,7 @@ class MCPTesterWindow(QMainWindow):
             on_done=self._on_call_done,
         )
 
-    def _on_call_done(self, result: Dict[str, Any]) -> None:
+    def _on_call_done(self, result: dict[str, Any]) -> None:
         self.call_btn.setEnabled(True)
         elapsed = ""
         if self._call_started is not None:
@@ -1163,9 +1175,7 @@ class MCPTesterWindow(QMainWindow):
         )
         content = result.get("content", [])
         texts = [
-            block.get("text", "")
-            for block in content
-            if block.get("type") == "text"
+            block.get("text", "") for block in content if block.get("type") == "text"
         ]
         prefix = "[TOOL ERROR]\n" if result.get("isError") else ""
         self.result_text.setPlainText(prefix + "\n".join(texts))
@@ -1183,7 +1193,7 @@ class MCPTesterWindow(QMainWindow):
             if widget is not None:
                 widget.deleteLater()
 
-    def _render_content_extras(self, content: List[Dict[str, Any]]) -> None:
+    def _render_content_extras(self, content: list[dict[str, Any]]) -> None:
         self._clear_result_extras()
         added = 0
         for block in content:
@@ -1199,7 +1209,7 @@ class MCPTesterWindow(QMainWindow):
         self.result_extra_lay.addStretch(1)
         self.result_extra_scroll.setVisible(added > 0)
 
-    def _make_image_widget(self, block: Dict[str, Any]) -> QWidget:
+    def _make_image_widget(self, block: dict[str, Any]) -> QWidget:
         data = block.get("data")
         if not data:
             return self._make_json_widget(block)
@@ -1214,7 +1224,7 @@ class MCPTesterWindow(QMainWindow):
         label.setPixmap(pixmap)
         return label
 
-    def _make_json_widget(self, block: Dict[str, Any]) -> QWidget:
+    def _make_json_widget(self, block: dict[str, Any]) -> QWidget:
         edit = QPlainTextEdit()
         edit.setReadOnly(True)
         edit.setPlainText(json.dumps(block, indent=2, ensure_ascii=False))
@@ -1245,9 +1255,7 @@ class MCPTesterWindow(QMainWindow):
         self.connect_btn.setEnabled(True)
         self.refresh_btn.setEnabled(self.client is not None)
         self.call_btn.setEnabled(self.tool_list.currentItem() is not None)
-        message = (
-            failure.details() if isinstance(failure, MCPError) else str(failure)
-        )
+        message = failure.details() if isinstance(failure, MCPError) else str(failure)
         if isinstance(failure, MCPError):
             self.status_label.setText(f"Error {failure.code}: {failure.message}")
             self.raw_text.setPlainText(message)
@@ -1261,7 +1269,9 @@ def main() -> None:
         prog="mcp-gui-tester",
         description="GUI tester for MCP servers over Streamable HTTP",
     )
-    parser.add_argument("--url", default=DEFAULT_URL, help=f"MCP endpoint (default {DEFAULT_URL})")
+    parser.add_argument(
+        "--url", default=DEFAULT_URL, help=f"MCP endpoint (default {DEFAULT_URL})"
+    )
     parser.add_argument(
         "--protocol",
         default="auto",
