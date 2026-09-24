@@ -9,7 +9,7 @@ Copy (or symlink) `mcp_server/` to the MoleditPy plugin directory:
 - **Windows:** `C:\Users\<You>\.moleditpy\plugins\mcp_server\`
 - **Linux/macOS:** `~/.moleditpy/plugins/mcp_server/`
 
-No `pip install` is needed — the plugin has no extra dependencies beyond MoleditPy itself (uses `starlette` + `uvicorn` bundled with or installed alongside the app).
+No `pip install` is needed — the plugin has no extra dependencies beyond MoleditPy itself: the HTTP server is the standard library's `http.server`, and RDKit/PyQt6 come from the host app.
 
 ## Running Tests
 
