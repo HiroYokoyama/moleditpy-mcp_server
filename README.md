@@ -92,7 +92,7 @@ The **MCP protocol** selector in the same dialog chooses which revision of the p
 | **Legacy only** | `2024-11-05` … `2025-11-25` handshake protocol; modern requests are refused with an `UnsupportedProtocolVersion` error |
 | **2026-07-28 only** | Stateless protocol exclusively: no session id, mirrored `MCP-Protocol-Version` / `Mcp-Method` / `Mcp-Name` headers are required and validated, `initialize` is refused |
 
-Restart the server after changing it. In the 2026-07-28 era the server implements `server/discover` (supported versions, capabilities, and natural-language usage instructions), returns `ttlMs` / `cacheScope` cache hints on `tools/list`, and reports header or version problems as `400` with JSON-RPC error codes `-32020` / `-32022`.
+Restart the server after changing it. In the 2026-07-28 era the server implements `server/discover` (supported versions, capabilities, and natural-language usage instructions), marks every result `resultType: "complete"`, returns `ttlMs` / `cacheScope` cache hints on `tools/list`, and reports header or version problems as `400` with JSON-RPC error codes `-32020` / `-32022`.
 
 ---
 

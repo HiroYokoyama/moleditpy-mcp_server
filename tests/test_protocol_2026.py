@@ -323,6 +323,39 @@ def test_modern_result_gets_server_info_meta(srv):
     }
 
 
+@pytest.mark.parametrize("method", ["tools/list", "ping", "server/discover"])
+def test_modern_result_declares_complete_result_type(srv, method):
+    # 2026-07-28 clients reject results without resultType (Claude Code:
+    # "Invalid result for tools/list: missing required resultType").
+    handler = _make_handler(srv)
+    handler.headers = _modern_headers(method)
+    handler._process(_modern_message(method))
+    body = _sent_body(handler)
+    assert body["result"]["resultType"] == "complete"
+
+
+def test_modern_tools_call_result_declares_result_type(srv):
+    handler = _make_handler(srv)
+    handler.headers = _modern_headers("tools/call", name="no_such_tool")
+    handler._process(_modern_message("tools/call", name="no_such_tool"))
+    body = _sent_body(handler)
+    assert body["result"]["resultType"] == "complete"
+
+
+def test_modern_error_has_no_result_type(srv):
+    handler = _make_handler(srv)
+    handler.headers = _modern_headers("no/such")
+    handler._process(_modern_message("no/such"))
+    body = _sent_body(handler)
+    assert "result" not in body and "resultType" not in body["error"]
+
+
+def test_legacy_result_has_no_result_type(srv):
+    handler = _make_handler(srv)
+    handler._process({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
+    assert "resultType" not in _sent_body(handler)["result"]
+
+
 def test_legacy_result_keeps_session_header(srv):
     handler = _make_handler(srv)
     handler._process({"jsonrpc": "2.0", "id": 1, "method": "ping", "params": {}})

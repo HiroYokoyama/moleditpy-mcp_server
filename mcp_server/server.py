@@ -58,6 +58,10 @@ _ERR_UNSUPPORTED_PROTOCOL_VERSION = -32022
 _TOOLS_TTL_MS = 300_000  # tool list only changes when the plugin is updated
 _DISCOVER_TTL_MS = 300_000
 
+# Every 2026-07-28 result must say whether it is final. This server never
+# returns partial or input-requesting results, so it is always "complete".
+_RESULT_TYPE_COMPLETE = "complete"
+
 #: Natural-language guidance returned by `server/discover` (2026-07-28) so the
 #: client can prime its model with what this server is for.
 _SERVER_INSTRUCTIONS = (
@@ -2875,6 +2879,7 @@ class _MCPHandler(BaseHTTPRequestHandler):
         self, data: Dict[str, Any], status: int = 200, modern: bool = False
     ) -> None:
         if modern and "result" in data and isinstance(data["result"], dict):
+            data["result"].setdefault("resultType", _RESULT_TYPE_COMPLETE)
             meta = data["result"].setdefault("_meta", {})
             meta.setdefault(
                 _META_SERVER_INFO,
