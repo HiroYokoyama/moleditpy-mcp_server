@@ -161,9 +161,16 @@ def execute_operation(ctx: Any, operation: str, args: dict[str, Any]) -> Any:
         resolved = {
             _int_arg(idx, "atom index"): color for idx, color in atom_colors.items()
         }
-        for idx, color in resolved.items():
-            ctrl.set_atom_color(idx, color)
-        ctx.refresh_3d_view()
+        manager = _view_3d_manager(ctx)
+        if isinstance(getattr(manager, "_plugin_color_overrides", None), dict):
+            # One redraw for the whole batch: the per-atom controller call
+            # redraws the molecule every time (seconds for a large molecule).
+            _set_atom_color_overrides(ctx, manager, resolved)
+            _restyle_and_redraw(manager, None)
+        else:
+            for idx, color in resolved.items():
+                ctrl.set_atom_color(idx, color)
+            ctx.refresh_3d_view()
         return {"success": True}
 
     if operation == "highlight_bonds":
@@ -265,6 +272,15 @@ def execute_operation(ctx: Any, operation: str, args: dict[str, Any]) -> Any:
 
     if operation == "clear_overlay":
         return _clear_overlay(ctx)
+
+    if operation == "set_3d_style":
+        return _set_3d_style(ctx, args)
+
+    if operation == "edit_bonds":
+        return _edit_bonds(ctx, args)
+
+    if operation == "request_read_folder":
+        return _request_read_folder(ctx, args)
 
     if operation == "get_molecule_descriptors":
         return _get_molecule_descriptors(ctx)
@@ -434,15 +450,48 @@ def _get_molecule_info(ctx: Any) -> dict[str, Any]:
         rdMolDescriptors,
     )
 
-    return {
+    info: dict[str, Any] = {
         "loaded": True,
-        "smiles": Chem.MolToSmiles(mol),
-        "formula": rdMolDescriptors.CalcMolFormula(mol),
-        "molecular_weight": round(Descriptors.MolWt(mol), 4),
         "num_atoms": mol.GetNumAtoms(),
         "num_bonds": mol.GetNumBonds(),
         "has_3d_coords": mol.GetNumConformers() > 0,
     }
+    try:
+        info.update(
+            smiles=Chem.MolToSmiles(mol),
+            formula=rdMolDescriptors.CalcMolFormula(mol),
+            molecular_weight=round(Descriptors.MolWt(mol), 4),
+        )
+    except (RuntimeError, ValueError):
+        # A structure loaded with distance-based bonds only (skip_chemistry)
+        # has no perceived valences, and RDKit refuses SMILES/formula for it.
+        # Report what the atoms alone determine instead of failing the call.
+        symbols = [mol.GetAtomWithIdx(i).GetSymbol() for i in range(info["num_atoms"])]
+        table = Chem.GetPeriodicTable()
+        info.update(
+            smiles=None,
+            formula=_hill_formula(symbols),
+            molecular_weight=round(sum(table.GetAtomicWeight(s) for s in symbols), 4),
+            note=(
+                "Bond orders are not perceived (loaded with distance-based "
+                "bonds only), so no SMILES; formula and weight count the "
+                "atoms as loaded."
+            ),
+        )
+    return info
+
+
+def _hill_formula(symbols: list[str]) -> str:
+    """Hill-order formula from explicit atoms (C, H first, then A-Z)."""
+    counts: dict[str, int] = {}
+    for sym in symbols:
+        counts[sym] = counts.get(sym, 0) + 1
+    if "C" in counts:
+        first = [e for e in ("C", "H") if e in counts]
+        order = first + sorted(e for e in counts if e not in first)
+    else:
+        order = sorted(counts)
+    return "".join(e + (str(counts[e]) if counts[e] > 1 else "") for e in order)
 
 
 def _get_atom_properties(ctx: Any, atom_indices: list[int]) -> dict[str, Any]:
@@ -1008,10 +1057,123 @@ def _get_file_io_config(ctx: Any) -> dict[str, Any]:
     allowed_exts = sorted(
         set(exts_raw) if exts_raw is not None else _DEFAULT_EXTENSIONS
     )
-    return {"base_dir": base_dir, "allowed_extensions": allowed_exts}
+    return {
+        "base_dir": base_dir,
+        "allowed_extensions": allowed_exts,
+        "read_roots": _read_roots(ctx),
+    }
+
+
+def _read_roots(ctx: Any) -> list[str]:
+    """The user-approved read-only folders that still exist."""
+    raw = ctx.get_setting("file_io_read_roots", None)
+    if not isinstance(raw, (list, tuple)):
+        return []
+    import os  # pylint: disable=import-outside-toplevel
+
+    return [str(r) for r in raw if isinstance(r, str) and os.path.isdir(r)]
+
+
+#: The approval dialog closes itself as "No" after this long -- shorter than
+#: the server's wait for the answer (APPROVAL_WAIT_SECONDS in server.py), so a
+#: late "Yes" can never apply a change the client was already told failed.
+APPROVAL_TIMEOUT_MS = 240_000
+
+_approval_pending = False
+
+
+def _ask_user(ctx: Any, title: str, text: str) -> bool:
+    """Modal Yes/No in the app window, defaulting to No.
+
+    Approval has to come from the person at the MoleditPy window, not from
+    the MCP client: a client asking for wider file access must not be able
+    to grant it to itself. A modal dialog runs a nested event loop in which
+    further MCP requests are still served, so a second approval request
+    while one is open is refused instead of stacking dialogs.
+    """
+    global _approval_pending  # pylint: disable=global-statement
+    if _approval_pending:
+        raise ValueError(
+            "Another file-access request is waiting for the user's answer."
+        )
+    from PyQt6.QtWidgets import QMessageBox  # pylint: disable=import-outside-toplevel
+
+    parent = ctx.get_main_window() if hasattr(ctx, "get_main_window") else None
+    box = QMessageBox(parent)
+    box.setWindowTitle(title)
+    box.setText(text)
+    box.setStandardButtons(
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+    )
+    box.setDefaultButton(QMessageBox.StandardButton.No)
+    QTimer.singleShot(APPROVAL_TIMEOUT_MS, box.reject)
+    _approval_pending = True
+    try:
+        answer = box.exec()
+    finally:
+        _approval_pending = False
+    return answer == QMessageBox.StandardButton.Yes
+
+
+def _request_read_folder(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
+    """Add a read-only folder after the user approves it in the app."""
+    import os  # pylint: disable=import-outside-toplevel
+
+    path = args.get("path")
+    if not isinstance(path, str) or not os.path.isabs(path) or not os.path.isdir(path):
+        raise ValueError("'path' must be an existing absolute directory")
+    target = os.path.realpath(path)
+    roots = _read_roots(ctx)
+    base = ctx.get_setting("file_io_base_dir", None)
+    for root in roots + ([base] if base else []):
+        real = os.path.realpath(root)
+        if os.path.commonpath([real, target]) == real:
+            return {"added": False, "already_readable": True, "read_roots": roots}
+    reason = str(args.get("reason") or "").strip()
+    text = (
+        "An MCP client asks for READ-ONLY access to this folder "
+        "(and everything below it):\n\n"
+        f"{target}\n\n"
+        + (f"Reason given: {reason}\n\n" if reason else "")
+        + "Files there can be read, listed and loaded, never written or "
+        "deleted. You can remove the folder later in MCP Server > "
+        "Status & Settings.\n\nAllow?"
+    )
+    if not _ask_user(ctx, "MCP Server: allow read access?", text):
+        return {"added": False, "declined": True, "read_roots": roots}
+    roots.append(target)
+    ctx.set_setting("file_io_read_roots", roots)
+    ctx.show_status_message(f"MCP read-only folder added: {target}", 5000)
+    return {"added": True, "read_roots": roots}
 
 
 def _set_file_io_config(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
+    changes = []
+    if "base_dir" in args and args["base_dir"] != ctx.get_setting(
+        "file_io_base_dir", None
+    ):
+        changes.append(
+            "Base directory (read AND write, including delete):\n"
+            f"  {ctx.get_setting('file_io_base_dir', None) or '(not set)'}\n"
+            f"  -> {args['base_dir']}"
+        )
+    if "allowed_extensions" in args:
+        current = _get_file_io_config(ctx)["allowed_extensions"]
+        wanted = sorted(
+            {e if e.startswith(".") else f".{e}" for e in args["allowed_extensions"]}
+        )
+        if wanted != current:
+            changes.append(
+                f"Allowed extensions:\n  {', '.join(current)}\n  -> {', '.join(wanted)}"
+            )
+    if changes and not _ask_user(
+        ctx,
+        "MCP Server: change file access?",
+        "An MCP client asks to change the file I/O sandbox:\n\n"
+        + "\n\n".join(changes)
+        + "\n\nAllow?",
+    ):
+        return {"success": False, "declined": True}
     if "base_dir" in args:
         ctx.set_setting("file_io_base_dir", args["base_dir"])
         ctx.show_status_message(
@@ -1062,11 +1224,19 @@ def _get_molecule_image(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
         )
         view = "3d" if has_3d else "2d"
 
+    background = args.get("background")
+    if background is not None and (
+        not isinstance(background, str) or not background.strip()
+    ):
+        raise ValueError(
+            "'background' must be a color like 'white' or '#ffffff', or 'transparent'"
+        )
+    extra = (background,) if background is not None else ()
     if view == "3d":
         with _atom_index_labels(ctx, bool(args.get("atom_labels", False))):
-            png_bytes = _render_3d_png(ctx, width, height)
+            png_bytes = _render_3d_png(ctx, width, height, *extra)
     else:
-        png_bytes = _render_2d_png(ctx, width, height)
+        png_bytes = _render_2d_png(ctx, width, height, *extra)
     if not png_bytes:
         empty = "3D viewer" if view == "3d" else "2D canvas"
         raise ValueError(
@@ -1085,7 +1255,9 @@ def _get_molecule_image(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _render_2d_png(ctx: Any, width: int, height: int) -> bytes | None:
+def _render_2d_png(
+    ctx: Any, width: int, height: int, background: str | None = None
+) -> bytes | None:
     """The 2D canvas, rendered to PNG bytes via QGraphicsScene.render()."""
     # Before the Qt imports: "there is no canvas" is answerable without them,
     # and the environment that has no PyQt6 at all is exactly the one that
@@ -1114,7 +1286,11 @@ def _render_2d_png(ctx: Any, width: int, height: int) -> bytes | None:
     source = source.adjusted(-margin, -margin, margin, margin)
 
     image = QImage(width, height, QImage.Format.Format_ARGB32)
-    image.fill(QColor("white"))
+    if background is not None and background.strip().lower() == "transparent":
+        image.fill(QColor(0, 0, 0, 0))
+    else:
+        fill = QColor(background.strip() if background else "white")
+        image.fill(fill if fill.isValid() else QColor("white"))
     painter = QPainter(image)
     try:
         scene.render(painter, QRectF(0, 0, width, height), source)
@@ -1129,7 +1305,9 @@ def _render_2d_png(ctx: Any, width: int, height: int) -> bytes | None:
     return data or None
 
 
-def _render_3d_png(ctx: Any, width: int, height: int) -> bytes | None:
+def _render_3d_png(
+    ctx: Any, width: int, height: int, background: str | None = None
+) -> bytes | None:
     """The 3D viewer, rendered to PNG bytes via the PyVista plotter.
 
     Through a temp file rather than ``return_img``: PyVista's in-memory array
@@ -1149,11 +1327,25 @@ def _render_3d_png(ctx: Any, width: int, height: int) -> bytes | None:
     # never puts it back, so asking for an image would silently resize the
     # viewer the user is looking at -- and this tool is annotated read-only.
     previous = getattr(plotter, "window_size", None)
+    transparent = background is not None and background.strip().lower() == "transparent"
+    old_background = None
+    if background is not None and not transparent:
+        old_background = getattr(plotter, "background_color", None)
+        plotter.set_background(background.strip())
     try:
-        plotter.screenshot(path, window_size=[width, height])
+        shot_kwargs: dict[str, Any] = {"window_size": [width, height]}
+        if transparent:
+            shot_kwargs["transparent_background"] = True
+        plotter.screenshot(path, **shot_kwargs)
         with open(path, "rb") as file_obj:
             return file_obj.read() or None
     finally:
+        if old_background is not None:
+            try:
+                plotter.set_background(old_background)
+                plotter.render()
+            except Exception:  # pylint: disable=broad-except
+                logger.debug("3D viewer background not restored")
         if previous is not None:
             try:
                 plotter.window_size = previous
@@ -1219,11 +1411,74 @@ def _vec3(value: Any, what: str) -> list[float]:
 
 def _camera_state(plotter: Any) -> dict[str, Any]:
     pos, focal, up = plotter.camera_position
-    return {
+    state = {
         "position": [round(float(v), 4) for v in pos],
         "focal_point": [round(float(v), 4) for v in focal],
         "view_up": [round(float(v), 4) for v in up],
     }
+    parallel = getattr(getattr(plotter, "camera", None), "parallel_projection", None)
+    if isinstance(parallel, bool):
+        state["parallel_projection"] = parallel
+    return state
+
+
+def _atom_coords(ctx: Any) -> list[list[float]]:
+    mol = ctx.current_molecule
+    if mol is None or mol.GetNumConformers() == 0:
+        raise ValueError("No 3D structure is loaded.")
+    conf = mol.GetConformer()
+    return [list(map(float, conf.GetAtomPosition(i))) for i in range(mol.GetNumAtoms())]
+
+
+def _atom_list(
+    coords: list[list[float]], value: Any, what: str, minimum: int
+) -> list[int]:
+    if not isinstance(value, (list, tuple)) or len(value) < minimum:
+        raise ValueError(f"'{what}' must be a list of at least {minimum} atom indices")
+    out = []
+    for v in value:
+        idx = _int_arg(v, f"{what} entry")
+        if not 0 <= idx < len(coords):
+            raise ValueError(
+                f"Atom index {idx} in '{what}' is out of range (0..{len(coords) - 1})"
+            )
+        out.append(idx)
+    return out
+
+
+def _centroid(coords: list[list[float]], value: Any, what: str) -> list[float]:
+    idx = _atom_list(coords, value, what, 1)
+    return [sum(coords[i][k] for i in idx) / len(idx) for k in range(3)]
+
+
+def _direction_from_atoms(coords: list[list[float]], value: Any) -> list[float]:
+    """[i, j]: view from the side of atom j, looking back toward atom i."""
+    idx = _atom_list(coords, value, "direction_atoms", 2)
+    if len(idx) != 2:
+        raise ValueError("'direction_atoms' must be exactly 2 atom indices [i, j]")
+    d = _sub(coords[idx[1]], coords[idx[0]])
+    if not any(d):
+        raise ValueError("'direction_atoms' are at the same position")
+    return d
+
+
+def _plane_normal(
+    coords: list[list[float]], value: Any, toward: list[float]
+) -> list[float]:
+    """Normal of the best plane through >= 3 atoms, on the side of *toward*
+    (the current camera), so the view does not flip to the back face."""
+    import numpy as np  # pylint: disable=import-outside-toplevel
+
+    idx = _atom_list(coords, value, "plane_atoms", 3)
+    pts = np.array([coords[i] for i in idx], dtype=float)
+    centered = pts - pts.mean(axis=0)
+    _u, s, vt = np.linalg.svd(centered)
+    if s[1] < 1e-6:
+        raise ValueError("'plane_atoms' are collinear: they do not define a plane")
+    normal = vt[2]
+    if float(np.dot(normal, toward)) < 0:
+        normal = -normal
+    return [float(v) for v in normal]
 
 
 def _get_3d_camera(ctx: Any) -> dict[str, Any]:
@@ -1244,9 +1499,30 @@ def _set_3d_camera(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     plotter = ctx.plotter
     if plotter is None:
         raise ValueError("The 3D viewer is not available.")
-    if "position" in args and "direction" in args:
-        raise ValueError("Pass either 'position' or 'direction', not both")
+    view_keys = [
+        k
+        for k in ("position", "direction", "direction_atoms", "plane_atoms")
+        if k in args
+    ]
+    if len(view_keys) > 1:
+        raise ValueError(
+            "Pass only one of 'position', 'direction', 'direction_atoms', "
+            f"'plane_atoms' (got {', '.join(view_keys)})"
+        )
+    if "focal_point" in args and "focal_atoms" in args:
+        raise ValueError("Pass either 'focal_point' or 'focal_atoms', not both")
     cur_pos, cur_focal, cur_up = (list(map(float, v)) for v in plotter.camera_position)
+    if "direction_atoms" in args or "plane_atoms" in args or "focal_atoms" in args:
+        args = dict(args)
+        coords = _atom_coords(ctx)
+        if "focal_atoms" in args:
+            args["focal_point"] = _centroid(coords, args["focal_atoms"], "focal_atoms")
+        if "direction_atoms" in args:
+            args["direction"] = _direction_from_atoms(coords, args["direction_atoms"])
+        if "plane_atoms" in args:
+            args["direction"] = _plane_normal(
+                coords, args["plane_atoms"], toward=_sub(cur_pos, cur_focal)
+            )
     focal = (
         _vec3(args["focal_point"], "focal_point")
         if "focal_point" in args
@@ -1275,6 +1551,12 @@ def _set_3d_camera(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     if cos > 0.999:
         raise ValueError("'view_up' is parallel to the viewing direction")
     plotter.camera_position = [pos, focal, up]
+    projection = args.get("parallel_projection")
+    if projection is not None:
+        if projection:
+            plotter.enable_parallel_projection()
+        else:
+            plotter.disable_parallel_projection()
     fit = args.get("fit", "direction" in args)
     if fit:
         plotter.reset_camera()
@@ -1558,6 +1840,94 @@ _FALLBACK_CPK = {
 }
 
 
+_STYLES = ("ball_and_stick", "cpk", "wireframe", "stick")
+_BOND_TYPES = ("single", "double", "triple", "aromatic")
+
+
+def _set_3d_style(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
+    style = args.get("style")
+    if style not in _STYLES:
+        raise ValueError(f"'style' must be one of: {', '.join(_STYLES)}")
+    manager = _view_3d_manager(ctx)
+    if manager is None:
+        raise ValueError("The 3D viewer is not available.")
+    previous = getattr(manager, "current_3d_style", None)
+    manager.set_3d_style(style)
+    return {"style": style, "previous": previous}
+
+
+def _bond_pairs(mol: Any, value: Any, what: str) -> list[tuple]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError(f"'{what}' must be a list of [i, j] atom index pairs")
+    pairs = []
+    for pair in value:
+        if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+            raise ValueError(f"Each entry of '{what}' must be [i, j]")
+        i, j = (_check_atom_index(mol, v) for v in pair)
+        if i == j:
+            raise ValueError(f"Pair [{i}, {j}] in '{what}' connects an atom to itself")
+        pairs.append((i, j))
+    return pairs
+
+
+def _edit_bonds(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
+    """Add and remove bonds on the current molecule, the way the Bond Editor
+    plugin does it: edit an RWMol copy, sanitize (keeping the edit when the
+    result is not a valid valence structure, e.g. a hydrogen bonded to two
+    atoms), hand it back through ``ctx.current_molecule`` (which redraws and
+    keeps the 3D coordinates) and record an undo step."""
+    from rdkit import Chem  # pylint: disable=import-outside-toplevel
+
+    mol = ctx.current_molecule
+    if mol is None or mol.GetNumAtoms() == 0:
+        raise ValueError("No molecule is loaded.")
+    add = _bond_pairs(mol, args.get("add"), "add")
+    remove = _bond_pairs(mol, args.get("remove"), "remove")
+    if not add and not remove:
+        raise ValueError("Give 'add' and/or 'remove' atom index pairs")
+    bond_type = args.get("bond_type", "single")
+    if bond_type not in _BOND_TYPES:
+        raise ValueError(f"'bond_type' must be one of: {', '.join(_BOND_TYPES)}")
+    rdkit_type = {
+        "single": Chem.BondType.SINGLE,
+        "double": Chem.BondType.DOUBLE,
+        "triple": Chem.BondType.TRIPLE,
+        "aromatic": Chem.BondType.AROMATIC,
+    }[bond_type]
+
+    rw = Chem.RWMol(mol)
+    result: dict[str, Any] = {"added": [], "removed": [], "skipped": []}
+    for i, j in remove:
+        if rw.GetBondBetweenAtoms(i, j) is None:
+            result["skipped"].append({"atoms": [i, j], "reason": "no such bond"})
+        else:
+            rw.RemoveBond(i, j)
+            result["removed"].append([i, j])
+    for i, j in add:
+        if rw.GetBondBetweenAtoms(i, j) is not None:
+            result["skipped"].append({"atoms": [i, j], "reason": "bond exists"})
+        else:
+            rw.AddBond(i, j, rdkit_type)
+            result["added"].append([i, j])
+    if not result["added"] and not result["removed"]:
+        return {**result, "changed": False}
+    try:
+        Chem.SanitizeMol(rw)
+        result["sanitized"] = True
+    except (RuntimeError, ValueError):
+        # Same fallback as the Bond Editor: keep the edit, let RDKit carry
+        # unusual valences instead of refusing a legitimate contact.
+        rw.UpdatePropertyCache(strict=False)
+        result["sanitized"] = False
+    ctx.current_molecule = rw.GetMol()
+    ctx.push_undo_checkpoint()
+    result["changed"] = True
+    result["num_bonds"] = rw.GetNumBonds()
+    return result
+
+
 def _view_3d_manager(ctx: Any) -> Any:
     mw = ctx.get_main_window() if hasattr(ctx, "get_main_window") else None
     manager = getattr(mw, "view_3d_manager", None)
@@ -1636,7 +2006,7 @@ def _draw_overlay(
             setattr(
                 plotter, _OVERLAY_STYLE_ATTR, getattr(manager, "current_3d_style", None)
             )
-    saved = _set_carbon_colors(ctx, manager, {i: current_color for i in carbons})
+    saved = _set_atom_color_overrides(ctx, manager, {i: current_color for i in carbons})
     if getattr(plotter, _OVERLAY_COLORED_ATTR, None) is None:
         setattr(plotter, _OVERLAY_COLORED_ATTR, saved)
     if manager is not None:
@@ -1709,7 +2079,7 @@ def _clear_overlay(ctx: Any) -> dict[str, Any]:
     manager = _view_3d_manager(ctx)
     saved = getattr(plotter, _OVERLAY_COLORED_ATTR, None)
     if isinstance(saved, dict) and saved:
-        _set_carbon_colors(ctx, manager, saved)
+        _set_atom_color_overrides(ctx, manager, saved)
     setattr(plotter, _OVERLAY_COLORED_ATTR, None)
     previous = getattr(plotter, _OVERLAY_STYLE_ATTR, None)
     setattr(plotter, _OVERLAY_STYLE_ATTR, None)
@@ -1721,7 +2091,7 @@ def _clear_overlay(ctx: Any) -> dict[str, Any]:
     return result
 
 
-def _set_carbon_colors(
+def _set_atom_color_overrides(
     ctx: Any, manager: Any, colors: dict[int, str | None]
 ) -> dict[int, str | None]:
     """Apply atom color overrides (None removes one) and return the previous

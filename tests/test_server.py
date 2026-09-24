@@ -1107,6 +1107,7 @@ def test_set_file_io_config_valid(srv, tmp_path):
             "base_dir": str(tmp_path.resolve()),
             "allowed_extensions": [".inp", ".txt"],
         },
+        timeout=300.0,
     )
 
 

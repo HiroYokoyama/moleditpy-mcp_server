@@ -242,6 +242,26 @@ class MCPStatusDialog(QDialog):
         dir_row.addWidget(browse_btn)
         layout.addLayout(dir_row)
 
+        # Read-only folders: reading tools may use absolute paths inside them.
+        # An MCP client can only *request* one (request_read_folder), which
+        # the user approves in a dialog; adding or clearing here needs none.
+        ro_row = QHBoxLayout()
+        ro_row.addWidget(QLabel("Read-only folders:"))
+        self._read_roots_edit = QLineEdit()
+        self._read_roots_edit.setReadOnly(True)
+        self._read_roots_edit.setPlaceholderText(
+            "(none: an MCP client can request one, you approve it)"
+        )
+        ro_row.addWidget(self._read_roots_edit)
+        add_ro_btn = QPushButton("Add…")
+        add_ro_btn.clicked.connect(self._add_read_root)
+        ro_row.addWidget(add_ro_btn)
+        clear_ro_btn = QPushButton("Clear")
+        clear_ro_btn.clicked.connect(self._clear_read_roots)
+        ro_row.addWidget(clear_ro_btn)
+        layout.addLayout(ro_row)
+        self._show_read_roots()
+
         # Copy URL button
         copy_btn = QPushButton("Copy Server URL")
         copy_btn.clicked.connect(self._copy_url)
@@ -376,6 +396,30 @@ class MCPStatusDialog(QDialog):
             # Same normalization as typing a path in the field.
             self._base_dir_edit.setText(directory)
             self._on_base_dir_changed()
+
+    def _read_roots(self) -> list[str]:
+        raw = self._plugin.context.get_setting("file_io_read_roots", None)
+        return [r for r in raw if isinstance(r, str)] if isinstance(raw, list) else []
+
+    def _show_read_roots(self) -> None:
+        self._read_roots_edit.setText("; ".join(self._read_roots()))
+
+    def _add_read_root(self) -> None:
+        directory = QFileDialog.getExistingDirectory(
+            self, "Add Read-only Folder for MCP", ""
+        )
+        if not directory:
+            return
+        resolved = str(Path(directory).expanduser().resolve())
+        roots = self._read_roots()
+        if resolved not in roots:
+            roots.append(resolved)
+            self._plugin.context.set_setting("file_io_read_roots", roots)
+        self._show_read_roots()
+
+    def _clear_read_roots(self) -> None:
+        self._plugin.context.set_setting("file_io_read_roots", [])
+        self._show_read_roots()
 
     def _copy_url(self) -> None:
         QApplication.clipboard().setText(self._plugin.url)

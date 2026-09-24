@@ -1419,7 +1419,17 @@ def test_get_file_io_config_with_setting(bridge_mod, ctx):
 # ---------------------------------------------------------------------------
 
 
-def test_set_file_io_config_base_dir(bridge_mod, ctx):
+@pytest.fixture()
+def approve(bridge_mod, monkeypatch):
+    """The user presses Yes in the file-access dialog."""
+    asked = []
+    monkeypatch.setattr(
+        bridge_mod, "_ask_user", lambda ctx, title, text: asked.append(text) or True
+    )
+    return asked
+
+
+def test_set_file_io_config_base_dir(bridge_mod, ctx, approve):
     result = bridge_mod.execute_operation(
         ctx, "set_file_io_config", {"base_dir": "/tmp/calc"}
     )
@@ -1427,7 +1437,7 @@ def test_set_file_io_config_base_dir(bridge_mod, ctx):
     ctx.set_setting.assert_any_call("file_io_base_dir", "/tmp/calc")
 
 
-def test_set_file_io_config_extensions(bridge_mod, ctx):
+def test_set_file_io_config_extensions(bridge_mod, ctx, approve):
     bridge_mod.execute_operation(
         ctx, "set_file_io_config", {"allowed_extensions": [".inp", "xyz"]}
     )
@@ -1438,7 +1448,7 @@ def test_set_file_io_config_extensions(bridge_mod, ctx):
     assert ".xyz" in exts  # bare "xyz" should be normalized to ".xyz"
 
 
-def test_set_file_io_config_shows_status(bridge_mod, ctx):
+def test_set_file_io_config_shows_status(bridge_mod, ctx, approve):
     bridge_mod.execute_operation(ctx, "set_file_io_config", {"base_dir": "/tmp/calc"})
     ctx.show_status_message.assert_called_once()
 

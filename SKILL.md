@@ -77,6 +77,10 @@ and follow-up coordinate reads work without an extra conversion step.
    file tool errors with "base directory is not configured", ask the
    user for a directory and call `set_file_io_config` — do not guess a
    path. Extensions are allowlisted; add new ones via the same tool.
+   Every change is approved by the user in a MoleditPy dialog. To only
+   *read* files elsewhere, call `request_read_folder` (absolute path +
+   `reason`); after a Yes, read tools take absolute paths inside it.
+   If the user declines, do not ask again for the same thing.
 
 ## Tool map
 
@@ -84,13 +88,13 @@ and follow-up coordinate reads work without an extra conversion step.
 |---|---|
 | Inspect state | `get_current_molecule`, `get_molecule_xyz`, `get_atom_properties`, `get_bond_info`, `get_selected_atoms`, `get_mapped_smiles`, `get_app_info`, `get_molecule_descriptors` (MW / LogP / TPSA / HBD / HBA / rings in one call), `substructure_search` (SMARTS → atom indices), `compute_partial_charges` (Gasteiger) |
 | See it | `get_molecule_image` — returns a real PNG of the 2D canvas or 3D viewer. Use it to *check* a structure, a highlight or a reaction result yourself instead of asking the user what they see. `atom_labels=true` overlays atom indices. |
-| Figures | `set_3d_camera` (`direction` = the side you look from, `view_up`, `zoom`) then `save_molecule_image` (PNG into the sandbox). `get_3d_camera` records a view to reuse. |
+| Figures | `set_3d_style` (`stick` shows partial bonds and overlays best), `set_3d_camera` (`direction` = the side you look from, or `direction_atoms` [i, j] / `plane_atoms` / `focal_atoms`; `view_up`, `zoom`, `parallel_projection`) then `save_molecule_image` (PNG into the sandbox; `background`: `white` or `transparent`). `get_3d_camera` records a view to reuse. Contacts that distance-based bonding misses (bridging atoms, forming bonds): `edit_bonds`. |
 | Measure / compare | `measure_geometry` (distance / angle / dihedral by index), `compare_structures` (RMSD + optional `overlay`: stick style, carbons colored per structure; then `clear_overlay` restores the view) |
 | Edit with RDKit | `add_hydrogens` / `remove_hydrogens`, `set_atom_charge` (index from `get_mapped_smiles`), `delete_atoms`, `optimize_geometry` (MMFF/UFF, refines an **existing** conformer — `trigger_3d_conversion` generates one). Each pushes its own undo checkpoint. Prefer these over hand-written `run_python`. |
 | Load molecules | `load_molecule_by_name` (PubChem), `load_molecule_from_smiles`, `load_from_mol_block`, `show_xyz_in_viewer` / `load_xyz_file` (pass `charge` for ions or `skip_chemistry` — never leave the app's charge dialog to the user; `frame` for trajectories), `clear_canvas` |
-| Edit | `apply_reaction_smarts` (SMARTS transforms), `run_python` (arbitrary RDKit / PluginContext code), `push_undo_checkpoint`, `check_chemistry` |
+| Edit | `edit_bonds` (add/remove bonds by atom index, coordinates kept, one undo step), `apply_reaction_smarts` (SMARTS transforms), `run_python` (arbitrary RDKit / PluginContext code), `push_undo_checkpoint`, `check_chemistry` |
 | 3D view | `trigger_3d_conversion`, `enter_3d_mode` / `exit_3d_mode`, `set_cpk_color_override` (persists across redraws), `set_bond_color_override` (by bond index or `"i-j"` atom pairs), `reset_cpk_color_override`, `reset_3d_camera`, `refresh_3d_view`, `fit_2d_view`, `refresh_ui` |
-| Files (sandboxed) | `write_file_with_xyz_block` (**preferred for inputs**), `write_text_file`, `read_text_file` (`start_line`/`end_line`), `list_directory`, `delete_file`, `get_file_io_config`, `set_file_io_config` |
+| Files (sandboxed) | `write_file_with_xyz_block` (**preferred for inputs**), `write_text_file`, `read_text_file` (`start_line`/`end_line`), `list_directory`, `delete_file`, `get_file_io_config`, `set_file_io_config` (user approves), `request_read_folder` (read-only access, user approves) |
 | Search | `grep_files` (regex over `app_source` / `plugins` / `files`), `find_files` (name glob over the same roots) |
 | Plugin authoring | `get_plugin_dev_manual`, `list_app_source_tree`, `get_app_source`, `get_plugin_dir`, `reload_plugins` |
 | Plugin discovery | `list_available_plugins` (official registry, optional `search`), `open_plugin_installer` |

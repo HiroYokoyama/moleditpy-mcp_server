@@ -191,6 +191,9 @@ class QLineEdit(_QObjectBase):
     def setPlaceholderText(self, text):
         self._placeholder = text
 
+    def setReadOnly(self, v):
+        self._readonly = v
+
     def setText(self, text):
         self._text = text
 

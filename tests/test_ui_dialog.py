@@ -362,3 +362,49 @@ def test_protocol_combo_enabled_while_stopped(ui_module):
     plugin, _ = make_plugin(running=False)
     dlg = ui_module.MCPStatusDialog(plugin)
     assert dlg._protocol_combo.isEnabled() is True
+
+
+# ---------------------------------------------------------------------------
+# Read-only folders
+# ---------------------------------------------------------------------------
+
+
+def test_read_roots_shown_on_open(ui_module):
+    plugin, _ = make_plugin(settings={"file_io_read_roots": ["/a", "/b", 3]})
+    dlg = ui_module.MCPStatusDialog(plugin)
+    assert dlg._read_roots_edit.text() == "/a; /b"
+
+
+def test_read_roots_setting_not_a_list(ui_module):
+    plugin, _ = make_plugin(settings={"file_io_read_roots": "junk"})
+    dlg = ui_module.MCPStatusDialog(plugin)
+    assert dlg._read_roots_edit.text() == ""
+
+
+def test_add_read_root_appends_once(ui_module, tmp_path):
+    plugin, settings = make_plugin()
+    dlg = ui_module.MCPStatusDialog(plugin)
+    QFileDialog._next_directory = str(tmp_path)
+    try:
+        dlg._add_read_root()
+        dlg._add_read_root()  # the same folder twice is stored once
+    finally:
+        QFileDialog._next_directory = ""
+    assert settings["file_io_read_roots"] == [str(tmp_path.resolve())]
+    assert dlg._read_roots_edit.text() == str(tmp_path.resolve())
+
+
+def test_add_read_root_cancel_changes_nothing(ui_module):
+    plugin, settings = make_plugin()
+    dlg = ui_module.MCPStatusDialog(plugin)
+    QFileDialog._next_directory = ""
+    dlg._add_read_root()
+    assert "file_io_read_roots" not in settings
+
+
+def test_clear_read_roots(ui_module):
+    plugin, settings = make_plugin(settings={"file_io_read_roots": ["/a"]})
+    dlg = ui_module.MCPStatusDialog(plugin)
+    dlg._clear_read_roots()
+    assert settings["file_io_read_roots"] == []
+    assert dlg._read_roots_edit.text() == ""

@@ -528,7 +528,7 @@ def test_set_3d_camera_zoom(bridge_mod):
 @pytest.mark.parametrize(
     "args,msg",
     [
-        ({"position": [1, 0, 0], "direction": [1, 0, 0]}, "not both"),
+        ({"position": [1, 0, 0], "direction": [1, 0, 0]}, "only one"),
         ({"direction": [0, 0, 0]}, "non-zero"),
         ({"direction": [0, 1, 0]}, "parallel"),  # current view_up is +y
         ({"position": [0, 0, 0]}, "differ"),

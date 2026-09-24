@@ -84,7 +84,30 @@ _SERVER_INSTRUCTIONS = (
     "XYZ data (show_xyz_in_viewer, load_xyz_file) never opens the app's charge "
     "dialog over MCP: pass 'charge' for ions, or skip_chemistry=true to keep "
     "distance-based bonds only. For figures, fix the view with set_3d_camera "
-    "and write it with save_molecule_image."
+    "(atom-based directions, parallel projection), choose set_3d_style, add "
+    "long contacts with edit_bonds, and write it with "
+    "save_molecule_image (background may be 'transparent').\n"
+    "\n"
+    "Widening file access always needs the user's approval in a MoleditPy "
+    "dialog: request_read_folder asks for a read-only folder, and "
+    "set_file_io_config asks before changing the base directory or the "
+    "extension list. If the user declines, do not retry the same request."
+)
+
+#: Background option shared by the two image tools.
+_IMAGE_BACKGROUND_PROPERTY: dict[str, Any] = {
+    "type": "string",
+    "description": (
+        "Background color for this capture ('white', '#ffffff', any color "
+        "name) or 'transparent' for a PNG with alpha. Default: the viewer's "
+        "own background (3D) / white (2D). The viewer is left unchanged."
+    ),
+}
+
+#: Path wording shared by the read tools.
+_READ_PATH_NOTE = (
+    "Relative to the sandbox base directory, or an absolute path inside a "
+    "read-only folder the user approved (see request_read_folder)."
 )
 
 #: Arguments shared by the two XYZ-loading tools.
@@ -282,7 +305,7 @@ _TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Path relative to the sandbox base directory.",
+                    "description": _READ_PATH_NOTE,
                 },
                 **_XYZ_LOAD_PROPERTIES,
             },
@@ -389,6 +412,7 @@ _TOOLS: list[dict[str, Any]] = [
                         "(removed again afterwards). Default false."
                     ),
                 },
+                "background": _IMAGE_BACKGROUND_PROPERTY,
             },
         },
     },
@@ -424,6 +448,7 @@ _TOOLS: list[dict[str, Any]] = [
                     "type": "boolean",
                     "description": "3D only: overlay 0-based atom indices.",
                 },
+                "background": _IMAGE_BACKGROUND_PROPERTY,
                 "overwrite": {
                     "type": "boolean",
                     "description": "Replace an existing file (default false).",
@@ -447,9 +472,13 @@ _TOOLS: list[dict[str, Any]] = [
             "Give either 'position' (absolute) or 'direction' (the side you "
             "look FROM, as a vector from the focal point toward the camera, "
             "e.g. [0, 0, 1] looks down the z axis). 'view_up' sets which way "
-            "is up on screen. With 'direction' the molecule is re-framed "
-            "('fit', default true); 'zoom' > 1 then moves in. Returns the "
-            "resulting camera."
+            "is up on screen. Atom-based alternatives: 'direction_atoms' "
+            "[i, j] views from atom j's side along the i->j axis, "
+            "'plane_atoms' (3+ atoms) looks straight at their best plane (a "
+            "ring face), 'focal_atoms' centers on their centroid. With a "
+            "direction the molecule is re-framed ('fit', default true); "
+            "'zoom' > 1 then moves in. 'parallel_projection' removes "
+            "perspective distortion. Returns the resulting camera."
         ),
         "inputSchema": {
             "type": "object",
@@ -489,6 +518,29 @@ _TOOLS: list[dict[str, Any]] = [
                 "zoom": {
                     "type": "number",
                     "description": "Zoom factor applied last (>0).",
+                },
+                "direction_atoms": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "description": "[i, j]: view from atom j's side along the i->j axis.",
+                },
+                "plane_atoms": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "minItems": 3,
+                    "description": "Look perpendicular to the best plane of these atoms.",
+                },
+                "focal_atoms": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "minItems": 1,
+                    "description": "Look at the centroid of these atoms.",
+                },
+                "parallel_projection": {
+                    "type": "boolean",
+                    "description": "true = orthographic view, false = perspective.",
                 },
             },
         },
@@ -543,7 +595,7 @@ _TOOLS: list[dict[str, Any]] = [
                 },
                 "path": {
                     "type": "string",
-                    "description": "Or: sandbox path of an .xyz file.",
+                    "description": "Or: path of an .xyz file. " + _READ_PATH_NOTE,
                 },
                 "frame": {
                     "type": "integer",
@@ -583,6 +635,65 @@ _TOOLS: list[dict[str, Any]] = [
     # ------------------------------------------------------------------
     # Molecule manipulation (direct RDKit access)
     # ------------------------------------------------------------------
+    {
+        "name": "set_3d_style",
+        "description": (
+            "Switch the 3D display style: ball_and_stick (app default), cpk "
+            "(space-filling), wireframe, or stick. Color overrides are kept."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "style": {
+                    "type": "string",
+                    "enum": ["ball_and_stick", "cpk", "wireframe", "stick"],
+                },
+            },
+            "required": ["style"],
+        },
+    },
+    {
+        "name": "edit_bonds",
+        "description": (
+            "Add and/or remove bonds on the current molecule by 0-based atom "
+            "index, the way the Bond Editor plugin does it. Use it for "
+            "contacts that distance-based bonding leaves out (bridging "
+            "atoms, partial or forming bonds) or to drop a wrong one. The "
+            "3D coordinates are kept and one undo step is recorded. An edit "
+            "that breaks valence rules (e.g. a hydrogen bonded to two atoms) "
+            "is kept unsanitized rather than refused, and the result says so."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "add": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "minItems": 2,
+                        "maxItems": 2,
+                    },
+                    "description": "Atom index pairs to bond, e.g. [[0, 12], [5, 12]].",
+                },
+                "remove": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "minItems": 2,
+                        "maxItems": 2,
+                    },
+                    "description": "Atom index pairs whose bond is removed.",
+                },
+                "bond_type": {
+                    "type": "string",
+                    "enum": ["single", "double", "triple", "aromatic"],
+                    "description": "Type of the added bonds (default single).",
+                },
+            },
+        },
+    },
     {
         "name": "get_molecule_descriptors",
         "description": (
@@ -1202,14 +1313,15 @@ _TOOLS: list[dict[str, Any]] = [
         "name": "read_text_file",
         "description": (
             "Read and return the UTF-8 text content of a file inside the "
-            "configured base directory. Path is relative to that directory. "
+            "configured base directory (relative path) or inside a read-only "
+            "folder the user approved (absolute path). "
             "Pass start_line/end_line to read only a slice of a large file "
             "(line numbers are 1-based and match grep_files output)."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Relative file path."},
+                "path": {"type": "string", "description": _READ_PATH_NOTE},
                 "start_line": {
                     "type": "integer",
                     "description": "First line to return, 1-based (default 1).",
@@ -1225,7 +1337,8 @@ _TOOLS: list[dict[str, Any]] = [
     {
         "name": "list_directory",
         "description": (
-            "List files and subdirectories at a path inside the base directory. "
+            "List files and subdirectories at a path inside the base directory "
+            "or a user-approved read-only folder (absolute path). "
             "Omit path (or use '.') to list the base directory itself."
         ),
         "inputSchema": {
@@ -1233,7 +1346,7 @@ _TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Relative path (default '.' = base directory).",
+                    "description": "Default '.' = base directory. " + _READ_PATH_NOTE,
                 },
             },
         },
@@ -1362,17 +1475,46 @@ _TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "request_read_folder",
+        "description": (
+            "Ask the user for READ-ONLY access to a folder outside the base "
+            "directory. MoleditPy shows a Yes/No dialog to the person at the "
+            "window; only a Yes adds it (the answer can take a while). After "
+            "that, read_text_file, list_directory, load_xyz_file and "
+            "compare_structures accept absolute paths inside it; writing and "
+            "deleting stay confined to the base directory. Say why in "
+            "'reason'. If the user declines, do not ask again for the same "
+            "folder."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Absolute path of an existing folder.",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Shown to the user in the dialog.",
+                },
+            },
+            "required": ["path"],
+        },
+    },
+    {
         "name": "get_file_io_config",
         "description": (
-            "Get the current file I/O sandbox configuration: "
-            "base directory and allowed file extensions."
+            "Get the current file I/O sandbox configuration: base directory, "
+            "allowed file extensions and user-approved read-only folders."
         ),
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
         "name": "set_file_io_config",
         "description": (
-            "Configure the file I/O sandbox. "
+            "Configure the file I/O sandbox. The user must approve every "
+            "change in a MoleditPy dialog (the answer can take a while); a "
+            "declined request changes nothing. "
             "base_dir must be an existing absolute directory path — "
             "all file tools are restricted to that directory tree. "
             "allowed_extensions is an optional list of permitted extensions "
@@ -1447,6 +1589,7 @@ _DESTRUCTIVE_TOOLS = {
     "delete_atoms",
     "load_xyz_file",
     "save_molecule_image",
+    "edit_bonds",
 }
 
 #: Mutating tools whose repeated call leaves the same state.
@@ -1467,6 +1610,8 @@ _IDEMPOTENT_TOOLS = {
     "trigger_3d_conversion",
     "set_3d_camera",
     "clear_overlay",
+    "set_3d_style",
+    "request_read_folder",
 }
 
 #: Tools that reach outside MoleditPy (network).
@@ -1609,10 +1754,61 @@ def _get_sandbox(bridge: Any) -> tuple[str, list[str]]:
     return base_dir, allowed
 
 
+#: How long the server waits for the user to answer an approval dialog. The
+#: dialog itself gives up earlier (bridge.APPROVAL_TIMEOUT_MS), so an answer
+#: can never arrive after the client has been told the call timed out.
+APPROVAL_WAIT_SECONDS = 300.0
+
+
+def _image_call_args(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Arguments of the bridge's get_molecule_image, shared by the two image tools."""
+    call_args: dict[str, Any] = {
+        "view": arguments.get("view", "auto"),
+        "width": arguments.get("width"),
+        "height": arguments.get("height"),
+    }
+    if arguments.get("atom_labels"):
+        call_args["atom_labels"] = True
+    if arguments.get("background") is not None:
+        call_args["background"] = arguments["background"]
+    return call_args
+
+
+def _resolve_read_path(bridge: Any, user_path: str) -> tuple[Path, list[str]]:
+    """Resolve a path for READING: relative to the base directory as before,
+    or absolute inside the base or a user-approved read-only folder.
+
+    Returns (resolved path, allowed extensions). Writing never goes through
+    here, so the read-only folders cannot be written to.
+    """
+    cfg = bridge.call("get_file_io_config")
+    base_dir: str | None = cfg.get("base_dir")
+    allowed: list[str] = cfg.get("allowed_extensions", [])
+    roots = [r for r in cfg.get("read_roots", []) if isinstance(r, str)]
+    if not Path(user_path).is_absolute():
+        if not base_dir:
+            raise ValueError(
+                "File I/O base directory is not configured. "
+                "Call set_file_io_config with a base_dir first."
+            )
+        return _resolve_safe_path(user_path, base_dir), allowed
+    target = Path(user_path).expanduser().resolve()
+    for root in ([base_dir] if base_dir else []) + roots:
+        base = Path(root).expanduser().resolve()
+        try:
+            target.relative_to(base)
+        except ValueError:
+            continue
+        return target, allowed
+    raise ValueError(
+        f"{user_path!r} is outside the base directory and the read-only "
+        "folders. Ask the user with request_read_folder first."
+    )
+
+
 def _read_sandbox_text(bridge: Any, user_path: str) -> str:
     """UTF-8 text of a sandbox file, with the same checks as read_text_file."""
-    base_dir, allowed_exts = _get_sandbox(bridge)
-    target = _resolve_safe_path(user_path, base_dir)
+    target, allowed_exts = _resolve_read_path(bridge, user_path)
     _check_extension(target, allowed_exts)
     if not target.is_file():
         raise ValueError(f"{user_path!r} does not exist or is not a file.")
@@ -2059,8 +2255,8 @@ def dispatch_tool(
             info = bridge.call("get_molecule_info")
             if not info["loaded"]:
                 return _tool_ok("No molecule is currently loaded in MoleditPy.")
-            return _tool_ok(
-                f"SMILES: {info['smiles']}\n"
+            text = (
+                f"SMILES: {info['smiles'] if info['smiles'] is not None else '(not available)'}\n"
                 f"Formula: {info['formula']}\n"
                 f"Molecular Weight: {info['molecular_weight']:.4f} g/mol\n"
                 f"Atoms: {info['num_atoms']}\n"
@@ -2068,6 +2264,9 @@ def dispatch_tool(
                 f"3D coordinates: "
                 f"{'available' if info['has_3d_coords'] else 'not available'}"
             )
+            if info.get("note"):
+                text += f"\nNote: {info['note']}"
+            return _tool_ok(text)
 
         if name == "get_molecule_xyz":
             data = bridge.call("get_xyz_block")
@@ -2159,15 +2358,7 @@ def dispatch_tool(
             )
 
         if name == "get_molecule_image":
-            data = bridge.call(
-                "get_molecule_image",
-                {
-                    "view": arguments.get("view", "auto"),
-                    "width": arguments.get("width"),
-                    "height": arguments.get("height"),
-                    **({"atom_labels": True} if arguments.get("atom_labels") else {}),
-                },
-            )
+            data = bridge.call("get_molecule_image", _image_call_args(arguments))
             return _tool_image(
                 data["image_base64"],
                 data["mime_type"],
@@ -2188,15 +2379,7 @@ def dispatch_tool(
                 return _tool_err(
                     f"{user_path!r} already exists. Pass overwrite=true to replace it."
                 )
-            data = bridge.call(
-                "get_molecule_image",
-                {
-                    "view": arguments.get("view", "auto"),
-                    "width": arguments.get("width"),
-                    "height": arguments.get("height"),
-                    **({"atom_labels": True} if arguments.get("atom_labels") else {}),
-                },
-            )
+            data = bridge.call("get_molecule_image", _image_call_args(arguments))
             png = base64.b64decode(data["image_base64"])
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(png)
@@ -2209,7 +2392,18 @@ def dispatch_tool(
             return _tool_ok(json.dumps(bridge.call("get_3d_camera")))
 
         if name == "set_3d_camera":
-            keys = ("position", "direction", "focal_point", "view_up", "fit", "zoom")
+            keys = (
+                "position",
+                "direction",
+                "focal_point",
+                "view_up",
+                "fit",
+                "zoom",
+                "direction_atoms",
+                "plane_atoms",
+                "focal_atoms",
+                "parallel_projection",
+            )
             cam_args = {k: arguments[k] for k in keys if arguments.get(k) is not None}
             return _tool_ok(
                 "Camera set: " + json.dumps(bridge.call("set_3d_camera", cam_args))
@@ -2258,6 +2452,75 @@ def dispatch_tool(
                     "(clear_overlay removes it and restores the view)."
                 )
             return _tool_ok("\n".join(lines))
+
+        if name == "set_3d_style":
+            data = bridge.call("set_3d_style", {"style": arguments.get("style")})
+            return _tool_ok(
+                f"3D style: {data['style']} (was {data.get('previous') or 'unknown'})."
+            )
+
+        if name == "edit_bonds":
+            bond_args = {
+                k: arguments[k]
+                for k in ("add", "remove", "bond_type")
+                if arguments.get(k) is not None
+            }
+            data = bridge.call("edit_bonds", bond_args)
+            if not data.get("changed"):
+                return _tool_ok(
+                    "No change. Skipped: "
+                    + "; ".join(
+                        f"{sk['atoms'][0]}-{sk['atoms'][1]} ({sk['reason']})"
+                        for sk in data["skipped"]
+                    )
+                )
+            parts = []
+            if data["added"]:
+                parts.append(
+                    "Added: " + ", ".join(f"{i}-{j}" for i, j in data["added"])
+                )
+            if data["removed"]:
+                parts.append(
+                    "Removed: " + ", ".join(f"{i}-{j}" for i, j in data["removed"])
+                )
+            if data["skipped"]:
+                parts.append(
+                    "Skipped: "
+                    + "; ".join(
+                        f"{sk['atoms'][0]}-{sk['atoms'][1]} ({sk['reason']})"
+                        for sk in data["skipped"]
+                    )
+                )
+            parts.append(f"{data['num_bonds']} bonds now (undo step recorded).")
+            if not data.get("sanitized"):
+                parts.append(
+                    "Not sanitized: the result breaks normal valence rules, "
+                    "so SMILES-based tools may not work on it."
+                )
+            return _tool_ok("\n".join(parts))
+
+        if name == "request_read_folder":
+            folder = _str_arg(arguments, "path")
+            if not folder:
+                return _tool_err("'path' argument is required.")
+            # The user answers a dialog: allow minutes, not the default 10 s.
+            data = bridge.call(
+                "request_read_folder",
+                {"path": folder, "reason": _str_arg(arguments, "reason", "")},
+                timeout=APPROVAL_WAIT_SECONDS,
+            )
+            roots = ", ".join(data.get("read_roots", [])) or "(none)"
+            if data.get("already_readable"):
+                return _tool_ok(
+                    f"{folder} is already readable (inside the base directory "
+                    f"or an approved folder). Read-only folders: {roots}"
+                )
+            if data.get("declined"):
+                return _tool_err(
+                    f"The user declined read access to {folder}. Do not ask again "
+                    "for this folder; work inside the base directory instead."
+                )
+            return _tool_ok(f"Read-only access granted. Read-only folders: {roots}")
 
         if name == "clear_overlay":
             data = bridge.call("clear_overlay")
@@ -2660,8 +2923,10 @@ def dispatch_tool(
             cfg = bridge.call("get_file_io_config")
             base_dir = cfg.get("base_dir") or "(not configured)"
             exts = ", ".join(cfg.get("allowed_extensions", []))
+            roots = "\n".join(f"  {r}" for r in cfg.get("read_roots", [])) or "  (none)"
             return _tool_ok(
-                f"Base directory: {base_dir}\nAllowed extensions: {exts or '(none)'}"
+                f"Base directory: {base_dir}\nAllowed extensions: {exts or '(none)'}\n"
+                f"Read-only folders:\n{roots}"
             )
 
         if name == "set_file_io_config":
@@ -2685,7 +2950,15 @@ def dispatch_tool(
                 )
             if not args_inner:
                 return _tool_err("Provide at least base_dir or allowed_extensions.")
-            bridge.call("set_file_io_config", args_inner)
+            # The user approves the change in a dialog: allow minutes.
+            outcome = bridge.call(
+                "set_file_io_config", args_inner, timeout=APPROVAL_WAIT_SECONDS
+            )
+            if isinstance(outcome, dict) and outcome.get("declined"):
+                return _tool_err(
+                    "The user declined the file I/O change; nothing was changed. "
+                    "Do not retry the same request."
+                )
             parts = []
             if "base_dir" in args_inner:
                 parts.append(f"Base directory: {args_inner['base_dir']}")
@@ -2775,8 +3048,7 @@ def dispatch_tool(
             user_path = _str_arg(arguments, "path")
             if not user_path:
                 return _tool_err("'path' argument is required.")
-            base_dir, allowed_exts = _get_sandbox(bridge)
-            target = _resolve_safe_path(user_path, base_dir)
+            target, allowed_exts = _resolve_read_path(bridge, user_path)
             _check_extension(target, allowed_exts)
             if not target.exists():
                 return _tool_err(f"{user_path!r} does not exist.")
@@ -2798,8 +3070,7 @@ def dispatch_tool(
 
         if name == "list_directory":
             user_path = _str_arg(arguments, "path", ".")
-            base_dir, _ = _get_sandbox(bridge)
-            target = _resolve_safe_path(user_path, base_dir)
+            target, _ = _resolve_read_path(bridge, user_path)
             if not target.exists():
                 return _tool_err(f"{user_path!r} does not exist.")
             if not target.is_dir():

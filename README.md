@@ -26,9 +26,9 @@ Ask an AI to load, modify, and analyze molecules entirely through conversation:
 
 - **Load by name** — "Load caffeine" → PubChem lookup → molecule appears in the editor
 - **Query the current molecule** — get SMILES, formula, MW, atom/bond tables, 3D coordinates
-- **Edit atoms and bonds** — run arbitrary RDKit code via `run_python` with full access to the molecule
+- **Edit atoms and bonds** — add or remove bonds by atom index (`edit_bonds`, the Bond Editor way: coordinates kept, one undo step), or run arbitrary RDKit code via `run_python`
 - **3D visualization** — trigger 2D→3D conversion, switch to 3D viewer, highlight specific atoms or bonds in color, fit/reset the camera
-- **Reproducible figures** — point the camera exactly (`set_3d_camera`), overlay atom indices, and save a PNG into the sandbox (`save_molecule_image`)
+- **Reproducible figures** — point the camera exactly (`set_3d_camera`, also along an atom-atom axis or straight at a ring face, with optional parallel projection), switch the display style (`set_3d_style`), overlay atom indices, and save a PNG into the sandbox (`save_molecule_image`, white or transparent background)
 - **Measure and compare** — distances, angles and dihedrals by atom index (`measure_geometry`); RMSD and a translucent overlay against another structure (`compare_structures`)
 - **XYZ without dialogs** — load XYZ text or files (including multi-frame trajectories) with an explicit `charge` or `skip_chemistry`, so the app's charge prompt never blocks an AI call
 - **Undo-safe editing** — every change can push an undo checkpoint; the user can always revert
@@ -307,7 +307,7 @@ Claude loads it automatically whenever a task involves the MoleditPy MCP tools. 
 
 | Tool | Description |
 |------|-------------|
-| `get_current_molecule` | SMILES, formula, MW, atom/bond counts, 3D availability |
+| `get_current_molecule` | SMILES, formula, MW, atom/bond counts, 3D availability (for a structure loaded with distance-based bonds only: formula and weight from the atoms, no SMILES) |
 | `get_molecule_xyz` | 3D XYZ coordinate block (`Element X Y Z` per line) |
 | `get_atom_properties` | Per-atom: symbol, Z, charge, hybridization, Hs, radical electrons |
 | `get_bond_info` | Full bond table: endpoints and bond type (SINGLE/DOUBLE/TRIPLE/AROMATIC) |
@@ -320,9 +320,11 @@ Claude loads it automatically whenever a task involves the MoleditPy MCP tools. 
 | `get_mapped_smiles` | SMILES with atom indices embedded as map numbers + legend (find atom_index targets) |
 | `apply_reaction_smarts` | Modify the 2D molecule with a Reaction SMARTS transformation (optional anchor atom) |
 | `trigger_3d_conversion` | Run MoleditPy's built-in 2D→3D optimizer (ETKDG/MMFF) |
-| `get_molecule_image` | Render the molecule to a **PNG returned as an actual image** — the 2D canvas or the 3D viewer (`view`: auto / 2d / 3d, `width`, `height`, `atom_labels` to overlay atom indices) |
-| `save_molecule_image` | Write the same PNG into the file sandbox (`path` ending in `.png`, `overwrite`) — for reports and notes |
-| `get_3d_camera` / `set_3d_camera` | Read or set the 3D camera: `position` or `direction` (the side you look from), `focal_point`, `view_up`, `fit`, `zoom` — makes figures reproducible |
+| `get_molecule_image` | Render the molecule to a **PNG returned as an actual image** — the 2D canvas or the 3D viewer (`view`: auto / 2d / 3d, `width`, `height`, `atom_labels` to overlay atom indices, `background`: a color or `transparent`) |
+| `save_molecule_image` | Write the same PNG into the file sandbox (`path` ending in `.png`, `overwrite`, `background`) — for reports and notes |
+| `get_3d_camera` / `set_3d_camera` | Read or set the 3D camera: `position` or `direction` (the side you look from), `focal_point`, `view_up`, `fit`, `zoom`; or by atoms — `direction_atoms` [i, j] (view along the i→j axis from j's side), `plane_atoms` (look straight at the best plane of 3+ atoms, e.g. a ring), `focal_atoms` (look at their centroid); `parallel_projection` — makes figures reproducible |
+| `set_3d_style` | Switch the 3D style: `ball_and_stick`, `cpk`, `wireframe`, `stick` |
+| `edit_bonds` | Add and/or remove bonds by atom index pairs (`add`, `remove`, `bond_type`), as the Bond Editor plugin does: 3D coordinates kept, one undo step; an edit that breaks valence rules (e.g. a bridging hydrogen) is kept unsanitized and reported |
 | `measure_geometry` | Distances (2 atoms), angles (3) and dihedrals (4) by 0-based index, several per call |
 | `compare_structures` | RMSD against another structure with the same atom order (`xyz_text` or sandbox `path`, `frame`), Kabsch-aligned; `heavy_atoms_only`; `overlay` switches to the stick style and draws both, told apart by carbon color (`current_color`, `overlay_color`; other elements keep CPK colors) |
 | `clear_overlay` | Remove the overlay drawn by `compare_structures` and restore the 3D style and atom colors it changed |
@@ -334,7 +336,7 @@ Claude loads it automatically whenever a task involves the MoleditPy MCP tools. 
 | `delete_atoms` | Delete atoms by index (highest first, so the caller's other indices stay valid); re-sanitized |
 | `substructure_search` | Every SMARTS match in the molecule, as atom-index tuples (`unique_matches` to keep or collapse symmetry-equivalent hits) |
 | `compute_partial_charges` | Gasteiger partial charges per atom, computed on a private copy so the canvas is untouched (optional `atom_indices` filter) |
-| `set_cpk_color_override` | Override atom CPK colors in the 3D viewer (hex per atom index); persists across redraws (formerly `highlight_atoms`, still accepted) |
+| `set_cpk_color_override` | Override atom CPK colors in the 3D viewer (hex per atom index); applied with a single redraw and persists across redraws (formerly `highlight_atoms`, still accepted) |
 | `reset_cpk_color_override` | Clear atom/bond color overrides (`scope`: atoms / bonds / all) and restore default colors |
 | `set_bond_color_override` | Override bond colors in the 3D viewer by bond index or `"atom1-atom2"` pairs; persists across redraws (formerly `highlight_bonds`, still accepted) |
 | `push_undo_checkpoint` | Push the current state onto MoleditPy's undo stack |
@@ -369,11 +371,12 @@ Claude loads it automatically whenever a task involves the MoleditPy MCP tools. 
 |------|-------------|
 | `write_file_with_xyz_block` | **Preferred for QM input generation** — write a file composed as header + live XYZ coordinate block + footer, with `element_style`, `atom_order`, `precision`, and standard-XYZ-header options |
 | `write_text_file` | Write text to a file; auto-creates parent dirs; `overwrite=false` by default |
-| `read_text_file` | Read a file's UTF-8 text content (≤ 4 MB); optional `start_line` / `end_line` slice |
-| `list_directory` | List files and subdirectories with sizes |
+| `read_text_file` | Read a file's UTF-8 text content (≤ 4 MB); optional `start_line` / `end_line` slice. Relative to the base directory, or an absolute path inside a read-only folder |
+| `list_directory` | List files and subdirectories with sizes (base directory or a read-only folder) |
 | `delete_file` | Delete a file; requires explicit `confirm=true` |
-| `get_file_io_config` | Show current base directory and allowed extension list |
-| `set_file_io_config` | Set the sandbox directory and/or update the extension allowlist |
+| `get_file_io_config` | Show current base directory, allowed extension list and read-only folders |
+| `set_file_io_config` | Set the sandbox directory and/or update the extension allowlist — **the user approves every change in a MoleditPy dialog** |
+| `request_read_folder` | Ask for **read-only** access to a folder outside the base directory; MoleditPy shows a Yes/No dialog and only a Yes adds it |
 
 #### `run_python` — execute arbitrary Python
 
@@ -395,14 +398,18 @@ stdout, stderr, and the value of `result` are returned to the AI. There are no e
 
 #### Security model
 
-All file operations are restricted to a **base directory** you configure. Set it in **Plugins → MCP Server → Status & Settings** (File I/O base dir field), or let the LLM set it via `set_file_io_config`:
+All file operations are restricted to a **base directory** you configure. Set it in **Plugins → MCP Server → Status & Settings** (File I/O base dir field), or let the LLM request it via `set_file_io_config`:
 
 ```
 Set the file I/O base directory to /home/you/dft_jobs
 ```
 
+**Widening access always needs you.** When an AI calls `set_file_io_config` (base directory or extension list) or `request_read_folder`, MoleditPy shows a Yes/No dialog (default No) describing exactly what changes; nothing changes unless you press Yes. The MCP client cannot approve on your behalf.
+
+**Read-only folders.** Besides the base directory you can allow folders that are only *read*: add them in the Status & Settings dialog (Read-only folders: Add… / Clear), or approve an AI's `request_read_folder`. Inside them `read_text_file`, `list_directory`, `load_xyz_file` and `compare_structures` accept absolute paths; writing and deleting stay confined to the base directory.
+
 Security guarantees:
-- **Path traversal blocked** — `../../etc/passwd` and absolute paths are rejected; every path is resolved and must stay within the base directory.
+- **Path traversal blocked** — `../../etc/passwd` is rejected; every path is resolved and must stay within the base directory (reads: or within an approved read-only folder; absolute paths are accepted only there).
 - **Extension allowlist** — only extensions on the allowed list can be written/read/deleted. Defaults cover common DFT/QM formats (`.inp`, `.xyz`, `.gjf`, `.mol`, `.pdb`, `.txt`, `.json`, …). Use `set_file_io_config` to customise.
 - **Overwrite protection** — `write_text_file` refuses to replace existing files unless `overwrite=true` is passed explicitly.
 - **Deletion requires confirmation** — `delete_file` requires `confirm=true` in the same call.
