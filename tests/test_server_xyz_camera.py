@@ -351,7 +351,7 @@ def test_compare_with_text(srv):
     }))
     assert "RMSD: 0.1234 A over 3 atoms (aligned)" in text
     assert "H1: 0.2000 A" in text
-    assert "Overlay drawn" in text
+    assert "Overlay drawn" in text and "stick" in text
     sent = _args_of(bridge, "compare_structures")[0]
     assert sent["heavy_atoms_only"] is True and sent["frame"] == -1
 
@@ -379,3 +379,22 @@ def test_compare_needs_exactly_one_source(srv, args):
 def test_clear_overlay(srv):
     text = _text(srv.dispatch_tool(make_bridge({"clear_overlay": {"removed": 2}}), "clear_overlay", {}))
     assert "2 actors" in text
+    assert "restored" not in text
+
+
+def test_clear_overlay_reports_restored_style(srv):
+    bridge = make_bridge({"clear_overlay": {"removed": 2, "restored_style": "ball_and_stick"}})
+    assert "restored to ball_and_stick" in _text(srv.dispatch_tool(bridge, "clear_overlay", {}))
+
+
+def test_compare_forwards_colors(srv):
+    bridge = make_bridge({"compare_structures": CMP})
+    srv.dispatch_tool(bridge, "compare_structures", {
+        "xyz_text": WATER, "overlay": True, "overlay_color": "#00ff00", "current_color": "#0000ff",
+    })
+    sent = _args_of(bridge, "compare_structures")[0]
+    assert sent["overlay_color"] == "#00ff00" and sent["current_color"] == "#0000ff"
+
+
+def test_compare_schema_has_current_color(srv):
+    assert "current_color" in _tool(srv, "compare_structures")["inputSchema"]["properties"]

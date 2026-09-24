@@ -57,4 +57,4 @@ jobs:
         env:
           MOLEDITPY_HEADLESS: "1"
           QT_QPA_PLATFORM: offscreen
-        run: pytest tests/test_plugin_integration.py tests/test_integration_xyz_charge.py -v --tb=short
+        run: pytest tests/test_plugin_integration.py tests/test_integration_xyz_charge.py tests/test_integration_overlay_contract.py tests/test_api.py -v --tb=short

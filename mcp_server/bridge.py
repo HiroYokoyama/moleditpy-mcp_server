@@ -92,6 +92,10 @@ def execute_operation(ctx: Any, operation: str, args: Dict[str, Any]) -> Any:  #
         if camera is not None and mol is not None:
             plotter.camera_position = camera
             plotter.render()
+        elif mol is not None:
+            # Frame the new molecule: the viewer otherwise keeps whatever
+            # zoom and center the previous structure left behind.
+            ctx.reset_3d_camera()
         result = _show_xyz_result(mol, charge, state)
         if n_frames > 1:
             result.update(frame=frame_idx, num_frames=n_frames)
@@ -797,8 +801,10 @@ def _apply_reaction_smarts(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
 
 def _exit_3d_mode(ctx: Any) -> Dict[str, Any]:
     """Switch the UI back to 2D editing mode (counterpart of enter_3d_mode)."""
-    if hasattr(ctx, "exit_3d_viewer_mode"):
-        ctx.exit_3d_viewer_mode()
+    # Not in the PluginContext API yet; used as soon as a future app adds it.
+    exit_fn = getattr(ctx, "exit_3d_viewer_mode", None)
+    if exit_fn is not None:
+        exit_fn()
         return {"success": True}
     mw = ctx.get_main_window()
     if mw is None or not hasattr(mw, "ui_manager"):
@@ -1422,48 +1428,203 @@ def _compare_structures(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
         ],
     }
     if args.get("overlay", False):
-        _draw_overlay(ctx, mol, q, str(args.get("overlay_color", "orange")))
+        _draw_overlay(
+            ctx, mol, q,
+            str(args.get("overlay_color") or _DEFAULT_OVERLAY_CARBON),
+            str(args.get("current_color") or _DEFAULT_CURRENT_CARBON),
+        )
         result["overlay"] = True
     return result
 
 
-def _draw_overlay(ctx: Any, mol: Any, coords: Any, color: str) -> None:
-    """Translucent spheres + bonds for the other structure, using the current
-    molecule's bonds (same atom order was checked by the caller)."""
+#: Attributes on the plotter remembering what to undo on clear_overlay.
+_OVERLAY_STYLE_ATTR = "_mcp_overlay_previous_style"
+_OVERLAY_COLORED_ATTR = "_mcp_overlay_colored_atoms"
+_OVERLAY_RADIUS_SCALE = 1.15
+_OVERLAY_OPACITY = 0.45
+_DEFAULT_CURRENT_CARBON = "#3fa7d6"
+_DEFAULT_OVERLAY_CARBON = "#ff8c00"
+#: Fallback element colors (RGB 0-1) when the app's CPK table is unavailable.
+_FALLBACK_CPK = {
+    "H": (1.0, 1.0, 1.0), "C": (0.56, 0.56, 0.56), "N": (0.19, 0.31, 0.97),
+    "O": (1.0, 0.05, 0.05), "F": (0.56, 0.88, 0.31), "P": (1.0, 0.5, 0.0),
+    "S": (1.0, 1.0, 0.19), "Cl": (0.12, 0.94, 0.12), "Br": (0.65, 0.16, 0.16),
+    "I": (0.58, 0.0, 0.58), "B": (1.0, 0.71, 0.71), "Si": (0.94, 0.78, 0.63),
+}
+
+
+def _view_3d_manager(ctx: Any) -> Any:
+    mw = ctx.get_main_window() if hasattr(ctx, "get_main_window") else None
+    manager = getattr(mw, "view_3d_manager", None)
+    return manager if hasattr(manager, "set_3d_style") else None
+
+
+def _stick_radius(ctx: Any) -> float:
+    mw = ctx.get_main_window() if hasattr(ctx, "get_main_window") else None
+    settings = getattr(getattr(mw, "init_manager", None), "settings", None)
+    try:
+        radius = float(settings.get("stick_bond_radius", 0.15)) if isinstance(settings, dict) else 0.15
+    except (TypeError, ValueError):
+        radius = 0.15
+    return radius if radius > 0 else 0.15
+
+
+def _element_rgb(symbol: str) -> tuple:
+    """RGB (0-1) of an element from the app's CPK table, else a fallback."""
+    try:
+        from moleditpy.utils.constants import CPK_COLORS_PV  # pylint: disable=import-outside-toplevel
+
+        color = CPK_COLORS_PV.get(symbol) if isinstance(CPK_COLORS_PV, dict) else None
+        if color is not None and len(color) == 3:
+            return tuple(float(c) for c in color)
+    except Exception:  # pylint: disable=broad-except
+        pass
+    return _FALLBACK_CPK.get(symbol, (0.75, 0.75, 0.75))
+
+
+def _hex_rgb(color: str) -> tuple:
+    """'#rrggbb' -> RGB (0-1). Named colors go through pyvista."""
+    text = color.strip()
+    if text.startswith("#") and len(text) == 7:
+        try:
+            return tuple(int(text[i:i + 2], 16) / 255.0 for i in (1, 3, 5))
+        except ValueError:
+            pass
+    import pyvista as pv  # pylint: disable=import-outside-toplevel
+
+    return tuple(float(c) for c in pv.Color(text).float_rgb)
+
+
+def _draw_overlay(ctx: Any, mol: Any, coords: Any, color: str, current_color: str) -> None:
+    """Show both structures as stick models, told apart by carbon color.
+
+    In ball-and-stick the atom spheres swallow any shift smaller than their
+    radius (a 0.3 A displacement sits inside a carbon sphere), so the viewer
+    switches to the stick style for the comparison. As in PyMOL, only the
+    carbons carry the structure's color (current: *current_color*, other:
+    *color*); every other element keeps its CPK color. The overlay is a
+    little thicker and translucent: at the same radius, bonds the two
+    structures share z-fight into stripes. clear_overlay undoes the style
+    and the carbon colors. Bonds come from the current molecule (the caller
+    checked that the atom order matches).
+    """
     import numpy as np  # pylint: disable=import-outside-toplevel
     import pyvista as pv  # pylint: disable=import-outside-toplevel
 
     plotter = ctx.plotter
     if plotter is None:
         raise ValueError("The 3D viewer is not available.")
-    _clear_overlay(ctx)
+    _remove_overlay_actors(plotter)
+    symbols = [mol.GetAtomWithIdx(i).GetSymbol() for i in range(mol.GetNumAtoms())]
+    carbons = [i for i, s in enumerate(symbols) if s == "C"]
+    manager = _view_3d_manager(ctx)
+    if manager is not None:
+        if getattr(plotter, _OVERLAY_STYLE_ATTR, None) is None:
+            setattr(plotter, _OVERLAY_STYLE_ATTR, getattr(manager, "current_3d_style", None))
+    saved = _set_carbon_colors(ctx, manager, {i: current_color for i in carbons})
+    if getattr(plotter, _OVERLAY_COLORED_ATTR, None) is None:
+        setattr(plotter, _OVERLAY_COLORED_ATTR, saved)
+    if manager is not None:
+        _restyle_and_redraw(manager, "stick")  # redraws the molecule, so overlay goes after
+
+    carbon_rgb = _hex_rgb(color)
+    rgb = np.array([carbon_rgb if s == "C" else _element_rgb(s) for s in symbols], dtype=float)
+    radius = _stick_radius(ctx) * _OVERLAY_RADIUS_SCALE
+    points = np.asarray(coords, dtype=float)
+
+    atoms = pv.PolyData(points)
+    atoms.point_data["rgb"] = rgb
     plotter.add_mesh(
-        pv.PolyData(np.asarray(coords, dtype=float)),
-        color=color, opacity=0.5, point_size=14, render_points_as_spheres=True,
+        atoms.glyph(geom=pv.Sphere(radius=radius, theta_resolution=16, phi_resolution=16),
+                    scale=False, orient=False),
+        scalars="rgb", rgb=True, opacity=_OVERLAY_OPACITY,
         name=_OVERLAY_NAMES[0], pickable=False,
     )
     bonds = [(b.GetBeginAtomIdx(), b.GetEndAtomIdx()) for b in mol.GetBonds()]
     if bonds:
-        lines = np.hstack([[2, a, b] for a, b in bonds])
+        # Each bond as two half-segments, each colored like its own atom.
+        seg_points, seg_rgb, lines = [], [], []
+        for a, b in bonds:
+            mid = (points[a] + points[b]) / 2.0
+            for end, owner in ((points[a], a), (points[b], b)):
+                base = len(seg_points)
+                seg_points += [end, mid]
+                seg_rgb += [rgb[owner], rgb[owner]]
+                lines += [2, base, base + 1]
+        sticks = pv.PolyData(np.array(seg_points), lines=np.array(lines))
+        sticks.point_data["rgb"] = np.array(seg_rgb)
         plotter.add_mesh(
-            pv.PolyData(np.asarray(coords, dtype=float), lines=lines),
-            color=color, opacity=0.5, line_width=4, name=_OVERLAY_NAMES[1], pickable=False,
+            sticks.tube(radius=radius, n_sides=16),
+            scalars="rgb", rgb=True, opacity=_OVERLAY_OPACITY,
+            name=_OVERLAY_NAMES[1], pickable=False,
         )
     plotter.render()
 
 
+def _remove_overlay_actors(plotter: Any) -> int:
+    removed = 0
+    for name in _OVERLAY_NAMES:
+        try:
+            if plotter.remove_actor(name):
+                removed += 1
+        except Exception:  # pylint: disable=broad-except
+            logger.debug("Overlay actor %s not removed", name)
+    return removed
+
+
 def _clear_overlay(ctx: Any) -> Dict[str, Any]:
     plotter = ctx.plotter
-    removed = 0
-    if plotter is not None:
-        for name in _OVERLAY_NAMES:
-            try:
-                if plotter.remove_actor(name):
-                    removed += 1
-            except Exception:  # pylint: disable=broad-except
-                logger.debug("Overlay actor %s not removed", name)
-        plotter.render()
-    return {"removed": removed}
+    result: Dict[str, Any] = {"removed": 0}
+    if plotter is None:
+        return result
+    result["removed"] = _remove_overlay_actors(plotter)
+    manager = _view_3d_manager(ctx)
+    saved = getattr(plotter, _OVERLAY_COLORED_ATTR, None)
+    if isinstance(saved, dict) and saved:
+        _set_carbon_colors(ctx, manager, saved)
+    setattr(plotter, _OVERLAY_COLORED_ATTR, None)
+    previous = getattr(plotter, _OVERLAY_STYLE_ATTR, None)
+    setattr(plotter, _OVERLAY_STYLE_ATTR, None)
+    if manager is not None and (isinstance(previous, str) or isinstance(saved, dict)):
+        _restyle_and_redraw(manager, previous if isinstance(previous, str) else None)
+        if isinstance(previous, str):
+            result["restored_style"] = previous
+    plotter.render()
+    return result
+
+
+def _set_carbon_colors(ctx: Any, manager: Any, colors: Dict[int, Optional[str]]) -> Dict[int, Optional[str]]:
+    """Apply atom color overrides (None removes one) and return the previous
+    values, for restoring. Returns without redrawing when it can write the
+    3D manager's override store directly; the per-atom PluginContext call
+    redraws the whole molecule each time (seconds for a few dozen atoms),
+    so it is only the fallback."""
+    store = getattr(manager, "_plugin_color_overrides", None)
+    if isinstance(store, dict):
+        previous = {idx: store.get(idx) for idx in colors}
+        for idx, color in colors.items():
+            if color is None:
+                store.pop(idx, None)
+            else:
+                store[idx] = color
+        return previous
+    ctrl = ctx.get_3d_controller() if hasattr(ctx, "get_3d_controller") else None
+    if ctrl is None:
+        return {}
+    for idx, color in colors.items():
+        ctrl.set_atom_color(idx, color)
+    return {idx: None for idx in colors}
+
+
+def _restyle_and_redraw(manager: Any, style: Optional[str]) -> None:
+    """Switch the 3D style (which redraws) or, when it is already that
+    style, redraw once so pending color overrides show."""
+    if style is not None and getattr(manager, "current_3d_style", None) != style:
+        manager.set_3d_style(style)
+        return
+    mol = getattr(manager, "current_mol", None)
+    if mol is not None:
+        manager.draw_molecule_3d(mol)
 
 
 # ---------------------------------------------------------------------------

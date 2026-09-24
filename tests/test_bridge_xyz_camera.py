@@ -366,6 +366,26 @@ def test_show_xyz_without_keep_camera_leaves_reframe(bridge_mod):
     assert ctx.plotter.camera_position == "after"
 
 
+def test_show_xyz_resets_camera_after_load(bridge_mod):
+    ctx, _, _ = xyz_ctx()
+    bridge_mod.execute_operation(ctx, "show_xyz", {"xyz_text": water_xyz()})
+    ctx.reset_3d_camera.assert_called_once_with()
+
+
+def test_show_xyz_keep_camera_skips_reset(bridge_mod):
+    ctx, _, _ = xyz_ctx()
+    ctx.plotter.camera_position = [(1, 2, 3), (0, 0, 0), (0, 1, 0)]
+    bridge_mod.execute_operation(ctx, "show_xyz", {"xyz_text": water_xyz(), "keep_camera": True})
+    ctx.reset_3d_camera.assert_not_called()
+
+
+def test_show_xyz_failed_load_does_not_reset_camera(bridge_mod):
+    ctx, _, _ = xyz_ctx()
+    ctx.show_xyz_data.side_effect = lambda text, source_name="": None
+    bridge_mod.execute_operation(ctx, "show_xyz", {"xyz_text": water_xyz()})
+    ctx.reset_3d_camera.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # 3D camera
 # ---------------------------------------------------------------------------
@@ -678,22 +698,187 @@ def test_compare_trajectory_frame(bridge_mod, real_numpy):
     assert first["rmsd"] == pytest.approx(0.0, abs=1e-6)
 
 
-def test_compare_overlay_draws_and_clear_removes(bridge_mod, real_numpy, monkeypatch):
+class FakeView3D:
+    """The app's 3D manager: style switch (redraws) and the override store."""
+
+    def __init__(self, style="ball_and_stick", overrides=None) -> None:
+        self.current_3d_style = style
+        self._plugin_color_overrides = dict(overrides or {})
+        self.current_mol = object()
+        self.redraws = 0
+        self.styles = []
+
+    def set_3d_style(self, style):
+        self.styles.append(style)
+        if style != self.current_3d_style:
+            self.current_3d_style = style
+            self.redraws += 1
+
+    def draw_molecule_3d(self, mol):
+        self.redraws += 1
+
+
+OVERLAY_COORDS = [[0.0, 0.0, 0.0], [1.4, 0.0, 0.0], [-0.5, 0.9, 0.0]]
+
+
+def overlay_ctx(style="ball_and_stick", overrides=None, symbols=("C", "O", "H"), settings=None):
+    ctx = cam_ctx()
+    ctx.current_molecule = FakeMol(list(symbols), OVERLAY_COORDS, bonds=[(0, 1), (0, 2)])
+    v3d = FakeView3D(style, overrides)
+    mw = MagicMock()
+    mw.view_3d_manager = v3d
+    mw.init_manager.settings = settings if settings is not None else {"stick_bond_radius": 0.2}
+    ctx.get_main_window.return_value = mw
+    rows = [f"{s} {x} {y} {z}" for s, (x, y, z) in zip(symbols, OVERLAY_COORDS)]
+    return ctx, v3d, "\n".join(["3", ""] + rows)
+
+
+@pytest.fixture()
+def fake_pv(monkeypatch):
     pv = MagicMock()
+    pv.Color.return_value.float_rgb = (0.0, 1.0, 0.0)
     monkeypatch.setitem(sys.modules, "pyvista", pv)
-    ctx = cmp_ctx()
-    result = bridge_mod.execute_operation(
-        ctx, "compare_structures", {"xyz_text": water_xyz(), "overlay": True, "overlay_color": "#ff0000"}
-    )
+    return pv
+
+
+def _rgb_arrays(fake_pv):
+    """The 'rgb' arrays assigned to point_data, in order (atoms, then bonds)."""
+    calls = fake_pv.PolyData.return_value.point_data.__setitem__.call_args_list
+    return [c.args[1] for c in calls if c.args[0] == "rgb"]
+
+
+def test_overlay_switches_to_stick_and_colors_current_carbons(bridge_mod, real_numpy, fake_pv):
+    ctx, v3d, text = overlay_ctx()
+    result = bridge_mod.execute_operation(ctx, "compare_structures", {"xyz_text": text, "overlay": True})
     assert result["overlay"] is True
+    assert v3d.current_3d_style == "stick"
+    assert v3d._plugin_color_overrides == {0: "#3fa7d6"}  # only the carbon
+    assert v3d.redraws == 1  # one redraw, not one per atom
+    ctx.get_3d_controller.return_value.set_atom_color.assert_not_called()
     names = [kw["name"] for _mesh, kw in ctx.plotter.meshes]
     assert names == ["_mcp_overlay_atoms", "_mcp_overlay_bonds"]
-    assert all(kw["color"] == "#ff0000" for _mesh, kw in ctx.plotter.meshes)
-    # bonds as VTK line cells [2, a, b, 2, a, b]
-    lines = pv.PolyData.call_args_list[1].kwargs["lines"]
-    assert list(lines) == [2, 0, 1, 2, 0, 2]
-    cleared = bridge_mod.execute_operation(ctx, "clear_overlay", {})
-    assert cleared["removed"] == 2
+    assert all(kw["rgb"] is True and kw["opacity"] < 1 for _mesh, kw in ctx.plotter.meshes)
+
+
+def test_overlay_colors_only_the_other_structures_carbons(bridge_mod, real_numpy, fake_pv):
+    ctx, _, text = overlay_ctx()
+    bridge_mod.execute_operation(ctx, "compare_structures", {"xyz_text": text, "overlay": True})
+    atom_rgb = _rgb_arrays(fake_pv)[0]
+    assert list(atom_rgb[0]) == pytest.approx([1.0, 140 / 255, 0.0])  # C: default dark orange
+    assert list(atom_rgb[1]) != list(atom_rgb[0])                      # O keeps its own color
+
+
+def test_overlay_bonds_are_half_colored(bridge_mod, real_numpy, fake_pv):
+    ctx, _, text = overlay_ctx()
+    bridge_mod.execute_operation(ctx, "compare_structures", {"xyz_text": text, "overlay": True})
+    call = fake_pv.PolyData.call_args_list[1]
+    assert len(call.args[0]) == 8  # 2 bonds x 2 halves x 2 points
+    assert list(call.kwargs["lines"]) == [2, 0, 1, 2, 2, 3, 2, 4, 5, 2, 6, 7]
+    seg_rgb = _rgb_arrays(fake_pv)[1]
+    assert list(seg_rgb[0]) == list(seg_rgb[1])  # C half is uniform
+    assert list(seg_rgb[2]) != list(seg_rgb[0])  # O half differs
+
+
+def test_overlay_uses_stick_radius_setting(bridge_mod, real_numpy, fake_pv):
+    ctx, _, text = overlay_ctx(settings={"stick_bond_radius": 0.2})
+    bridge_mod.execute_operation(ctx, "compare_structures", {"xyz_text": text, "overlay": True})
+    assert fake_pv.Sphere.call_args.kwargs["radius"] == pytest.approx(0.2 * 1.15)
+
+
+def test_overlay_bad_radius_setting_falls_back(bridge_mod, real_numpy, fake_pv):
+    ctx, _, text = overlay_ctx(settings={"stick_bond_radius": "thick"})
+    bridge_mod.execute_operation(ctx, "compare_structures", {"xyz_text": text, "overlay": True})
+    assert fake_pv.Sphere.call_args.kwargs["radius"] == pytest.approx(0.15 * 1.15)
+
+
+def test_overlay_custom_colors(bridge_mod, real_numpy, fake_pv):
+    ctx, v3d, text = overlay_ctx()
+    bridge_mod.execute_operation(ctx, "compare_structures", {
+        "xyz_text": text, "overlay": True, "overlay_color": "#0000ff", "current_color": "#00ff00",
+    })
+    assert v3d._plugin_color_overrides == {0: "#00ff00"}
+    assert list(_rgb_arrays(fake_pv)[0][0]) == pytest.approx([0.0, 0.0, 1.0])
+
+
+def test_overlay_named_color_goes_through_pyvista(bridge_mod, real_numpy, fake_pv):
+    ctx, _, text = overlay_ctx()
+    bridge_mod.execute_operation(
+        ctx, "compare_structures", {"xyz_text": text, "overlay": True, "overlay_color": "green"}
+    )
+    fake_pv.Color.assert_called_with("green")
+    assert list(_rgb_arrays(fake_pv)[0][0]) == pytest.approx([0.0, 1.0, 0.0])
+
+
+def test_clear_overlay_restores_style_and_colors(bridge_mod, real_numpy, fake_pv):
+    ctx, v3d, text = overlay_ctx(overrides={0: "#123456", 2: "#abcdef"})
+    bridge_mod.execute_operation(ctx, "compare_structures", {"xyz_text": text, "overlay": True})
+    assert v3d._plugin_color_overrides[0] == "#3fa7d6"
+    result = bridge_mod.execute_operation(ctx, "clear_overlay", {})
+    assert result == {"removed": 2, "restored_style": "ball_and_stick"}
+    assert v3d.current_3d_style == "ball_and_stick"
+    assert v3d._plugin_color_overrides == {0: "#123456", 2: "#abcdef"}  # user's own overrides back
+
+
+def test_clear_overlay_drops_overrides_it_added(bridge_mod, real_numpy, fake_pv):
+    ctx, v3d, text = overlay_ctx()
+    bridge_mod.execute_operation(ctx, "compare_structures", {"xyz_text": text, "overlay": True})
+    bridge_mod.execute_operation(ctx, "clear_overlay", {})
+    assert v3d._plugin_color_overrides == {}
+
+
+def test_overlay_twice_then_clear_restores_original(bridge_mod, real_numpy, fake_pv):
+    ctx, v3d, text = overlay_ctx(overrides={0: "#123456"})
+    bridge_mod.execute_operation(ctx, "compare_structures", {"xyz_text": text, "overlay": True})
+    bridge_mod.execute_operation(
+        ctx, "compare_structures", {"xyz_text": text, "overlay": True, "current_color": "#ffffff"}
+    )
+    assert v3d._plugin_color_overrides == {0: "#ffffff"}
+    bridge_mod.execute_operation(ctx, "clear_overlay", {})
+    assert v3d._plugin_color_overrides == {0: "#123456"}
+    assert v3d.current_3d_style == "ball_and_stick"
+
+
+def test_overlay_already_stick_redraws_once_and_restores_stick(bridge_mod, real_numpy, fake_pv):
+    ctx, v3d, text = overlay_ctx(style="stick")
+    bridge_mod.execute_operation(ctx, "compare_structures", {"xyz_text": text, "overlay": True})
+    assert v3d.redraws == 1
+    result = bridge_mod.execute_operation(ctx, "clear_overlay", {})
+    assert result["restored_style"] == "stick"
+    assert v3d.redraws == 2
+
+
+def test_overlay_falls_back_to_plugin_context_colors(bridge_mod, real_numpy, fake_pv):
+    """Without the manager's override store, colors go through the public API."""
+    ctx, _, text = overlay_ctx()
+    ctx.get_main_window.return_value.view_3d_manager = None
+    bridge_mod.execute_operation(ctx, "compare_structures", {"xyz_text": text, "overlay": True})
+    ctx.get_3d_controller.return_value.set_atom_color.assert_called_once_with(0, "#3fa7d6")
+    bridge_mod.execute_operation(ctx, "clear_overlay", {})
+    ctx.get_3d_controller.return_value.set_atom_color.assert_called_with(0, None)
+
+
+def test_overlay_without_carbons_changes_no_colors(bridge_mod, real_numpy, fake_pv):
+    ctx, v3d, text = overlay_ctx(symbols=("N", "O", "H"))
+    bridge_mod.execute_operation(ctx, "compare_structures", {"xyz_text": text, "overlay": True})
+    assert v3d._plugin_color_overrides == {}
+    assert v3d.current_3d_style == "stick"
+
+
+def test_clear_overlay_without_overlay_is_harmless(bridge_mod):
+    ctx, v3d, _ = overlay_ctx(overrides={1: "#111111"})
+    result = bridge_mod.execute_operation(ctx, "clear_overlay", {})
+    assert "restored_style" not in result
+    assert v3d._plugin_color_overrides == {1: "#111111"}
+    assert v3d.styles == []
+
+
+def test_element_rgb_fallback_table(bridge_mod):
+    assert bridge_mod._element_rgb("O") != bridge_mod._element_rgb("N")
+    assert bridge_mod._element_rgb("Xx") == (0.75, 0.75, 0.75)
+
+
+def test_hex_rgb(bridge_mod):
+    assert bridge_mod._hex_rgb("#ff0000") == (1.0, 0.0, 0.0)
 
 
 def test_clear_overlay_without_viewer(bridge_mod):

@@ -315,7 +315,7 @@ Claude loads it automatically whenever a task involves the MoleditPy MCP tools. 
 | `load_molecule_from_smiles` | Draw a molecule from a SMILES string |
 | `load_from_mol_block` | Load a molecule from a MOL/SDF block |
 | `load_molecule_by_name` | Look up by common/IUPAC name on PubChem and load (e.g. `"aspirin"`) |
-| `show_xyz_in_viewer` | Display an XYZ block in the 3D viewer. `charge` (for ions) or `skip_chemistry` (distance-based bonds) answer the app's charge prompt so no dialog blocks the call; `frame` picks one frame of a trajectory; `keep_camera` keeps the viewpoint |
+| `show_xyz_in_viewer` | Display an XYZ block in the 3D viewer. `charge` (for ions) or `skip_chemistry` (distance-based bonds) answer the app's charge prompt so no dialog blocks the call; `frame` picks one frame of a trajectory; the camera is re-fitted to the new molecule unless `keep_camera` |
 | `load_xyz_file` | Same as `show_xyz_in_viewer`, but reads an `.xyz` file from the sandbox — no pasting of coordinates; multi-frame files default to the last frame |
 | `get_mapped_smiles` | SMILES with atom indices embedded as map numbers + legend (find atom_index targets) |
 | `apply_reaction_smarts` | Modify the 2D molecule with a Reaction SMARTS transformation (optional anchor atom) |
@@ -324,8 +324,8 @@ Claude loads it automatically whenever a task involves the MoleditPy MCP tools. 
 | `save_molecule_image` | Write the same PNG into the file sandbox (`path` ending in `.png`, `overwrite`) — for reports and notes |
 | `get_3d_camera` / `set_3d_camera` | Read or set the 3D camera: `position` or `direction` (the side you look from), `focal_point`, `view_up`, `fit`, `zoom` — makes figures reproducible |
 | `measure_geometry` | Distances (2 atoms), angles (3) and dihedrals (4) by 0-based index, several per call |
-| `compare_structures` | RMSD against another structure with the same atom order (`xyz_text` or sandbox `path`, `frame`), Kabsch-aligned; `heavy_atoms_only`; `overlay` draws it translucent |
-| `clear_overlay` | Remove the overlay drawn by `compare_structures` |
+| `compare_structures` | RMSD against another structure with the same atom order (`xyz_text` or sandbox `path`, `frame`), Kabsch-aligned; `heavy_atoms_only`; `overlay` switches to the stick style and draws both, told apart by carbon color (`current_color`, `overlay_color`; other elements keep CPK colors) |
+| `clear_overlay` | Remove the overlay drawn by `compare_structures` and restore the 3D style and atom colors it changed |
 | `get_molecule_descriptors` | RDKit's standard descriptor set in one call: canonical SMILES, formula, MW, exact mass, LogP, TPSA, formal charge, HBD/HBA, rotatable bonds, ring and atom/bond counts |
 | `add_hydrogens` | Add explicit hydrogens (RDKit `AddHs`); 3D coordinates are generated for them when the molecule already has a conformer |
 | `remove_hydrogens` | Strip explicit hydrogens back to implicit (RDKit `RemoveHs`) |

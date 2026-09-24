@@ -489,8 +489,10 @@ _TOOLS: List[Dict[str, Any]] = [
             "optimization, or two levels of theory). The other structure "
             "comes from 'xyz_text' or a sandbox 'path'; trajectories take "
             "'frame' (default last). Kabsch-aligned unless align=false. "
-            "overlay=true draws it translucent over the current molecule "
-            "(remove with clear_overlay)."
+            "overlay=true switches the viewer to the stick style and draws "
+            "the other structure over the molecule; the two are told apart "
+            "by carbon color (other elements keep CPK colors). "
+            "clear_overlay removes it and restores style and colors."
         ),
         "inputSchema": {
             "type": "object",
@@ -510,13 +512,18 @@ _TOOLS: List[Dict[str, Any]] = [
                 "overlay": {"type": "boolean",
                             "description": "Draw the aligned structure in the 3D viewer."},
                 "overlay_color": {"type": "string",
-                                  "description": "Overlay color name or hex (default 'orange')."},
+                                  "description": "Carbon color of the other structure (default '#ff8c00')."},
+                "current_color": {"type": "string",
+                                  "description": "Carbon color of the current molecule during the overlay (default '#3fa7d6')."},
             },
         },
     },
     {
         "name": "clear_overlay",
-        "description": "Remove the structure overlay drawn by compare_structures.",
+        "description": (
+            "Remove the overlay drawn by compare_structures and restore the "
+            "3D style and atom colors it changed."
+        ),
         "inputSchema": {"type": "object", "properties": {}},
     },
     # ------------------------------------------------------------------
@@ -2098,7 +2105,7 @@ def dispatch_tool(  # noqa: C901
             if user_path:
                 xyz_text = _read_sandbox_text(bridge, user_path)
             cmp_args: Dict[str, Any] = {"xyz_text": xyz_text}
-            for key in ("frame", "align", "heavy_atoms_only", "overlay", "overlay_color"):
+            for key in ("frame", "align", "heavy_atoms_only", "overlay", "overlay_color", "current_color"):
                 if arguments.get(key) is not None:
                     cmp_args[key] = arguments[key]
             data = bridge.call("compare_structures", cmp_args)
@@ -2112,12 +2119,18 @@ def dispatch_tool(  # noqa: C901
                 for d in data["largest_deviations"]
             ]
             if data.get("overlay"):
-                lines.append("Overlay drawn in the 3D viewer (clear_overlay removes it).")
+                lines.append(
+                    "Overlay drawn: stick style, carbons colored per structure "
+                    "(clear_overlay removes it and restores the view)."
+                )
             return _tool_ok("\n".join(lines))
 
         if name == "clear_overlay":
             data = bridge.call("clear_overlay")
-            return _tool_ok(f"Overlay cleared ({data['removed']} actors removed).")
+            text = f"Overlay cleared ({data['removed']} actors removed)."
+            if data.get("restored_style"):
+                text += f" 3D style restored to {data['restored_style']}."
+            return _tool_ok(text)
 
         # ------------------------------------------------------------------
         # Molecule manipulation (direct RDKit access)
