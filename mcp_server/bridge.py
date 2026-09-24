@@ -1127,7 +1127,11 @@ def _request_read_folder(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     base = ctx.get_setting("file_io_base_dir", None)
     for root in roots + ([base] if base else []):
         real = os.path.realpath(root)
-        if os.path.commonpath([real, target]) == real:
+        try:
+            inside = os.path.commonpath([real, target]) == real
+        except ValueError:  # different drives on Windows
+            inside = False
+        if inside:
             return {"added": False, "already_readable": True, "read_roots": roots}
     reason = str(args.get("reason") or "").strip()
     text = (
@@ -1549,7 +1553,12 @@ def _set_3d_camera(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
         )
     cos = abs(sum(a * b for a, b in zip(view, up))) / (view_len * up_len)
     if cos > 0.999:
-        raise ValueError("'view_up' is parallel to the viewing direction")
+        if "view_up" in args:
+            raise ValueError("'view_up' is parallel to the viewing direction")
+        # The kept screen-up happens to lie along the new direction: use the
+        # coordinate axis most perpendicular to it instead of failing.
+        up = [0.0, 0.0, 0.0]
+        up[min(range(3), key=lambda k: abs(view[k]))] = 1.0
     plotter.camera_position = [pos, focal, up]
     projection = args.get("parallel_projection")
     if projection is not None:

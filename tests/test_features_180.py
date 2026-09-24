@@ -122,6 +122,23 @@ def test_request_read_folder_already_readable_asks_nothing(
     assert result["already_readable"] is True and result["added"] is False
 
 
+def test_request_read_folder_on_another_drive_still_asks(
+    bridge_mod, tmp_path, monkeypatch
+):
+    # On Windows, commonpath() raises ValueError for paths on different drives.
+    def commonpath(paths):
+        raise ValueError("Paths don't have the same drive")
+
+    monkeypatch.setattr("os.path.commonpath", commonpath)
+    ctx, store = settings_ctx({"file_io_base_dir": str(tmp_path / "base")})
+    monkeypatch.setattr(bridge_mod, "_ask_user", lambda c, t, x: True)
+    result = bridge_mod.execute_operation(
+        ctx, "request_read_folder", {"path": str(tmp_path)}
+    )
+    assert result["added"] is True
+    assert store["file_io_read_roots"] == [str(tmp_path.resolve())]
+
+
 @pytest.mark.parametrize("path", [None, "relative/dir", "/definitely/not/here/xyz"])
 def test_request_read_folder_rejects_bad_path(bridge_mod, path):
     ctx, _ = settings_ctx()

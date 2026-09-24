@@ -510,6 +510,16 @@ def test_set_3d_camera_direction_is_normalized(bridge_mod):
     assert ctx.plotter.reset_calls == 0
 
 
+def test_set_3d_camera_kept_view_up_along_direction_is_replaced(bridge_mod):
+    ctx = cam_ctx()  # current view_up is +y
+    result = bridge_mod.execute_operation(
+        ctx, "set_3d_camera", {"direction": [0, 1, 0], "fit": False}
+    )
+    assert result["position"] == [0.0, 10.0, 0.0]
+    up = result["view_up"]
+    assert abs(up[1]) < 1e-9 and abs(sum(v * v for v in up) - 1.0) < 1e-9
+
+
 def test_set_3d_camera_position_does_not_fit_by_default(bridge_mod):
     ctx = cam_ctx()
     result = bridge_mod.execute_operation(
@@ -530,7 +540,7 @@ def test_set_3d_camera_zoom(bridge_mod):
     [
         ({"position": [1, 0, 0], "direction": [1, 0, 0]}, "only one"),
         ({"direction": [0, 0, 0]}, "non-zero"),
-        ({"direction": [0, 1, 0]}, "parallel"),  # current view_up is +y
+        ({"direction": [0, 1, 0], "view_up": [0, 1, 0]}, "parallel"),
         ({"position": [0, 0, 0]}, "differ"),
         ({"view_up": [0, 0, 0]}, "non-zero"),
         ({"direction": [1, 0]}, "3 numbers"),
