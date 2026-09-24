@@ -1875,8 +1875,8 @@ def _bond_pairs(mol: Any, value: Any, what: str) -> list[tuple]:
 def _edit_bonds(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     """Add and remove bonds on the current molecule, the way the Bond Editor
     plugin does it: edit an RWMol copy, sanitize (keeping the edit when the
-    result is not a valid valence structure, e.g. a hydrogen bonded to two
-    atoms), hand it back through ``ctx.current_molecule`` (which redraws and
+    result is not a valid valence structure, e.g. an atom above its usual
+    valence), hand it back through ``ctx.current_molecule`` (which redraws and
     keeps the 3D coordinates) and record an undo step."""
     from rdkit import Chem  # pylint: disable=import-outside-toplevel
 

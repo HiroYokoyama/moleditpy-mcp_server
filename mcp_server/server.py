@@ -657,10 +657,10 @@ _TOOLS: list[dict[str, Any]] = [
         "description": (
             "Add and/or remove bonds on the current molecule by 0-based atom "
             "index, the way the Bond Editor plugin does it. Use it for "
-            "contacts that distance-based bonding leaves out (bridging "
-            "atoms, partial or forming bonds) or to drop a wrong one. The "
+            "contacts that distance-based bonding leaves out (long, partial "
+            "or forming bonds) or to drop a wrong one. The "
             "3D coordinates are kept and one undo step is recorded. An edit "
-            "that breaks valence rules (e.g. a hydrogen bonded to two atoms) "
+            "that breaks valence rules (an atom above its usual valence) "
             "is kept unsanitized rather than refused, and the result says so."
         ),
         "inputSchema": {

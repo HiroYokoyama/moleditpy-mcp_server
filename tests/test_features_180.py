@@ -483,7 +483,7 @@ def test_edit_bonds_add_and_remove_keeps_coordinates():
     ctx.push_undo_checkpoint.assert_called_once()
 
 
-def test_edit_bonds_bridging_hydrogen_kept_unsanitized():
+def test_edit_bonds_over_valence_kept_unsanitized():
     mod = _real_bridge_module()
     ctx = MagicMock()
     mol = _three_atoms()
