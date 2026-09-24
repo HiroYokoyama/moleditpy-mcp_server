@@ -190,7 +190,7 @@ def parse_json_param(name: str, expected_type: str, text: str) -> Any:
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"Parameter {name!r}: invalid JSON ({exc})")
+        raise ValueError(f"Parameter {name!r}: invalid JSON ({exc})") from exc
     expected = list if expected_type == "array" else dict
     if not isinstance(parsed, expected):
         raise ValueError(f"Parameter {name!r} must be a JSON {expected_type}.")
@@ -665,7 +665,7 @@ class ParamField:
             return self.widget.currentText()
         if isinstance(self.widget, QCheckBox):
             return self.widget.isChecked()
-        if isinstance(self.widget, QSpinBox) or isinstance(self.widget, QDoubleSpinBox):
+        if isinstance(self.widget, (QSpinBox, QDoubleSpinBox)):
             return self.widget.value()
         if isinstance(self.widget, QPlainTextEdit):
             text = self.widget.toPlainText()
@@ -748,7 +748,11 @@ class MCPTesterWindow(QMainWindow):
         self.client: Optional[MCPClient] = None
         self.tools: List[Dict[str, Any]] = []
         self.fields: List[ParamField] = []
-        self.worker = _Worker()
+        # One worker per request: a shared worker whose handlers are swapped
+        # on every call routes an in-flight call's result to whichever
+        # handler was connected last (e.g. a tool result into the tool-list
+        # refresh). Referenced here until done so they are not collected.
+        self._workers: set = set()
         self.history = ArgumentHistory()
         self._call_started: Optional[float] = None
 
@@ -939,6 +943,8 @@ class MCPTesterWindow(QMainWindow):
         path = self.path_edit.text().strip()
         if path and not path.startswith("/"):
             path = "/" + path
+        if ":" in host and not host.startswith("["):
+            host = f"[{host}]"  # bare IPv6 literal, e.g. ::1
         url = f"http://{host}:{self.port_spin.value()}{path}"
         self.client = MCPClient(
             url, headers=headers, protocol=self.protocol_combo.currentData()
@@ -1222,17 +1228,18 @@ class MCPTesterWindow(QMainWindow):
 
     def _run(self, fn, *args: Any, on_done) -> None:
         """Run *fn* in a background thread; route outcome to the GUI thread."""
-        try:
-            self.worker.finished.disconnect()
-        except TypeError:
-            pass
-        try:
-            self.worker.failed.disconnect()
-        except TypeError:
-            pass
-        self.worker.finished.connect(on_done)
-        self.worker.failed.connect(self._on_error)
-        self.worker.run_async(fn, *args)
+        worker = _Worker()
+        self._workers.add(worker)
+        worker.finished.connect(on_done)
+        worker.failed.connect(self._on_error)
+        # Bound methods, not closures: PyQt holds a bound-method slot weakly,
+        # so a closed window is not kept alive by a request still in flight.
+        worker.finished.connect(self._forget_worker)
+        worker.failed.connect(self._forget_worker)
+        worker.run_async(fn, *args)
+
+    def _forget_worker(self, _outcome: Any) -> None:
+        self._workers.discard(self.sender())
 
     def _on_error(self, failure: Any) -> None:
         self.connect_btn.setEnabled(True)

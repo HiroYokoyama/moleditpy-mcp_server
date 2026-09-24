@@ -211,7 +211,7 @@ class MCPStatusDialog(QDialog):
                 self._protocol_combo.count() - 1, tip, Qt.ItemDataRole.ToolTipRole
             )
         index = self._protocol_combo.findData(saved_mode)
-        self._protocol_combo.setCurrentIndex(index if index >= 0 else 0)
+        self._protocol_combo.setCurrentIndex(max(index, 0))
         self._protocol_combo.setToolTip(
             "Which MCP protocol era the server speaks. "
             "Restart the server after changing."
@@ -232,7 +232,7 @@ class MCPStatusDialog(QDialog):
         dir_row = QHBoxLayout()
         dir_row.addWidget(QLabel("File I/O base dir:"))
         self._base_dir_edit = QLineEdit()
-        self._base_dir_edit.setPlaceholderText("(unrestricted)")
+        self._base_dir_edit.setPlaceholderText("(not set: file tools are disabled)")
         saved_dir = self._plugin.context.get_setting("file_io_base_dir", None)
         if saved_dir:
             self._base_dir_edit.setText(saved_dir)
@@ -374,8 +374,9 @@ class MCPStatusDialog(QDialog):
             self, "Select File I/O Base Directory", self._base_dir_edit.text() or ""
         )
         if directory:
+            # Same normalization as typing a path in the field.
             self._base_dir_edit.setText(directory)
-            self._plugin.context.set_setting("file_io_base_dir", directory)
+            self._on_base_dir_changed()
 
     def _copy_url(self) -> None:
         QApplication.clipboard().setText(self._plugin.url)

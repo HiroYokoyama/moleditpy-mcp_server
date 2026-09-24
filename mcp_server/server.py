@@ -9,10 +9,14 @@ via the MCPBridge passed at construction time.
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import logging
+import os
 import re
+import socket
 import socketserver
+import sys
 import threading
 import urllib.parse
 import urllib.request
@@ -499,8 +503,8 @@ _TOOLS: List[Dict[str, Any]] = [
     {
         "name": "reset_cpk_color_override",
         "description": (
-            "Clear CPK color overrides set via set_cpk_color_override / "
-            "highlight_bonds and restore default element colors. "
+            "Clear color overrides set via set_cpk_color_override / "
+            "set_bond_color_override and restore default element colors. "
             "scope: 'atoms', 'bonds', or 'all' (default 'all'). "
             "Redraws the 3D scene once."
         ),
@@ -534,9 +538,6 @@ _TOOLS: List[Dict[str, Any]] = [
         ),
         "inputSchema": {"type": "object", "properties": {}},
     },
-    # ------------------------------------------------------------------
-    # Load by name (PubChem lookup)
-    # ------------------------------------------------------------------
     # ------------------------------------------------------------------
     # Python execution (runs on Qt main thread, has full ctx access)
     # ------------------------------------------------------------------
@@ -632,7 +633,8 @@ _TOOLS: List[Dict[str, Any]] = [
         "name": "refresh_3d_view",
         "description": (
             "Force a lightweight redraw of the 3D scene. "
-            "Use after color overrides (highlight_atoms / highlight_bonds) "
+            "Use after color overrides (set_cpk_color_override / "
+            "set_bond_color_override) "
             "to make them immediately visible."
         ),
         "inputSchema": {"type": "object", "properties": {}},
@@ -1244,7 +1246,7 @@ def _resolve_safe_path(user_path: str, base_dir: str) -> Path:
     except ValueError:
         raise ValueError(
             f"Path {user_path!r} resolves outside the allowed directory."
-        )
+        ) from None
     return resolved
 
 
@@ -1262,6 +1264,25 @@ def _check_extension(path: Path, allowed_extensions: List[str]) -> None:
             f"Allowed: {', '.join(sorted(allowed_extensions))}\n"
             "Use set_file_io_config to add it."
         )
+
+
+def normalize_extensions(raw: Any) -> List[str]:
+    """Validate an extension allowlist and bring every entry to '.ext' form.
+
+    A bare string is rejected rather than iterated: ``".inp"`` would otherwise
+    become the allowlist ``['..', '.i', '.n', '.p']``.
+    """
+    if not isinstance(raw, (list, tuple)) or not all(isinstance(e, str) for e in raw):
+        raise ValueError("'allowed_extensions' must be a list of strings, e.g. ['.inp', '.xyz']")
+    exts: List[str] = []
+    for entry in raw:
+        ext = entry.strip().lower()
+        if not ext or ext == ".":
+            raise ValueError("'allowed_extensions' contains an empty extension")
+        ext = ext if ext.startswith(".") else f".{ext}"
+        if ext not in exts:
+            exts.append(ext)
+    return exts
 
 
 def _get_sandbox(bridge: Any) -> tuple[str, List[str]]:
@@ -1339,24 +1360,38 @@ def _resolve_search_root(
         try:
             start.relative_to(base)
         except ValueError:
-            raise ValueError(f"Path {sub_path!r} resolves outside the {root!r} root.")
+            raise ValueError(
+                f"Path {sub_path!r} resolves outside the {root!r} root."
+            ) from None
         if not start.is_dir():
             raise ValueError(f"{sub_path!r} is not a directory inside the {root!r} root.")
     return base, start, exts
 
 
+def _walk_files(start: Path, name_glob: str) -> Any:
+    """Yield files under *start* whose name matches *name_glob*, in sorted order.
+
+    Cache/VCS/virtualenv directories are pruned *below* *start* only: testing
+    the absolute path instead would skip everything when the tree itself
+    lives under one (e.g. MoleditPy installed in ``.venv/``), and walking into
+    them before filtering wastes the whole search on ``node_modules``.
+    """
+    pattern = name_glob or "*"
+    for dirpath, dirnames, filenames in os.walk(start):
+        dirnames[:] = sorted(d for d in dirnames if d not in _SEARCH_SKIP_DIRS)
+        for filename in sorted(filenames):
+            if fnmatch.fnmatch(filename, pattern):
+                yield Path(dirpath, filename)
+
+
 def _iter_search_files(
     start: Path, name_glob: str, allowed_exts: Optional[List[str]]
 ) -> Any:
-    """Yield candidate files under *start*, skipping caches and binaries."""
+    """Yield candidate text files under *start*, capped at _GREP_MAX_FILES."""
     count = 0
-    for path in sorted(start.rglob(name_glob or "*")):
+    for path in _walk_files(start, name_glob):
         if count >= _GREP_MAX_FILES:
             return
-        if not path.is_file():
-            continue
-        if _SEARCH_SKIP_DIRS.intersection(path.parts):
-            continue
         suffix = path.suffix.lower()
         if allowed_exts is not None:
             if suffix not in allowed_exts:
@@ -1449,9 +1484,7 @@ def run_find(
     max_results = max(1, min(int(max_results), 1000))
     found: List[str] = []
     truncated = False
-    for path in sorted(start.rglob(name_glob or "*")):
-        if not path.is_file() or _SEARCH_SKIP_DIRS.intersection(path.parts):
-            continue
+    for path in _walk_files(start, name_glob):
         if len(found) >= max_results:
             truncated = True
             break
@@ -1481,6 +1514,21 @@ def _slice_lines(text: str, start_line: Any, end_line: Any) -> str:
         raise ValueError("end_line must be greater than or equal to start_line.")
     body = "\n".join(lines[first - 1:last])
     return f"[lines {first}-{last} of {len(lines)}]\n{body}"
+
+
+def _str_arg(arguments: Dict[str, Any], key: str, default: str = "") -> str:
+    """A stripped string tool argument; *default* when absent, null, or blank.
+
+    ``arguments.get(key, "").strip()`` crashes with AttributeError when a
+    client sends ``null`` or a number, and a blank value would otherwise
+    override *default*.
+    """
+    value = arguments.get(key)
+    if value is None:
+        return default
+    if not isinstance(value, str):
+        raise ValueError(f"{key!r} must be a string, not {type(value).__name__}.")
+    return value.strip() or default
 
 
 def _text_arg(value: Any) -> str:
@@ -1698,7 +1746,7 @@ def dispatch_tool(  # noqa: C901
             return _tool_ok("\n".join(lines))
 
         if name == "load_molecule_from_smiles":
-            smiles = arguments.get("smiles", "").strip()
+            smiles = _str_arg(arguments, "smiles")
             if not smiles:
                 return _tool_err("'smiles' argument is required.")
             bridge.call("load_smiles", {"smiles": smiles})
@@ -1829,7 +1877,7 @@ def dispatch_tool(  # noqa: C901
             )
 
         if name == "substructure_search":
-            smarts = (arguments.get("smarts") or "").strip()
+            smarts = _str_arg(arguments, "smarts")
             if not smarts:
                 return _tool_err("'smarts' argument is required.")
             data = bridge.call(
@@ -1857,9 +1905,9 @@ def dispatch_tool(  # noqa: C901
                 return _tool_ok("No molecule loaded or no matching atoms found.")
             lines = ["Gasteiger partial charges:"]
             for entry in data["charges"]:
-                lines.append(
-                    f"  Atom {entry['index']} ({entry['symbol']}): {entry['charge']:+.4f}"
-                )
+                charge = entry["charge"]
+                shown = "n/a (no Gasteiger parameters)" if charge is None else f"{charge:+.4f}"
+                lines.append(f"  Atom {entry['index']} ({entry['symbol']}): {shown}")
             return _tool_ok("\n".join(lines))
 
         # "highlight_atoms" kept as a hidden alias for pre-1.4.0 clients.
@@ -1911,7 +1959,7 @@ def dispatch_tool(  # noqa: C901
             return _tool_ok("\n".join(parts) or "(no output)")
 
         if name == "load_molecule_by_name":
-            mol_name = arguments.get("name", "").strip()
+            mol_name = _str_arg(arguments, "name")
             if not mol_name:
                 return _tool_err("'name' argument is required.")
             smiles = _fetch_smiles_by_name(mol_name)
@@ -1940,8 +1988,8 @@ def dispatch_tool(  # noqa: C901
                 f"Mapped SMILES (atom map number = atom_index + 1):\n"
                 f"{data['mapped_smiles']}\n\n"
                 f"Atom legend:\n{legend}\n\n"
-                f"Use the 0-based atom_index values with apply_reaction_smarts, "
-                f"highlight_atoms, and get_atom_properties."
+                "Use the 0-based atom_index values with apply_reaction_smarts, "
+                "set_cpk_color_override, and get_atom_properties."
             )
 
         if name == "apply_reaction_smarts":
@@ -2026,12 +2074,12 @@ def dispatch_tool(  # noqa: C901
             return _tool_ok(manual)
 
         if name == "list_app_source_tree":
-            path = arguments.get("path", "").strip()
+            path = _str_arg(arguments, "path")
             result = bridge.call("list_app_source_tree", {"path": path})
             return _tool_ok(result["content"])
 
         if name == "get_app_source":
-            path = arguments.get("path", "").strip()
+            path = _str_arg(arguments, "path")
             if not path:
                 return _tool_err("'path' argument is required.")
             result = bridge.call("get_app_source", {"path": path})
@@ -2043,15 +2091,15 @@ def dispatch_tool(  # noqa: C901
             return _tool_ok(content)
 
         if name in ("grep_files", "find_files"):
-            root = (arguments.get("root") or "app_source").strip()
-            sub_path = (arguments.get("path") or "").strip()
+            root = _str_arg(arguments, "root", "app_source")
+            sub_path = _str_arg(arguments, "path")
             base, start, allowed_exts = _resolve_search_root(bridge, root, sub_path)
             if name == "find_files":
                 return _tool_ok(
                     run_find(
                         start,
                         base,
-                        name_glob=(arguments.get("pattern") or "*").strip(),
+                        name_glob=_str_arg(arguments, "pattern", "*"),
                         max_results=arguments.get("max_results", 200),
                     )
                 )
@@ -2060,7 +2108,7 @@ def dispatch_tool(  # noqa: C901
                     start,
                     base,
                     pattern=arguments.get("pattern", ""),
-                    name_glob=(arguments.get("glob") or "*.py").strip(),
+                    name_glob=_str_arg(arguments, "glob", "*.py"),
                     allowed_exts=allowed_exts,
                     ignore_case=bool(arguments.get("ignore_case", False)),
                     fixed_string=bool(arguments.get("fixed_string", False)),
@@ -2088,7 +2136,7 @@ def dispatch_tool(  # noqa: C901
                     entries = json.loads(resp.read().decode("utf-8"))
             except Exception as exc:  # noqa: BLE001 — network errors vary widely
                 return _tool_err(f"Could not fetch the plugin registry: {exc}")
-            search = (arguments.get("search") or "").strip().lower()
+            search = _str_arg(arguments, "search").lower()
             lines = []
             for entry in entries:
                 if not entry.get("visible", False):
@@ -2148,7 +2196,11 @@ def dispatch_tool(  # noqa: C901
         if name == "set_file_io_config":
             args_inner: Dict[str, Any] = {}
             if "base_dir" in arguments:
-                bd = arguments["base_dir"]
+                bd = _str_arg(arguments, "base_dir")
+                if not bd:
+                    # Path("") resolves to the process's working directory,
+                    # which would silently become the sandbox.
+                    return _tool_err("'base_dir' must be a non-empty directory path.")
                 p = Path(bd).expanduser().resolve()
                 if not p.is_dir():
                     return _tool_err(
@@ -2157,7 +2209,9 @@ def dispatch_tool(  # noqa: C901
                     )
                 args_inner["base_dir"] = str(p)
             if "allowed_extensions" in arguments:
-                args_inner["allowed_extensions"] = arguments["allowed_extensions"]
+                args_inner["allowed_extensions"] = normalize_extensions(
+                    arguments["allowed_extensions"]
+                )
             if not args_inner:
                 return _tool_err("Provide at least base_dir or allowed_extensions.")
             bridge.call("set_file_io_config", args_inner)
@@ -2169,7 +2223,7 @@ def dispatch_tool(  # noqa: C901
             return _tool_ok("File I/O config updated.\n" + "\n".join(parts))
 
         if name == "write_text_file":
-            user_path = arguments.get("path", "").strip()
+            user_path = _str_arg(arguments, "path")
             content = _text_arg(arguments.get("content", ""))
             overwrite = bool(arguments.get("overwrite", False))
             if not user_path:
@@ -2193,7 +2247,7 @@ def dispatch_tool(  # noqa: C901
             )
 
         if name == "write_file_with_xyz_block":
-            user_path = arguments.get("path", "").strip()
+            user_path = _str_arg(arguments, "path")
             if not user_path:
                 return _tool_err("'path' argument is required.")
             overwrite = bool(arguments.get("overwrite", False))
@@ -2247,7 +2301,7 @@ def dispatch_tool(  # noqa: C901
             )
 
         if name == "read_text_file":
-            user_path = arguments.get("path", "").strip()
+            user_path = _str_arg(arguments, "path")
             if not user_path:
                 return _tool_err("'path' argument is required.")
             base_dir, allowed_exts = _get_sandbox(bridge)
@@ -2272,7 +2326,7 @@ def dispatch_tool(  # noqa: C901
             )
 
         if name == "list_directory":
-            user_path = arguments.get("path", ".") or "."
+            user_path = _str_arg(arguments, "path", ".")
             base_dir, _ = _get_sandbox(bridge)
             target = _resolve_safe_path(user_path, base_dir)
             if not target.exists():
@@ -2296,7 +2350,7 @@ def dispatch_tool(  # noqa: C901
             return _tool_ok("\n".join(lines))
 
         if name == "delete_file":
-            user_path = arguments.get("path", "").strip()
+            user_path = _str_arg(arguments, "path")
             confirm = arguments.get("confirm", False)
             if not user_path:
                 return _tool_err("'path' argument is required.")
@@ -2479,6 +2533,31 @@ def negotiate_legacy_version(requested: Any) -> str:
 # HTTP handler
 # ---------------------------------------------------------------------------
 
+#: Largest request body accepted. write_text_file caps content at 4 MB and
+#: JSON escaping can roughly double that, so this leaves headroom without
+#: letting one request exhaust memory.
+_MAX_BODY_BYTES = 16 * 1024 * 1024
+
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def _hostname(host_header: str) -> str:
+    """The host part of a ``Host`` header value: ``[::1]:7891`` -> ``::1``."""
+    host = host_header.strip().lower()
+    if host.startswith("["):
+        return host[1:].split("]", 1)[0]
+    return host.rsplit(":", 1)[0] if host.count(":") == 1 else host
+
+
+def is_loopback_origin(origin: str) -> bool:
+    """True for an ``Origin`` served from this machine (any port or scheme)."""
+    try:
+        parsed = urllib.parse.urlsplit(origin)
+        hostname = parsed.hostname or ""
+    except ValueError:
+        return False
+    return parsed.scheme in ("http", "https") and hostname in _LOOPBACK_HOSTS
+
 
 class _MCPHandler(BaseHTTPRequestHandler):
     """HTTP request handler implementing MCP Streamable HTTP transport."""
@@ -2501,12 +2580,51 @@ class _MCPHandler(BaseHTTPRequestHandler):
             type(self), name
         )
 
+    def _header(self, name: str) -> Optional[str]:
+        """Case-insensitive request header lookup (None when absent)."""
+        headers = getattr(self, "headers", None)
+        if not headers:
+            return None
+        wanted = name.lower()
+        for key, value in headers.items():
+            if key.lower() == wanted:
+                return value
+        return None
+
     # ------------------------------------------------------------------
-    # CORS helpers
+    # Origin / Host checks and CORS
     # ------------------------------------------------------------------
 
+    def _request_is_local(self) -> bool:
+        """Refuse requests a web page could have made.
+
+        This endpoint runs arbitrary Python (run_python) and writes files, so
+        a browser tab must not be able to drive it. Any page can POST to
+        127.0.0.1, and a DNS-rebinding page can even read the reply, so a
+        browser request's ``Origin`` must be this machine and the ``Host``
+        must name the address the server is bound to. Native MCP clients
+        send no ``Origin`` and are unaffected.
+        """
+        origin = self._header("Origin")
+        if origin is not None and not is_loopback_origin(origin):
+            logger.warning("Rejected MCP request from origin %r", origin)
+            return False
+        host = self._header("Host")
+        server_address = getattr(getattr(self, "server", None), "server_address", None)
+        if host and server_address:
+            allowed = set(_LOOPBACK_HOSTS) | {str(server_address[0]).lower()}
+            if _hostname(host) not in allowed:
+                logger.warning("Rejected MCP request for host %r", host)
+                return False
+        return True
+
     def _send_cors(self) -> None:
-        self.send_header("Access-Control-Allow-Origin", "*")
+        # Echo a loopback Origin (e.g. a local MCP Inspector) rather than
+        # "*": a wildcard would let any web page read the responses.
+        origin = self._header("Origin")
+        if origin is not None and is_loopback_origin(origin):
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
         self.send_header(
             "Access-Control-Allow-Headers",
@@ -2520,6 +2638,9 @@ class _MCPHandler(BaseHTTPRequestHandler):
     # ------------------------------------------------------------------
 
     def do_OPTIONS(self) -> None:  # pylint: disable=invalid-name
+        if not self._request_is_local():
+            self.send_error(403, "Forbidden origin")
+            return
         self.send_response(200)
         self._send_cors()
         self.end_headers()
@@ -2554,20 +2675,59 @@ class _MCPHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(404)
 
+    def _content_length(self) -> Optional[int]:
+        """The declared body length, or None when it is malformed."""
+        try:
+            length = int(self._header("Content-Length") or 0)
+        except ValueError:
+            return None
+        return length if length >= 0 else None
+
     def do_POST(self) -> None:  # pylint: disable=invalid-name
+        length = self._content_length()
         if self.path != "/mcp":
+            # Read the body before answering: closing a socket with unread
+            # data makes Windows reset the connection, so the client sees
+            # ConnectionAbortedError instead of this 404.
+            if length and length <= _MAX_BODY_BYTES:
+                self.rfile.read(length)
             self.send_error(404, "Use POST /mcp")
             return
-        length = int(self.headers.get("Content-Length", 0))
+        if not self._request_is_local():
+            self.send_error(403, "Forbidden origin")
+            return
+        if length is None:
+            self.send_error(400, "Invalid Content-Length")
+            return
         if length == 0:
             self.send_error(400, "Empty body")
+            return
+        if length > _MAX_BODY_BYTES:
+            self.send_error(413, "Request body too large")
             return
         try:
             raw = self.rfile.read(length)
             message = json.loads(raw)
-        except (json.JSONDecodeError, OSError) as exc:
+        except (ValueError, OSError) as exc:  # JSONDecodeError, UnicodeDecodeError
             self._send_json(
                 {"jsonrpc": "2.0", "error": {"code": -32700, "message": str(exc)}, "id": None}
+            )
+            return
+        if not isinstance(message, dict) or not isinstance(
+            message.get("params") or {}, dict
+        ):
+            # Batches were removed from MCP (2025-06-18); a bare value or a
+            # non-object params is not a request this server can route.
+            self._send_json(
+                {
+                    "jsonrpc": "2.0",
+                    "error": {
+                        "code": -32600,
+                        "message": "Invalid Request: expected a JSON-RPC object",
+                    },
+                    "id": message.get("id") if isinstance(message, dict) else None,
+                },
+                status=400,
             )
             return
         self._process(message)
@@ -2687,6 +2847,8 @@ class _MCPHandler(BaseHTTPRequestHandler):
         if method == "tools/call":
             tool_name = params.get("name", "")
             arguments: Dict[str, Any] = params.get("arguments") or {}
+            if not isinstance(arguments, dict):
+                return _tool_err("'arguments' must be a JSON object.")
             if self._cfg("bridge") is None:
                 return _tool_err("Bridge not initialized.")
             return dispatch_tool(self._cfg("bridge"), tool_name, arguments)
@@ -2742,7 +2904,16 @@ class _MethodNotFound(Exception):
 
 class _ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
     daemon_threads = True
-    allow_reuse_address = True
+    # SO_REUSEADDR means "may share a port in use" on Windows, not "may reuse
+    # one in TIME_WAIT": a second MoleditPy would bind the same port without
+    # error and the two would split the traffic. Windows gets an exclusive
+    # bind instead, so a busy port fails loudly at start().
+    allow_reuse_address = sys.platform != "win32"
+
+    def server_bind(self) -> None:
+        if sys.platform == "win32" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
 
 class MCPHttpServer:

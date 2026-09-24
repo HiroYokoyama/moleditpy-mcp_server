@@ -45,7 +45,7 @@ All settings are stored under `plugin.mcp_server.<key>` in the app's persistent 
 |---|---|---|---|
 | `auto_start` | bool | `False` | GUI checkbox (Status & Settings dialog) |
 | `port` | int | `7891` | GUI port spinner |
-| `file_io_base_dir` | str or None | `None` (unrestricted) | GUI browse field or `set_file_io_config` MCP tool |
+| `file_io_base_dir` | str or None | `None` (file tools disabled) | GUI browse field or `set_file_io_config` MCP tool |
 | `file_io_allowed_extensions` | list[str] | see `_DEFAULT_EXTENSIONS` | `set_file_io_config` MCP tool |
 | `protocol_mode` | str (`auto`/`legacy`/`modern`) | `auto` | GUI combo (Status & Settings dialog) |
 
@@ -60,6 +60,17 @@ validated (`validate_modern_request`) against their mirrored `Mcp-Method` /
 HTTP 400/404 for `-32020` / `-32022` / `-32601`. Per-connection config lives
 on the `HTTPServer` instance (`mcp_*` attributes), not on `_MCPHandler`, so
 multiple servers can run in one process.
+
+## Request Guards
+
+`do_POST`/`do_OPTIONS` refuse (403) a non-loopback `Origin` and a `Host` that
+is not the bound address (`_request_is_local`): the endpoint runs arbitrary
+Python, so a web page must not reach it. CORS echoes loopback origins only.
+Bodies over `_MAX_BODY_BYTES` get 413; non-object JSON-RPC messages get
+-32600. On Windows the socket binds with `SO_EXCLUSIVEADDRUSE` instead of
+`SO_REUSEADDR`, which there would let two servers share one port silently.
+Tool string arguments go through `_str_arg()` (null/blank -> default,
+non-string -> error) rather than `arguments.get(k, "").strip()`.
 
 ## Adding New MCP Tools
 

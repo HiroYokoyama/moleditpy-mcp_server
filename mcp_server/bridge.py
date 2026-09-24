@@ -102,11 +102,16 @@ def execute_operation(ctx: Any, operation: str, args: Dict[str, Any]) -> Any:  #
         atom_colors = args.get("atom_colors")
         if not atom_colors:
             raise ValueError("'atom_colors' argument is required")
+        if not isinstance(atom_colors, dict):
+            raise ValueError("'atom_colors' must be an object mapping atom index to color")
         ctrl = ctx.get_3d_controller()
         if ctrl is None:
             raise ValueError("3D controller is not available (is the 3D viewer active?)")
-        for idx_str, color in atom_colors.items():
-            ctrl.set_atom_color(int(idx_str), color)
+        # Parse every key before coloring any atom, so a bad key leaves the
+        # view untouched instead of half-applied.
+        resolved = {_int_arg(idx, "atom index"): color for idx, color in atom_colors.items()}
+        for idx, color in resolved.items():
+            ctrl.set_atom_color(idx, color)
         ctx.refresh_3d_view()
         return {"success": True}
 
@@ -222,6 +227,30 @@ def execute_operation(ctx: Any, operation: str, args: Dict[str, Any]) -> Any:  #
     raise ValueError(f"Unknown operation: {operation!r}")
 
 
+def _int_arg(value: Any, what: str) -> int:
+    """``int(value)`` with an error message that names the argument."""
+    if isinstance(value, bool):
+        raise ValueError(f"Invalid {what} {value!r}: expected an integer.")
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"Invalid {what} {value!r}: expected an integer.") from None
+
+
+def _check_atom_index(mol: Any, value: Any) -> int:
+    """Validate *value* as an atom index of *mol*.
+
+    RDKit's own out-of-range error is a multi-line C++ "Range Error" dump that
+    tells the client nothing about which index was wrong or what the valid
+    range is.
+    """
+    idx = _int_arg(value, "atom index")
+    num_atoms = mol.GetNumAtoms()
+    if idx < 0 or idx >= num_atoms:
+        raise ValueError(f"atom_index {idx} is out of range (0-{num_atoms - 1})")
+    return idx
+
+
 def _parse_atom_pair(pair: str) -> tuple:
     """Parse an 'i-j' (or 'i,j') atom-pair key into two int indices."""
     for sep in ("-", ","):
@@ -257,7 +286,7 @@ def _set_bond_colors(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
                 raise ValueError(f"No bond exists between atoms {idx1} and {idx2}.")
             resolved[bond.GetIdx()] = color
     for idx_str, color in bond_colors.items():
-        resolved[int(idx_str)] = color
+        resolved[_int_arg(idx_str, "bond index")] = color
 
     for bond_idx, color in resolved.items():
         ctrl.set_bond_color(bond_idx, color)
@@ -346,7 +375,9 @@ def _get_atom_properties(ctx: Any, atom_indices: List[int]) -> Dict[str, Any]:
     mol = ctx.current_molecule
     if mol is None:
         return {"atoms": []}
-    if not atom_indices:
+    if atom_indices:
+        atom_indices = [_check_atom_index(mol, i) for i in atom_indices]
+    else:
         atom_indices = list(range(mol.GetNumAtoms()))
     atoms: List[Dict[str, Any]] = []
     for idx in atom_indices:
@@ -387,16 +418,18 @@ def _get_xyz_atoms(ctx: Any) -> Dict[str, Any]:
     return {"atoms": atoms, "has_data": True}
 
 
+_BOND_TYPE_NAMES = {
+    1.0: "SINGLE",
+    2.0: "DOUBLE",
+    3.0: "TRIPLE",
+    1.5: "AROMATIC",
+}
+
+
 def _get_bond_info(ctx: Any) -> Dict[str, Any]:
     mol = ctx.current_molecule
     if mol is None:
         return {"bonds": []}
-    _bond_type_map = {
-        1.0: "SINGLE",
-        2.0: "DOUBLE",
-        3.0: "TRIPLE",
-        1.5: "AROMATIC",
-    }
     bonds: List[Dict[str, Any]] = []
     for bond in mol.GetBonds():
         bond_order = bond.GetBondTypeAsDouble()
@@ -405,7 +438,7 @@ def _get_bond_info(ctx: Any) -> Dict[str, Any]:
                 "index": bond.GetIdx(),
                 "atom1": bond.GetBeginAtomIdx(),
                 "atom2": bond.GetEndAtomIdx(),
-                "bond_type": _bond_type_map.get(bond_order, str(bond_order)),
+                "bond_type": _BOND_TYPE_NAMES.get(bond_order, str(bond_order)),
             }
         )
     return {"bonds": bonds}
@@ -565,10 +598,12 @@ def _apply_reaction_smarts(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     # aldehyde or ketone, amine to imine) failed with "refine the SMARTS" even
     # though the SMARTS was right.
     attempt = None
+    matched = False
     for candidate in (Chem.AddHs(mol), mol):
         products = rxn.RunReactants((candidate,))
         if not products:
             continue
+        matched = True
         selected = _select_product_by_anchor(
             rxn, candidate, products, args.get("atom_index")
         )
@@ -578,7 +613,10 @@ def _apply_reaction_smarts(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
             break
 
     if attempt is None:
-        if not products:
+        # "Did not match" only when neither attempt matched: an explicit-H
+        # match whose product failed sanitization, followed by an implicit-H
+        # attempt that matched nothing, is a bad product, not a bad pattern.
+        if not matched:
             raise ValueError(
                 "The reaction pattern did not match the current molecule. "
                 "Check the SMARTS (explicit [H] atoms are available for matching)."
@@ -692,21 +730,29 @@ def _find_moleditpy_spec() -> Any:
     )
 
 
-def _list_app_source_tree(args: Dict[str, Any]) -> Dict[str, Any]:
+def _moleditpy_pkg_root() -> Any:
+    """Resolved root directory of the installed moleditpy package."""
     from pathlib import Path  # pylint: disable=import-outside-toplevel
-    spec = _find_moleditpy_spec()
-    if spec is None or not spec.submodule_search_locations:
-        raise ValueError("moleditpy package not found in the current Python environment")
-    pkg_root = Path(spec.submodule_search_locations[0]).resolve()
-    rel_path = args.get("path", "").strip()
-    if rel_path:
-        start = (pkg_root / rel_path).resolve()
-        try:
-            start.relative_to(pkg_root)
-        except ValueError:
-            raise ValueError(f"Path {rel_path!r} is outside the moleditpy package")
-    else:
-        start = pkg_root
+
+    return Path(_find_moleditpy_spec().submodule_search_locations[0]).resolve()
+
+
+def _resolve_in_package(pkg_root: Any, rel_path: str) -> Any:
+    """Resolve *rel_path* under *pkg_root*, refusing anything that escapes it."""
+    target = (pkg_root / rel_path).resolve()
+    try:
+        target.relative_to(pkg_root)
+    except ValueError:
+        raise ValueError(f"Path {rel_path!r} is outside the moleditpy package") from None
+    return target
+
+
+def _list_app_source_tree(args: Dict[str, Any]) -> Dict[str, Any]:
+    pkg_root = _moleditpy_pkg_root()
+    rel_path = (args.get("path") or "").strip()
+    start = _resolve_in_package(pkg_root, rel_path) if rel_path else pkg_root
+    if not start.is_dir():
+        raise ValueError(f"{rel_path!r} is not a directory in the moleditpy package")
     lines: List[str] = [f"{start.name}/  [{start}]"]
     _append_tree(start, "", lines)
     return {"content": "\n".join(lines)}
@@ -735,27 +781,14 @@ def _append_tree(directory: Any, prefix: str, lines: List[str]) -> None:
 
 
 def _get_app_source_root() -> Dict[str, Any]:
-    from pathlib import Path  # pylint: disable=import-outside-toplevel
-    spec = _find_moleditpy_spec()
-    if spec is None or not spec.submodule_search_locations:
-        raise ValueError("moleditpy package not found in the current Python environment")
-    return {"root": str(Path(spec.submodule_search_locations[0]).resolve())}
+    return {"root": str(_moleditpy_pkg_root())}
 
 
 def _get_app_source(args: Dict[str, Any]) -> Dict[str, Any]:
-    from pathlib import Path  # pylint: disable=import-outside-toplevel
-    rel_path = args.get("path", "").strip()
+    rel_path = (args.get("path") or "").strip()
     if not rel_path:
         raise ValueError("'path' argument is required")
-    spec = _find_moleditpy_spec()
-    if spec is None or not spec.submodule_search_locations:
-        raise ValueError("moleditpy package not found in the current Python environment")
-    pkg_root = Path(spec.submodule_search_locations[0]).resolve()
-    target = (pkg_root / rel_path).resolve()
-    try:
-        target.relative_to(pkg_root)
-    except ValueError:
-        raise ValueError(f"Path {rel_path!r} is outside the moleditpy package")
+    target = _resolve_in_package(_moleditpy_pkg_root(), rel_path)
     if target.is_dir():
         entries = sorted(target.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
         lines = [f"Directory listing: {rel_path}"]
@@ -807,6 +840,8 @@ def _set_file_io_config(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
             f"MCP file I/O base directory set to: {args['base_dir']}", 5000
         )
     if "allowed_extensions" in args:
+        # Fully validated by the server (normalize_extensions); the '.'
+        # prefix is kept here too for direct callers.
         exts = [e if e.startswith(".") else f".{e}" for e in args["allowed_extensions"]]
         ctx.set_setting("file_io_allowed_extensions", exts)
     return {"success": True}
@@ -937,11 +972,11 @@ def _render_3d_png(ctx: Any, width: int, height: int) -> Optional[bytes]:
             except Exception:  # pylint: disable=broad-except
                 # A plotter that will not take its own size back is not a
                 # reason to fail a screenshot that already succeeded.
-                logging.debug("MCP Server: 3D viewer size not restored")
+                logger.debug("3D viewer size not restored")
         try:
             os.unlink(path)
         except OSError:
-            logging.debug("MCP Server: temp screenshot not removed: %s", path)
+            logger.debug("Temp screenshot not removed: %s", path)
 
 
 # ---------------------------------------------------------------------------
@@ -1025,7 +1060,9 @@ def _optimize_geometry(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     force_field = (args.get("force_field") or "mmff").strip().lower()
     if force_field not in ("mmff", "uff"):
         raise ValueError("'force_field' must be 'mmff' or 'uff'")
-    max_iters = int(args.get("max_iters", 500))
+    max_iters = _int_arg(args.get("max_iters", 500), "max_iters")
+    if max_iters < 1:
+        raise ValueError("'max_iters' must be at least 1")
 
     from rdkit import Chem  # pylint: disable=import-outside-toplevel
     from rdkit.Chem import AllChem  # pylint: disable=import-outside-toplevel
@@ -1035,6 +1072,14 @@ def _optimize_geometry(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
         status = AllChem.MMFFOptimizeMolecule(working, maxIters=max_iters)
     else:
         status = AllChem.UFFOptimizeMolecule(working, maxIters=max_iters)
+    if status == -1:
+        # RDKit's "force field could not be set up" (e.g. an element MMFF94 has
+        # no parameters for). Nothing moved, so there is nothing to commit.
+        raise ValueError(
+            f"{force_field.upper()} could not be set up for this molecule "
+            "(missing force-field parameters). "
+            + ("Try force_field='uff'." if force_field == "mmff" else "")
+        )
     ctx.current_molecule = working
     ctx.push_undo_checkpoint()
     ctx.refresh_3d_view()
@@ -1148,16 +1193,21 @@ def _compute_partial_charges(ctx: Any, args: Dict[str, Any]) -> Dict[str, Any]:
     from rdkit import Chem  # pylint: disable=import-outside-toplevel
     from rdkit.Chem import AllChem  # pylint: disable=import-outside-toplevel
 
+    import math  # pylint: disable=import-outside-toplevel
+
     working = Chem.Mol(mol)
     AllChem.ComputeGasteigerCharges(working)
-    wanted = set(int(i) for i in atom_indices) if atom_indices else None
+    wanted = {_check_atom_index(mol, i) for i in atom_indices} if atom_indices else None
     charges = []
     for atom in working.GetAtoms():
         idx = atom.GetIdx()
         if wanted is not None and idx not in wanted:
             continue
         raw = atom.GetDoubleProp("_GasteigerCharge") if atom.HasProp("_GasteigerCharge") else 0.0
-        charges.append({"index": idx, "symbol": atom.GetSymbol(), "charge": round(raw, 4)})
+        # Gasteiger has no parameters for some elements (metals, B, ...) and
+        # yields NaN there. NaN is not JSON, so report "no charge" instead.
+        charge = round(raw, 4) if math.isfinite(raw) else None
+        charges.append({"index": idx, "symbol": atom.GetSymbol(), "charge": charge})
     return {"charges": charges}
 
 
@@ -1232,6 +1282,9 @@ class MCPBridge(QObject):
     def __init__(self, context: Any, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
         self._context = context
+        # The bridge is built on the Qt main thread; remembered so call() can
+        # tell when it is already there.
+        self._owner_thread = threading.get_ident()
         self._request.connect(self._on_request, Qt.ConnectionType.QueuedConnection)
 
     # ------------------------------------------------------------------
@@ -1252,13 +1305,25 @@ class MCPBridge(QObject):
         """
         if args is None:
             args = {}
+        if threading.get_ident() == self._owner_thread:
+            # Already on the main thread: a queued signal could only be
+            # delivered once this call returned, so waiting for it would
+            # freeze the UI for the whole timeout and then fail.
+            return execute_operation(self._context, operation, dict(args))
         container: Dict[str, Any] = {
             "event": threading.Event(),
+            "lock": threading.Lock(),
+            "state": "queued",
             "result": None,
             "error": None,
         }
         self._request.emit(operation, args, container)
         if not container["event"].wait(timeout):
+            with container["lock"]:
+                if container["state"] == "queued":
+                    # Never started: withdraw it, so a busy main thread does
+                    # not later apply an edit the client was told had failed.
+                    container["state"] = "cancelled"
             raise TimeoutError(
                 f"Operation {operation!r} timed out after {timeout}s"
             )
@@ -1278,6 +1343,11 @@ class MCPBridge(QObject):
     ) -> None:
         """Execute the requested operation and signal completion."""
         c: Dict[str, Any] = container  # type: ignore[assignment]
+        with c["lock"]:
+            if c["state"] == "cancelled":
+                logger.warning("Skipping %r: the caller already timed out", operation)
+                return
+            c["state"] = "running"
         try:
             c["result"] = execute_operation(
                 self._context, operation, dict(args)  # type: ignore[arg-type]

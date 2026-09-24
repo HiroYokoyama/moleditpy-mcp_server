@@ -808,18 +808,6 @@ def test_find_moleditpy_spec_found(bridge_mod, tmp_path):
         importlib.util.find_spec = original_find_spec
 
 
-def test_execute_list_app_source_tree_spec_missing_locations_raises(bridge_mod, ctx):
-    fake_spec = MagicMock()
-    fake_spec.submodule_search_locations = []
-    original = bridge_mod._find_moleditpy_spec
-    bridge_mod._find_moleditpy_spec = lambda: fake_spec
-    try:
-        with pytest.raises(ValueError, match="not found"):
-            bridge_mod.execute_operation(ctx, "list_app_source_tree", {})
-    finally:
-        bridge_mod._find_moleditpy_spec = original
-
-
 def test_execute_list_app_source_tree_path_outside_package_raises(bridge_mod, ctx, tmp_path):
     fake_spec = MagicMock()
     fake_spec.submodule_search_locations = [str(tmp_path)]
@@ -894,18 +882,6 @@ def test_execute_get_app_source_outside_package_raises(bridge_mod, ctx, tmp_path
     try:
         with pytest.raises(ValueError, match="outside the moleditpy package"):
             bridge_mod.execute_operation(ctx, "get_app_source", {"path": "../etc/passwd"})
-    finally:
-        bridge_mod._find_moleditpy_spec = original
-
-
-def test_execute_get_app_source_spec_missing_locations_raises(bridge_mod, ctx):
-    fake_spec = MagicMock()
-    fake_spec.submodule_search_locations = []
-    original = bridge_mod._find_moleditpy_spec
-    bridge_mod._find_moleditpy_spec = lambda: fake_spec
-    try:
-        with pytest.raises(ValueError, match="not found"):
-            bridge_mod.execute_operation(ctx, "get_app_source", {"path": "x.py"})
     finally:
         bridge_mod._find_moleditpy_spec = original
 
@@ -1548,13 +1524,15 @@ def test_execute_get_app_source_root(bridge_mod, ctx, tmp_path):
 
 
 def test_get_app_source_root_without_package_raises(bridge_mod):
-    original = bridge_mod._find_moleditpy_spec
-    bridge_mod._find_moleditpy_spec = lambda: None
+    import importlib.util
+
+    original = importlib.util.find_spec
+    importlib.util.find_spec = lambda name: None
     try:
         with pytest.raises(ValueError, match="not found"):
             bridge_mod._get_app_source_root()
     finally:
-        bridge_mod._find_moleditpy_spec = original
+        importlib.util.find_spec = original
 
 
 # ---------------------------------------------------------------------------

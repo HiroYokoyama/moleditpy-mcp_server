@@ -4,7 +4,8 @@
 
 | Version | Supported |
 |---------|-----------|
-| 0.1.x (latest) | ✅ |
+| latest release | ✅ |
+| older releases | ❌ |
 
 Only the latest release receives security fixes.
 
@@ -34,6 +35,10 @@ The server binds to `127.0.0.1` (loopback only) by default. It should never be e
 **Risk:** A malicious local process could call any MCP tool, including `run_python`.
 
 **Mitigation:** Keep the server on loopback. Do not port-forward or proxy it externally.
+
+### Web pages in a local browser
+
+Any web page can send requests to `127.0.0.1`, and a DNS-rebinding page can also read the replies. The server therefore refuses (HTTP 403) any request whose `Origin` header is not a loopback origin (`localhost`, `127.0.0.1`, `[::1]`), and any request whose `Host` header does not name the address it is bound to. CORS headers echo only loopback origins, never `*`. Native MCP clients send no `Origin` and are unaffected. Request bodies are capped at 16 MB.
 
 ### `run_python` — arbitrary code execution
 

@@ -379,6 +379,7 @@ Security guarantees:
 - **Overwrite protection** — `write_text_file` refuses to replace existing files unless `overwrite=true` is passed explicitly.
 - **Deletion requires confirmation** — `delete_file` requires `confirm=true` in the same call.
 - **Size limit** — reads and writes are capped at 4 MB.
+- **No browser access** — requests from a web page (a non-loopback `Origin`, or a DNS-rebinding `Host`) are refused with HTTP 403, so a site you visit cannot drive the server.
 
 #### Typical DFT workflow example
 
