@@ -58,7 +58,7 @@ from PyQt6.QtWidgets import (
 )
 
 DEFAULT_URL = "http://127.0.0.1:7891/mcp"
-REQUEST_TIMEOUT = 60.0  # generous: run_python may take up to 30 s server-side
+REQUEST_TIMEOUT = 60.0  # generous: some tools legitimately run for tens of seconds
 
 # Property names that get a multi-line editor instead of a single line
 _MULTILINE_HINTS = {"code", "content", "mol_block", "xyz_text"}
@@ -71,7 +71,7 @@ MODERN_PROTOCOL_VERSION = "2026-07-28"
 #: Handshake revision requested by the legacy `initialize` path.
 LEGACY_PROTOCOL_VERSION = "2024-11-05"
 
-CLIENT_INFO = {"name": "mcp-gui-tester", "version": "0.5.0"}
+CLIENT_INFO = {"name": "mcp-gui-tester", "version": "0.5.1"}
 
 #: Combo entries: label -> mode passed to MCPClient.
 PROTOCOL_CHOICES = (
@@ -175,12 +175,81 @@ class MCPError(RuntimeError):
 
 def _split_url(url: str) -> tuple:
     """Split an MCP endpoint URL into (host, port, path) for the input fields."""
+    host, port, path, _scheme = split_url_with_scheme(url)
+    return host, port, path
+
+
+def split_url_with_scheme(url: str) -> tuple:
+    """Split an MCP endpoint URL into (host, port, path, scheme).
+
+    A missing port defaults to 443 for https and to 7891 (the tester's
+    default endpoint) otherwise.
+    """
     parsed = urllib.parse.urlparse(url if "//" in url else f"http://{url}")
+    scheme = parsed.scheme if parsed.scheme in ("http", "https") else "http"
+    port = parsed.port or (443 if scheme == "https" else 7891)
     return (
         parsed.hostname or "127.0.0.1",
-        parsed.port or 7891,
+        port,
         parsed.path or "/mcp",
+        scheme,
     )
+
+
+def build_url(scheme: str, host: str, port: int, path: str) -> str:
+    """Assemble an endpoint URL from the connection fields."""
+    path = path.strip()
+    if path and not path.startswith("/"):
+        path = "/" + path
+    host = host.strip()
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"  # bare IPv6 literal, e.g. ::1
+    return f"{scheme}://{host}:{port}{path}"
+
+
+def parse_sse_messages(body: str) -> list[Any]:
+    """Decode the JSON-RPC messages carried by a ``text/event-stream`` body.
+
+    Streamable HTTP servers may answer a POST with an SSE stream instead of a
+    plain JSON body. Each event's ``data:`` lines are joined with newlines and
+    parsed as JSON; events without data (comments, keep-alives, ``retry:``)
+    and data that is not JSON are skipped.
+    """
+    messages: list[Any] = []
+    data_lines: list[str] = []
+
+    def _flush() -> None:
+        if data_lines:
+            try:
+                messages.append(json.loads("\n".join(data_lines)))
+            except json.JSONDecodeError:
+                pass
+            data_lines.clear()
+
+    for line in body.splitlines():
+        if not line.strip():
+            _flush()
+        elif line.startswith("data:"):
+            value = line[5:]
+            data_lines.append(value.removeprefix(" "))
+    _flush()
+    return messages
+
+
+def pick_response(messages: list[Any], request_id: Any) -> dict[str, Any]:
+    """Pick the JSON-RPC response to *request_id* out of decoded messages.
+
+    Server-initiated requests and notifications interleaved on the stream
+    are ignored. Falls back to the last response-shaped message when none
+    carries a matching id.
+    """
+    responses = [
+        m for m in messages if isinstance(m, dict) and ("result" in m or "error" in m)
+    ]
+    for message in responses:
+        if message.get("id") == request_id:
+            return message
+    return responses[-1] if responses else {}
 
 
 def parse_json_param(name: str, expected_type: str, text: str) -> Any:
@@ -196,6 +265,16 @@ def parse_json_param(name: str, expected_type: str, text: str) -> Any:
     if not isinstance(parsed, expected):
         raise ValueError(f"Parameter {name!r} must be a JSON {expected_type}.")
     return parsed
+
+
+def schema_alternatives(schema: dict[str, Any]) -> list[dict[str, Any]]:
+    """The union members of *schema*: ``oneOf`` / ``anyOf`` entries, or one
+    entry per type when ``type`` is a list (``["integer", "null"]``)."""
+    alts = [a for a in schema.get("oneOf", []) if isinstance(a, dict)]
+    alts += [a for a in schema.get("anyOf", []) if isinstance(a, dict)]
+    if isinstance(schema.get("type"), list):
+        alts += [{"type": t} for t in schema["type"] if isinstance(t, str)]
+    return alts
 
 
 def _looks_like_json(text: str) -> bool:
@@ -320,7 +399,8 @@ class MCPClient:
             "Accept": "application/json, text/event-stream",
         }
         req_headers.update(extra_headers or {})
-        req_headers.update(self.headers)
+        # Values from the headers JSON may be numbers/booleans; urllib needs str.
+        req_headers.update({str(k): str(v) for k, v in self.headers.items()})
         req = urllib.request.Request(
             self.url,
             data=json.dumps(payload).encode("utf-8"),
@@ -334,6 +414,7 @@ class MCPClient:
                 if session:
                     self.session_id = session
                 status = resp.status
+                content_type = resp.headers.get("Content-Type") or ""
         except urllib.error.HTTPError as exc:
             # A modern server reports version/header problems as 400 (and an
             # unknown method as 404) with a JSON-RPC error body — surface that
@@ -350,14 +431,27 @@ class MCPClient:
             return data
         if not body.strip():
             return {}
-        data = json.loads(body)
+        if "text/event-stream" in content_type.lower():
+            data = pick_response(parse_sse_messages(body), payload.get("id"))
+        else:
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(
+                    f"HTTP {status}: response is not JSON "
+                    f"({content_type or 'no content type'}): {body.strip()[:200]}"
+                ) from exc
+        if not isinstance(data, dict):
+            raise TypeError(f"Unexpected JSON-RPC response: {json.dumps(data)[:200]}")
         self._raise_for_error(data, status)
         return data
 
     @staticmethod
     def _raise_for_error(data: dict[str, Any], status: int | None) -> None:
         if isinstance(data, dict) and "error" in data:
-            err = data["error"] or {}
+            err = data["error"]
+            if not isinstance(err, dict):
+                err = {"message": str(err)} if err else {}
             raise MCPError(
                 err.get("code", 0), err.get("message", ""), err.get("data"), status
             )
@@ -412,8 +506,19 @@ class MCPClient:
         }
         if params is not None:
             payload["params"] = params
+        return self._post(payload, self._legacy_headers()).get("result")
+
+    def _legacy_headers(self) -> dict[str, str]:
         extra = {"Mcp-Session-Id": self.session_id} if self.session_id else {}
-        return self._post(payload, extra).get("result")
+        # Once negotiated, handshake-era servers from 2025-06-18 on expect the
+        # version on every request (older servers ignore the header).
+        if self.era == "legacy" and self.protocol_version:
+            extra["MCP-Protocol-Version"] = self.protocol_version
+        return extra
+
+    def _legacy_notify(self, method: str) -> None:
+        """Send a parameterless JSON-RPC notification (no id, no response)."""
+        self._post({"jsonrpc": "2.0", "method": method}, self._legacy_headers())
 
     # ------------------------------------------------------------------
     # Connection / discovery
@@ -464,6 +569,7 @@ class MCPClient:
 
     def _connect_legacy(self) -> dict[str, Any]:
         self.era = "legacy"
+        self.protocol_version = None  # not negotiated yet: no version header
         result = (
             self._legacy_rpc(
                 "initialize",
@@ -480,6 +586,12 @@ class MCPClient:
         self.capabilities = result.get("capabilities", {})
         self.instructions = result.get("instructions", "")
         self.supported_versions = [self.protocol_version]
+        # The handshake completes only when the client confirms it; strict
+        # servers reject requests that arrive before this notification.
+        try:
+            self._legacy_notify("notifications/initialized")
+        except MCPError:
+            pass  # a server that errors on the notification is still usable
         return self.summary()
 
     def summary(self) -> dict[str, Any]:
@@ -505,11 +617,21 @@ class MCPClient:
         return self._rpc("ping")
 
     def list_tools(self) -> list[dict[str, Any]]:
-        result = self._rpc("tools/list") or {}
-        return result.get("tools", [])
+        """All tools, following ``nextCursor`` pagination to the end."""
+        tools: list[dict[str, Any]] = []
+        cursor: str | None = None
+        seen: set = set()
+        while True:
+            params = {"cursor": cursor} if cursor else None
+            result = self._rpc("tools/list", params) or {}
+            tools.extend(t for t in result.get("tools", []) if isinstance(t, dict))
+            cursor = result.get("nextCursor")
+            if not cursor or cursor in seen:  # guard against a cursor loop
+                return tools
+            seen.add(cursor)
 
     def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        return self._rpc("tools/call", {"name": name, "arguments": arguments})
+        return self._rpc("tools/call", {"name": name, "arguments": arguments}) or {}
 
 
 # ---------------------------------------------------------------------------
@@ -554,24 +676,40 @@ class ParamField:
         self.name = name
         self.schema = schema
         self.required = required
-        self.type = schema.get("type", "string")
-        self.has_explicit_type = "type" in schema
-        # Union schemas ({"oneOf": [{"type": "string"}, {"type": "array"...}]})
-        # have no top-level "type". Track the allowed types so value() can
-        # coerce to whichever alternative the user's input matches.
+        # Union schemas — oneOf/anyOf ({"anyOf": [{"type": "integer"},
+        # {"type": "null"}]}, as generated for optional parameters) or a list
+        # "type" — have no single type. Track the allowed types so value()
+        # can coerce to whichever alternative the user's input matches.
         self.union_types = frozenset(
-            alt.get("type") for alt in schema.get("oneOf", []) if isinstance(alt, dict)
+            alt.get("type")
+            for alt in schema_alternatives(schema)
+            if isinstance(alt.get("type"), str)
         )
+        raw_type = schema.get("type")
+        self.has_explicit_type = isinstance(raw_type, str)
+        self.type = raw_type if isinstance(raw_type, str) else "string"
+        # A union with a single non-null member is just an optional value of
+        # that type (Optional[int] -> anyOf [integer, null]): use its widget.
+        non_null = self.union_types - {"null"}
+        if not self.has_explicit_type and len(non_null) == 1:
+            self.type = next(iter(non_null))
+            self.has_explicit_type = True
+        self.enum_values: list[Any] = list(schema.get("enum") or [])
         self.include_box: QCheckBox | None = None
         self.widget = self._build_widget()
 
     def _build_widget(self) -> QWidget:
         default = self.schema.get("default")
-        if "enum" in self.schema:
+        if self.enum_values:
             combo = QComboBox()
-            combo.addItems([str(v) for v in self.schema["enum"]])
+            # Keep the original values as item data so integer/boolean enums
+            # are sent with their JSON type, not as strings.
+            for v in self.enum_values:
+                combo.addItem(str(v), v)
             if default is not None:
-                combo.setCurrentText(str(default))
+                idx = self._enum_index(default)
+                if idx >= 0:
+                    combo.setCurrentIndex(idx)
             w: QWidget = combo
         elif self.union_types and not self.has_explicit_type:
             w = self._build_oneof_widget(default)
@@ -596,9 +734,11 @@ class ParamField:
         elif self.type in ("array", "object"):
             edit = QPlainTextEdit()
             edit.setPlaceholderText(
-                "[1, 2, 3]" if self.type == "array" else '{"0": "#FF0000"}'
+                "[1, 2, 3]" if self.type == "array" else '{"key": "value"}'
             )
             edit.setFixedHeight(60)
+            if isinstance(default, (list, dict)):
+                edit.setPlainText(json.dumps(default, ensure_ascii=False))
             w = edit
         elif self.name in _MULTILINE_HINTS:
             edit = QPlainTextEdit()
@@ -642,8 +782,8 @@ class ParamField:
         # No array/object/string alternative: fall back to the first
         # alternative's own widget type (boolean/integer/number/other).
         first_type = None
-        for alt in self.schema.get("oneOf", []):
-            if isinstance(alt, dict) and alt.get("type"):
+        for alt in schema_alternatives(self.schema):
+            if isinstance(alt.get("type"), str) and alt.get("type") != "null":
                 first_type = alt.get("type")
                 break
         if first_type == "boolean":
@@ -669,10 +809,17 @@ class ParamField:
             line.setText(str(default))
         return line
 
+    def _enum_index(self, value: Any) -> int:
+        for i, v in enumerate(self.enum_values):
+            if v == value and type(v) is type(value):
+                return i
+        texts = [str(v) for v in self.enum_values]
+        return texts.index(str(value)) if str(value) in texts else -1
+
     def value(self) -> Any:
         """Return the field's current value, parsing JSON for array/object types."""
         if isinstance(self.widget, QComboBox):
-            return self.widget.currentText()
+            return self.widget.currentData()
         if isinstance(self.widget, QCheckBox):
             return self.widget.isChecked()
         if isinstance(self.widget, (QSpinBox, QDoubleSpinBox)):
@@ -719,7 +866,9 @@ class ParamField:
         """Populate the widget from a previously-sent argument value
         (used to prefill a form from per-tool argument history)."""
         if isinstance(self.widget, QComboBox):
-            self.widget.setCurrentText(str(value))
+            idx = self._enum_index(value)
+            if idx >= 0:
+                self.widget.setCurrentIndex(idx)
         elif isinstance(self.widget, QCheckBox):
             self.widget.setChecked(bool(value))
         elif isinstance(self.widget, QSpinBox):
@@ -769,10 +918,15 @@ class MCPTesterWindow(QMainWindow):
         self._call_started: float | None = None
 
         # --- top bar: host/port + connect ------------------------------
-        host, port, path = _split_url(url)
+        host, port, path, scheme = split_url_with_scheme(url)
+        self._connected = False
         top = QWidget()
         top_lay = QHBoxLayout(top)
         top_lay.setContentsMargins(8, 8, 8, 4)
+        self.scheme_combo = QComboBox()
+        self.scheme_combo.addItems(["http", "https"])
+        self.scheme_combo.setCurrentText(scheme)
+        top_lay.addWidget(self.scheme_combo)
         top_lay.addWidget(QLabel("Host:"))
         self.host_edit = QLineEdit(host)
         top_lay.addWidget(self.host_edit, stretch=1)
@@ -954,12 +1108,17 @@ class MCPTesterWindow(QMainWindow):
                 )
                 return
             headers = parsed_headers
-        path = self.path_edit.text().strip()
-        if path and not path.startswith("/"):
-            path = "/" + path
-        if ":" in host and not host.startswith("["):
-            host = f"[{host}]"  # bare IPv6 literal, e.g. ::1
-        url = f"http://{host}:{self.port_spin.value()}{path}"
+        scheme = self.scheme_combo.currentText()
+        if "://" in host:  # a full URL pasted into the host field
+            h, p, pth, scheme = split_url_with_scheme(host)
+            self.host_edit.setText(h)
+            self.port_spin.setValue(p)
+            self.path_edit.setText(pth)
+            self.scheme_combo.setCurrentText(scheme)
+            host = h
+        url = build_url(scheme, host, self.port_spin.value(), self.path_edit.text())
+        self._connected = False
+        self.refresh_btn.setEnabled(False)
         self.client = MCPClient(
             url, headers=headers, protocol=self.protocol_combo.currentData()
         )
@@ -974,6 +1133,7 @@ class MCPTesterWindow(QMainWindow):
         self._run(_connect, self.client, on_done=self._on_connected)
 
     def _on_connected(self, result: dict[str, Any]) -> None:
+        self._connected = True
         self.connect_btn.setEnabled(True)
         self.refresh_btn.setEnabled(True)
         info = result["info"]
@@ -1173,10 +1333,14 @@ class MCPTesterWindow(QMainWindow):
         self.status_label.setText(
             ("Done" if not result.get("isError") else "Tool error") + elapsed
         )
-        content = result.get("content", [])
+        content = [b for b in (result.get("content") or []) if isinstance(b, dict)]
         texts = [
             block.get("text", "") for block in content if block.get("type") == "text"
         ]
+        if not texts and result.get("structuredContent") is not None:
+            texts = [
+                json.dumps(result["structuredContent"], indent=2, ensure_ascii=False)
+            ]
         prefix = "[TOOL ERROR]\n" if result.get("isError") else ""
         self.result_text.setPlainText(prefix + "\n".join(texts))
         self._render_content_extras(content)
@@ -1253,7 +1417,7 @@ class MCPTesterWindow(QMainWindow):
 
     def _on_error(self, failure: Any) -> None:
         self.connect_btn.setEnabled(True)
-        self.refresh_btn.setEnabled(self.client is not None)
+        self.refresh_btn.setEnabled(self.client is not None and self._connected)
         self.call_btn.setEnabled(self.tool_list.currentItem() is not None)
         message = failure.details() if isinstance(failure, MCPError) else str(failure)
         if isinstance(failure, MCPError):
