@@ -315,6 +315,12 @@ class MCPStatusDialog(QDialog):
             self._toggle_btn.setText("Stop Server")
             self._port_spin.setEnabled(False)
             self._protocol_combo.setEnabled(False)
+        elif self._plugin.external_port:
+            self._status_lbl.setText("◐ Running in another MoleditPy instance")
+            self._status_lbl.setStyleSheet("color: #cc9900; font-size: 13px;")
+            self._toggle_btn.setText("Start Server")
+            self._port_spin.setEnabled(True)
+            self._protocol_combo.setEnabled(True)
         else:
             self._status_lbl.setText("○ Server Stopped")
             self._status_lbl.setStyleSheet("color: #cc4444; font-size: 13px;")

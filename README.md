@@ -279,6 +279,8 @@ Host, port, endpoint path, and the **protocol era** (auto-detect / 2026-07-28 / 
 
 To start the server automatically every time MoleditPy launches, open **Plugins → MCP Server → Status & Settings** and check **Auto-start server on launch**.
 
+If another MoleditPy instance is already serving the configured port, starting (manually or on launch) is skipped and the dialog shows that it is running in another instance.
+
 ---
 
 ## AI Skill (SKILL.md) — optional

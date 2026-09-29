@@ -2005,3 +2005,37 @@ def test_cpk_tools_registered_highlight_atoms_renamed(srv):
     assert "set_cpk_color_override" in names
     assert "reset_cpk_color_override" in names
     assert "highlight_atoms" not in names
+
+
+# ---------------------------------------------------------------------------
+# is_port_serving: telling "another instance is listening" from "free"
+# ---------------------------------------------------------------------------
+
+
+def test_is_port_serving_true_for_listening_socket():
+    import socket as _socket
+
+    from mcp_server.server import is_port_serving
+
+    with _socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        assert is_port_serving("127.0.0.1", listener.getsockname()[1]) is True
+
+
+def test_is_port_serving_false_once_listener_closed():
+    import socket as _socket
+
+    from mcp_server.server import is_port_serving
+
+    with _socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+    assert is_port_serving("127.0.0.1", port) is False
+
+
+def test_is_port_serving_false_for_invalid_port():
+    from mcp_server.server import is_port_serving
+
+    assert is_port_serving("127.0.0.1", 70000) is False
+    assert is_port_serving("127.0.0.1", "not-a-port") is False

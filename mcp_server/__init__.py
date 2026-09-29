@@ -23,7 +23,7 @@ import logging
 from typing import Any, Optional
 
 PLUGIN_NAME = "MCP Server"
-PLUGIN_VERSION = "1.8.1"
+PLUGIN_VERSION = "1.8.2"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Expose MoleditPy via Model Context Protocol (MCP) "
@@ -34,6 +34,8 @@ PLUGIN_TAGS = ["AI"]
 PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=4.0.0, <5.0.0"
 
 logger = logging.getLogger(__name__)
+
+_HOST = "127.0.0.1"
 
 _plugin: MCPServerPlugin | None = None
 
@@ -66,7 +68,20 @@ class MCPServerPlugin:
 
         try:
             from .bridge import MCPBridge  # pylint: disable=import-outside-toplevel
-            from .server import MCPHttpServer  # pylint: disable=import-outside-toplevel
+            from .server import (  # pylint: disable=import-outside-toplevel
+                MCPHttpServer,
+                is_port_serving,
+            )
+
+            # Another MoleditPy already serves this port: binding would fail
+            # (or, off Windows, split the traffic), so leave it be.
+            if is_port_serving(_HOST, port):
+                self.context.show_status_message(
+                    f"MCP Server is already running in another MoleditPy "
+                    f"instance (port {port}); not starting a second one.",
+                    5000,
+                )
+                return False
 
             self._bridge = MCPBridge(self.context)
             self._server = MCPHttpServer(
@@ -126,11 +141,25 @@ class MCPServerPlugin:
         return self._server is not None and self._server.is_running
 
     @property
+    def external_port(self) -> int:
+        """The port another instance is serving, or 0.
+
+        Probed on each read, never cached: the other instance can exit at any
+        time, and a stale answer would keep this one from ever starting.
+        """
+        if self.is_running:
+            return 0
+        from .server import is_port_serving  # pylint: disable=import-outside-toplevel
+
+        port = self.context.get_setting("port", 7891)
+        return port if is_port_serving(_HOST, port) else 0
+
+    @property
     def url(self) -> str:
         if self._server is not None:
             return self._server.url
         port = self.context.get_setting("port", 7891)
-        return f"http://127.0.0.1:{port}/mcp"
+        return f"http://{_HOST}:{port}/mcp"
 
 
 # ---------------------------------------------------------------------------

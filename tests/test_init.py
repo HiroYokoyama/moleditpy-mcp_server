@@ -69,6 +69,8 @@ def _mock_server_modules():
 
     fake_server_mod = types.ModuleType("mcp_server.server")
     fake_server_mod.MCPHttpServer = _FakeServer
+    # Nothing else is listening: the default for every lifecycle test.
+    fake_server_mod.is_port_serving = MagicMock(return_value=False)
 
     with mock_optional_imports():
         saved = {
@@ -330,3 +332,63 @@ def test_start_defaults_protocol_mode_to_auto(pkg, ctx):
         sys.modules["mcp_server.server"].MCPHttpServer = server_cls
         pkg.MCPServerPlugin(ctx).start(port=0)
     assert recorded["protocol_mode"] == "auto"
+
+
+# ---------------------------------------------------------------------------
+# Another instance already serves the port
+# ---------------------------------------------------------------------------
+
+
+def test_start_skips_when_another_instance_serves_port(pkg, ctx):
+    ctx.get_setting.return_value = 7891
+    with _mock_server_modules():
+        sys.modules["mcp_server.server"].is_port_serving.return_value = True
+        plugin = pkg.MCPServerPlugin(ctx)
+        assert plugin.start(port=7891) is False
+        assert plugin._server is None
+        assert plugin._bridge is None
+        message = ctx.show_status_message.call_args[0][0]
+        assert "another MoleditPy instance" in message
+        assert "failed" not in message
+
+
+def test_start_probes_the_requested_port(pkg, ctx):
+    ctx.get_setting.return_value = 0
+    with _mock_server_modules():
+        probe = sys.modules["mcp_server.server"].is_port_serving
+        pkg.MCPServerPlugin(ctx).start(port=1234)
+        probe.assert_called_once_with("127.0.0.1", 1234)
+
+
+def test_auto_start_defers_to_another_instance(pkg, ctx):
+    ctx.get_setting.side_effect = lambda key, default=None: {
+        "auto_start": True,
+        "port": 7891,
+    }.get(key, default)
+    with _mock_server_modules():
+        sys.modules["mcp_server.server"].is_port_serving.return_value = True
+        pkg.initialize(ctx)
+        assert not pkg._plugin.is_running
+
+
+def test_external_port_reports_other_instance(pkg, ctx):
+    ctx.get_setting.side_effect = lambda key, default=None: {"port": 7891}.get(
+        key, default
+    )
+    with _mock_server_modules():
+        probe = sys.modules["mcp_server.server"].is_port_serving
+        plugin = pkg.MCPServerPlugin(ctx)
+        probe.return_value = True
+        assert plugin.external_port == 7891
+        probe.return_value = False  # the other instance exited: not cached
+        assert plugin.external_port == 0
+
+
+def test_external_port_is_zero_when_this_instance_runs(pkg, ctx):
+    ctx.get_setting.return_value = 0
+    with _mock_server_modules():
+        plugin = pkg.MCPServerPlugin(ctx)
+        plugin.start(port=0)
+        sys.modules["mcp_server.server"].is_port_serving.return_value = True
+        assert plugin.external_port == 0
+        plugin.stop()

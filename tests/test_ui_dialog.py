@@ -48,11 +48,14 @@ def ui_module():
         sys.modules.update(saved)
 
 
-def make_plugin(*, running=False, url="http://127.0.0.1:7891/mcp", settings=None):
+def make_plugin(
+    *, running=False, url="http://127.0.0.1:7891/mcp", settings=None, external_port=0
+):
     settings = dict(settings or {})
     plugin = MagicMock()
     plugin.is_running = running
     plugin.url = url
+    plugin.external_port = external_port
     plugin.context.get_main_window.return_value = None
     plugin.context.get_setting.side_effect = lambda key, default=None: settings.get(
         key, default
@@ -86,6 +89,13 @@ def test_dialog_builds_and_refreshes_stopped(ui_module):
     assert dlg._toggle_btn.text() == "Start Server"
     assert dlg._port_spin.isEnabled()
     assert dlg._url_lbl.text() == "http://127.0.0.1:7891/mcp"
+
+
+def test_dialog_shows_server_running_in_another_instance(ui_module):
+    plugin, _ = make_plugin(running=False, external_port=7891)
+    dlg = ui_module.MCPStatusDialog(plugin)
+    assert "another MoleditPy instance" in dlg._status_lbl.text()
+    assert dlg._toggle_btn.text() == "Start Server"
 
 
 def test_dialog_refresh_running(ui_module):

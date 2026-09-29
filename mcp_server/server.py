@@ -3671,6 +3671,20 @@ class _ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
         super().server_bind()
 
 
+def is_port_serving(host: str, port: int, timeout: float = 0.3) -> bool:
+    """Whether something already accepts connections on ``host``:``port``.
+
+    Used before binding, so a second MoleditPy can tell "another instance
+    already serves MCP here" from a real failure. A refused or timed-out
+    connect means nobody is listening.
+    """
+    try:
+        with socket.create_connection((host, int(port)), timeout=timeout):
+            return True
+    except (OSError, ValueError, OverflowError):
+        return False
+
+
 class MCPHttpServer:
     """Manages the lifecycle of the background MCP HTTP server thread."""
 
