@@ -23,7 +23,7 @@ import logging
 from typing import Any, Optional
 
 PLUGIN_NAME = "MCP Server"
-PLUGIN_VERSION = "1.8.2"
+PLUGIN_VERSION = "1.8.3"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Expose MoleditPy via Model Context Protocol (MCP) "
@@ -36,6 +36,9 @@ PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=4.0.0, <5.0.0"
 logger = logging.getLogger(__name__)
 
 _HOST = "127.0.0.1"
+
+#: Key under which the live plugin object is kept in the host's registry.
+_HANDLE_KEY = "server_plugin"
 
 _plugin: MCPServerPlugin | None = None
 
@@ -167,14 +170,45 @@ class MCPServerPlugin:
 # ---------------------------------------------------------------------------
 
 
+def _retire_previous_load(context: Any) -> bool:
+    """Stop the server a previous load of this plugin left behind.
+
+    The host reloads a plugin by re-executing its module and never calls a
+    teardown hook, so the old server thread keeps its port and the new load
+    could not bind it. The previous plugin object is kept in the host's
+    per-plugin registry, which outlives the re-execution. Returns whether a
+    server was running, so the new load can bring it back.
+    """
+    previous = context.get_window(_HANDLE_KEY)
+    dialog = context.get_window("status_dialog")
+    was_running = False
+    if previous is not None:
+        try:
+            was_running = bool(previous.is_running)
+            previous.stop()
+        except Exception:  # pylint: disable=broad-except
+            # Must not stop the new load: worst case the port stays taken and
+            # start() reports that.
+            logger.exception("Could not stop the MCP server of the previous load")
+    if dialog is not None:
+        # It drives the retired plugin object; a fresh one is built on demand.
+        try:
+            dialog.close()
+        except Exception:  # pylint: disable=broad-except
+            logger.debug("Could not close the previous status dialog", exc_info=True)
+    return was_running
+
+
 def initialize(context: Any) -> None:
     """Called by MoleditPy when the plugin is loaded."""
     global _plugin
+    was_running = _retire_previous_load(context)
     _plugin = MCPServerPlugin(context)
+    context.register_window(_HANDLE_KEY, _plugin)
 
     context.add_plugin_menu("MCP Server/Status && Settings...", _plugin.show_status)
     context.add_plugin_menu("MCP Server/Start Server", _plugin.start)
     context.add_plugin_menu("MCP Server/Stop Server", _plugin.stop)
 
-    if context.get_setting("auto_start", False):
+    if was_running or context.get_setting("auto_start", False):
         _plugin.start()

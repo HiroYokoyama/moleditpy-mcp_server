@@ -392,3 +392,86 @@ def test_external_port_is_zero_when_this_instance_runs(pkg, ctx):
         sys.modules["mcp_server.server"].is_port_serving.return_value = True
         assert plugin.external_port == 0
         plugin.stop()
+
+
+# ---------------------------------------------------------------------------
+# Reload: the host re-executes the module and calls no teardown hook
+# ---------------------------------------------------------------------------
+
+
+def _registry_backed(ctx):
+    """Make ctx keep registered objects the way the host's per-plugin registry does."""
+    registry = {}
+    ctx.register_window.side_effect = registry.__setitem__
+    ctx.get_window.side_effect = registry.get
+    return registry
+
+
+def _settings(ctx, **values):
+    ctx.get_setting.side_effect = lambda key, default=None: values.get(key, default)
+
+
+def test_reload_stops_the_previous_server_and_starts_the_new_one(pkg, ctx):
+    _registry_backed(ctx)
+    _settings(ctx, auto_start=True, port=0)
+    with _mock_server_modules():
+        pkg.initialize(ctx)
+        first = pkg._plugin
+        assert first.is_running
+        pkg.initialize(ctx)
+        assert first._server is None  # stopped and released
+        assert pkg._plugin is not first
+        assert pkg._plugin.is_running
+        pkg._plugin.stop()
+
+
+def test_reload_restores_a_manually_started_server(pkg, ctx):
+    _registry_backed(ctx)
+    _settings(ctx, auto_start=False, port=0)
+    with _mock_server_modules():
+        pkg.initialize(ctx)
+        assert not pkg._plugin.is_running
+        pkg._plugin.start(port=0)
+        pkg.initialize(ctx)
+        assert pkg._plugin.is_running
+        pkg._plugin.stop()
+
+
+def test_reload_leaves_a_stopped_server_stopped(pkg, ctx):
+    _registry_backed(ctx)
+    _settings(ctx, auto_start=False, port=0)
+    with _mock_server_modules():
+        pkg.initialize(ctx)
+        pkg.initialize(ctx)
+        assert not pkg._plugin.is_running
+
+
+def test_reload_never_reports_its_own_old_server_as_another_instance(pkg, ctx):
+    _registry_backed(ctx)
+    _settings(ctx, auto_start=True, port=0)
+    with _mock_server_modules():
+        pkg.initialize(ctx)
+        ctx.show_status_message.reset_mock()
+        pkg.initialize(ctx)
+        messages = [c[0][0] for c in ctx.show_status_message.call_args_list]
+        assert not any("another MoleditPy instance" in m for m in messages)
+        pkg._plugin.stop()
+
+
+def test_reload_closes_the_previous_status_dialog(pkg, ctx):
+    registry = _registry_backed(ctx)
+    _settings(ctx, auto_start=False)
+    dialog = MagicMock()
+    registry["status_dialog"] = dialog
+    pkg.initialize(ctx)
+    dialog.close.assert_called_once_with()
+
+
+def test_reload_survives_a_previous_plugin_that_cannot_stop(pkg, ctx):
+    registry = _registry_backed(ctx)
+    _settings(ctx, auto_start=False)
+    broken = MagicMock()
+    broken.stop.side_effect = RuntimeError("boom")
+    registry["server_plugin"] = broken
+    pkg.initialize(ctx)  # must not raise
+    assert registry["server_plugin"] is pkg._plugin

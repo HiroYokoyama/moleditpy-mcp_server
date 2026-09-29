@@ -281,6 +281,8 @@ To start the server automatically every time MoleditPy launches, open **Plugins 
 
 If another MoleditPy instance is already serving the configured port, starting (manually or on launch) is skipped and the dialog shows that it is running in another instance.
 
+Reloading plugins stops the running server and starts it again with the reloaded code, so the port is never left held by the old copy.
+
 ---
 
 ## AI Skill (SKILL.md) — optional

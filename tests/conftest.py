@@ -120,6 +120,8 @@ def make_context() -> MagicMock:
     ctx = MagicMock()
     ctx.get_main_window.return_value = MagicMock()
     ctx.get_setting.return_value = None
+    # Like the real host: nothing registered until the plugin registers it.
+    ctx.get_window.return_value = None
     return ctx
 
 
