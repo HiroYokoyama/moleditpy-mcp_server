@@ -1166,6 +1166,7 @@ def test_execute_reload_plugins(bridge_mod, ctx):
     assert result["success"] is True
     assert result["plugin_count"] == 2
     mw.plugin_manager.discover_plugins.assert_called_once_with(mw)
+    mw.plugin_manager.rebuild_plugin_menus.assert_called_once_with()
 
 
 def test_execute_reload_plugins_returns_none(bridge_mod, ctx):

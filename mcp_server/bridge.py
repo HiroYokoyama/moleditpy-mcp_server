@@ -232,6 +232,10 @@ def execute_operation(ctx: Any, operation: str, args: dict[str, Any]) -> Any:
         if mw is None or not hasattr(mw, "plugin_manager"):
             raise ValueError("Plugin manager is not available on main window")
         plugins = mw.plugin_manager.discover_plugins(mw)
+        # discover_plugins only re-runs the plugins; the menus still hold the
+        # previous load's actions until rebuilt (the Plugin Manager's Reload
+        # button does the same two steps).
+        mw.plugin_manager.rebuild_plugin_menus()
         return {"success": True, "plugin_count": len(plugins) if plugins else 0}
 
     if operation == "list_app_source_tree":
