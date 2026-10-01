@@ -18,6 +18,7 @@ import socket
 import socketserver
 import sys
 import threading
+import time
 import urllib.parse
 import urllib.request
 import uuid
@@ -375,9 +376,23 @@ _TOOLS: list[dict[str, Any]] = [
         "description": (
             "Trigger MoleditPy's 2D-to-3D coordinate generation on the current molecule. "
             "This runs the built-in 3D optimizer (ETKDG / MMFF) and switches the view "
-            "to the 3D panel. Call get_molecule_xyz afterwards to retrieve the coordinates."
+            "to the 3D panel. By default it waits until the conversion has "
+            "finished (or failed), so get_molecule_xyz and get_molecule_image "
+            "can be called straight after."
         ),
-        "inputSchema": {"type": "object", "properties": {}},
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "wait": {
+                    "type": "boolean",
+                    "description": "Wait for the conversion to finish (default true).",
+                },
+                "timeout_seconds": {
+                    "type": "number",
+                    "description": "How long to wait, 1-600 s (default 120).",
+                },
+            },
+        },
     },
     {
         "name": "get_molecule_image",
@@ -2240,6 +2255,41 @@ def _fetch_smiles_by_name(name: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+_CONVERSION_POLL_S = 0.25
+_CONVERSION_TIMEOUT_S = 120.0
+
+
+def _wait_for_3d_conversion(bridge: Any, arguments: dict[str, Any]) -> dict[str, Any]:
+    """Poll the app until the background conversion it just started ends.
+
+    Runs on the server thread, so the Qt main thread stays free to finish the
+    conversion and draw it between polls.
+    """
+    try:
+        limit = float(arguments.get("timeout_seconds", _CONVERSION_TIMEOUT_S))
+    except (TypeError, ValueError):
+        limit = _CONVERSION_TIMEOUT_S
+    limit = min(max(limit, 1.0), 600.0)
+    deadline = time.monotonic() + limit
+    while True:
+        status = bridge.call("get_3d_conversion_status")
+        if not status.get("running"):
+            break
+        if time.monotonic() >= deadline:
+            return _tool_err(
+                f"3D conversion is still running after {limit:.0f} s; poll "
+                "get_current_molecule until 3D coordinates are available."
+            )
+        time.sleep(_CONVERSION_POLL_S)
+    if status.get("has_3d"):
+        return _tool_ok(
+            "3D conversion finished. "
+            "Use get_molecule_xyz to retrieve the generated coordinates."
+        )
+    detail = status.get("message") or "no 3D coordinates were produced"
+    return _tool_err(f"3D conversion failed: {detail}")
+
+
 def dispatch_tool(
     bridge: Any,
     name: str,
@@ -2326,8 +2376,9 @@ def dispatch_tool(
             return _tool_ok(f"Molecule loaded from SMILES: {smiles}")
 
         if name == "load_from_mol_block":
-            mol_block = _text_arg(arguments.get("mol_block", "")).strip()
-            if not mol_block:
+            # rstrip only: the first line (the title) may be blank.
+            mol_block = _text_arg(arguments.get("mol_block", "")).rstrip()
+            if not mol_block.strip():
                 return _tool_err("'mol_block' argument is required.")
             result = bridge.call("load_mol_block", {"mol_block": mol_block})
             if result["success"]:
@@ -2351,11 +2402,18 @@ def dispatch_tool(
         if name == "trigger_3d_conversion":
             # The RDKit fallback (ETKDG embed + MMFF optimize) runs in-thread
             # and can exceed the default 10 s on larger molecules.
-            bridge.call("trigger_3d_conversion", timeout=60.0)
-            return _tool_ok(
-                "3D conversion triggered. "
-                "Use get_molecule_xyz to retrieve the generated coordinates."
-            )
+            started = bridge.call("trigger_3d_conversion", timeout=60.0)
+            if not (isinstance(started, dict) and started.get("async")):
+                return _tool_ok(
+                    "3D conversion finished. "
+                    "Use get_molecule_xyz to retrieve the generated coordinates."
+                )
+            if arguments.get("wait", True) is False:
+                return _tool_ok(
+                    "3D conversion started in the background; poll "
+                    "get_current_molecule until 3D coordinates are available."
+                )
+            return _wait_for_3d_conversion(bridge, arguments)
 
         if name == "get_molecule_image":
             data = bridge.call("get_molecule_image", _image_call_args(arguments))

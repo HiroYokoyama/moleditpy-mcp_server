@@ -335,6 +335,34 @@ def test_execute_load_mol_block_ok(bridge_mod, ctx):
     ctx.refresh_ui.assert_called()
 
 
+def test_execute_load_mol_block_keeps_a_blank_title_line(bridge_mod, ctx):
+    # The first molfile line is the title; stripping a blank one shifts the
+    # header up a line and RDKit then rejects the block.
+    chem_mock = MagicMock(name="Chem")
+    rdkit_mock = MagicMock(name="rdkit")
+    rdkit_mock.Chem = chem_mock
+    saved = {k: sys.modules.get(k) for k in ("rdkit", "rdkit.Chem")}
+    sys.modules["rdkit"] = rdkit_mock
+    sys.modules["rdkit.Chem"] = chem_mock
+    block = "\n     RDKit          2D\n\n  0  0  0  0  0  0  0  0  0  0999 V2000\nM  END\n\n"
+    try:
+        bridge_mod.execute_operation(ctx, "load_mol_block", {"mol_block": block})
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = v
+    passed = chem_mock.MolFromMolBlock.call_args[0][0]
+    assert passed.startswith("\n     RDKit")
+    assert passed.endswith("M  END")
+
+
+def test_execute_load_mol_block_whitespace_only_raises(bridge_mod, ctx):
+    with pytest.raises(ValueError, match="required"):
+        bridge_mod.execute_operation(ctx, "load_mol_block", {"mol_block": "\n  \n"})
+
+
 def test_execute_load_mol_block_empty_raises(bridge_mod, ctx):
     with pytest.raises(ValueError, match="required"):
         bridge_mod.execute_operation(ctx, "load_mol_block", {"mol_block": ""})
@@ -714,6 +742,40 @@ def test_execute_trigger_3d_conversion_via_compute_manager(bridge_mod, ctx):
     result = bridge_mod.execute_operation(ctx, "trigger_3d_conversion", {})
     cm.trigger_conversion.assert_called_once()
     assert result["success"] is True
+    # The worker runs in the background: the server has to poll for the end.
+    assert result["async"] is True
+
+
+def test_3d_conversion_status_running(bridge_mod, ctx):
+    cm = ctx.get_main_window.return_value.compute_manager
+    cm._conversion_run_ids = {3}
+    cm.active_worker_ids = {3}
+    ctx.current_molecule = None
+    result = bridge_mod.execute_operation(ctx, "get_3d_conversion_status", {})
+    assert result["running"] is True
+
+
+def test_3d_conversion_status_finished(bridge_mod, ctx):
+    mw = ctx.get_main_window.return_value
+    mw.compute_manager._conversion_run_ids = set()
+    mw.compute_manager.active_worker_ids = set()
+    mw.statusBar.return_value.currentMessage.return_value = "Done"
+    ctx.current_molecule = MagicMock()
+    ctx.current_molecule.GetNumConformers.return_value = 1
+    result = bridge_mod.execute_operation(ctx, "get_3d_conversion_status", {})
+    assert result == {"running": False, "has_3d": True, "message": "Done"}
+
+
+def test_3d_conversion_status_failed_without_coordinates(bridge_mod, ctx):
+    mw = ctx.get_main_window.return_value
+    mw.compute_manager._conversion_run_ids = set()
+    mw.compute_manager.active_worker_ids = set()
+    mw.statusBar.return_value.currentMessage.return_value = "Error: embedding failed"
+    ctx.current_molecule = None
+    result = bridge_mod.execute_operation(ctx, "get_3d_conversion_status", {})
+    assert result["running"] is False
+    assert result["has_3d"] is False
+    assert "embedding failed" in result["message"]
 
 
 def test_execute_trigger_3d_conversion_fallback_rdkit(bridge_mod, ctx):
@@ -1021,6 +1083,23 @@ def test_execute_highlight_bonds_no_controller_raises(bridge_mod, ctx):
         )
 
 
+def test_execute_bond_colors_batch_redraws_once(bridge_mod, ctx):
+    # The per-bond controller call redraws every time; 240 bonds outlasted
+    # the HTTP timeout. With the override store present it is one redraw.
+    manager = ctx.get_main_window.return_value.view_3d_manager
+    manager._plugin_bond_color_overrides = {7: "#000000"}
+    manager.current_3d_style = "ball_and_stick"
+    colors = {str(i): "#FF0000" for i in range(240)}
+    result = bridge_mod.execute_operation(
+        ctx, "highlight_bonds", {"bond_colors": colors}
+    )
+    assert result["bonds_colored"] == 240
+    assert manager._plugin_bond_color_overrides[0] == "#FF0000"
+    assert len(manager._plugin_bond_color_overrides) == 240
+    manager.draw_molecule_3d.assert_called_once_with(manager.current_mol)
+    ctx.get_3d_controller.return_value.set_bond_color.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # push_undo_checkpoint / enter_3d_mode / fit_2d_view / reset_3d_camera
 # ---------------------------------------------------------------------------
@@ -1325,6 +1404,31 @@ def test_app_version_falls_back_to_moleditpy_package(bridge_mod, ctx):
             sys.modules["moleditpy"] = saved
 
     assert result["version"] == "4.5.0"
+
+
+def test_app_version_from_moleditpy_linux_package(bridge_mod, ctx):
+    """Linux installs name the package moleditpy_linux; `import moleditpy` fails."""
+
+    class Window:  # stands in for the host's MainWindow class
+        VERSION = None
+        init_manager = None
+
+    Window.__module__ = "moleditpy_linux.ui.main_window"
+    ctx.get_main_window.return_value = Window()
+    fake = types.ModuleType("moleditpy_linux")
+    fake.__version__ = "4.11.0"
+    saved = {k: sys.modules.get(k) for k in ("moleditpy", "moleditpy_linux")}
+    sys.modules["moleditpy"] = None  # a None entry makes the import raise ImportError
+    sys.modules["moleditpy_linux"] = fake
+    try:
+        result = bridge_mod.execute_operation(ctx, "get_app_info", {})
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = v
+    assert result["version"] == "4.11.0"
 
 
 def test_app_version_unknown_without_main_window(bridge_mod, ctx):
@@ -2089,6 +2193,27 @@ def test_render_3d_png_puts_the_viewers_size_back():
     ctx.plotter = _SizedPlotter()
     assert mod._render_3d_png(ctx, 1600, 1200) == b"\x89PNG fake"
     assert ctx.plotter.window_size == [640, 480]
+
+
+def test_render_3d_png_draws_synchronously_before_the_capture():
+    # pyvistaqt's render() is signal-driven (threaded on macOS); a capture
+    # right after a style change must not read an undrawn frame.
+    mod = _real_bridge()
+    order = []
+    plotter = _SizedPlotter()
+    plotter.render_window = MagicMock()
+    plotter.render_window.Render.side_effect = lambda: order.append("render")
+    shot = plotter.screenshot
+
+    def screenshot(path, window_size=None):
+        order.append("screenshot")
+        shot(path, window_size)
+
+    plotter.screenshot = screenshot
+    ctx = MagicMock()
+    ctx.plotter = plotter
+    assert mod._render_3d_png(ctx, 400, 300) == b"\x89PNG fake"
+    assert order == ["render", "screenshot"]
 
 
 def test_render_3d_png_restores_the_size_even_when_the_screenshot_fails():

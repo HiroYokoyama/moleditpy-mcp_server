@@ -143,6 +143,9 @@ def execute_operation(ctx: Any, operation: str, args: dict[str, Any]) -> Any:
     if operation == "trigger_3d_conversion":
         return _trigger_3d_conversion(ctx)
 
+    if operation == "get_3d_conversion_status":
+        return _get_3d_conversion_status(ctx)
+
     if operation == "highlight_atoms":
         atom_colors = args.get("atom_colors")
         if not atom_colors:
@@ -376,9 +379,18 @@ def _set_bond_colors(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     for idx_str, color in bond_colors.items():
         resolved[_int_arg(idx_str, "bond index")] = color
 
-    for bond_idx, color in resolved.items():
-        ctrl.set_bond_color(bond_idx, color)
-    ctx.refresh_3d_view()
+    manager = _view_3d_manager(ctx)
+    store = getattr(manager, "_plugin_bond_color_overrides", None)
+    if isinstance(store, dict):
+        # One redraw for the whole batch, as for atom colors: the per-bond
+        # controller call redraws the molecule every time, and a few hundred
+        # bonds outlast the HTTP timeout.
+        store.update(resolved)
+        _restyle_and_redraw(manager, None)
+    else:
+        for bond_idx, color in resolved.items():
+            ctrl.set_bond_color(bond_idx, color)
+        ctx.refresh_3d_view()
     return {"success": True, "bonds_colored": len(resolved)}
 
 
@@ -591,8 +603,10 @@ def _get_selected_atoms(ctx: Any) -> dict[str, Any]:
 def _load_mol_block(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     from rdkit import Chem  # pylint: disable=import-outside-toplevel
 
-    mol_block = args.get("mol_block", "").strip()
-    if not mol_block:
+    # Trailing whitespace only: a molfile's first line is its title and may be
+    # blank, so stripping leading newlines shifts the header and fails the parse.
+    mol_block = args.get("mol_block", "").rstrip()
+    if not mol_block.strip():
         raise ValueError("'mol_block' argument is required")
     mol = Chem.MolFromMolBlock(mol_block, removeHs=False)
     if mol is None:
@@ -921,7 +935,8 @@ def _trigger_3d_conversion(ctx: Any) -> dict[str, Any]:
         cm = mw.compute_manager
         if hasattr(cm, "trigger_conversion"):
             cm.trigger_conversion()
-            return {"success": True}
+            # Runs in a worker thread; poll get_3d_conversion_status.
+            return {"success": True, "async": True}
     # Fallback: RDKit ETKDG + MMFF in-thread.
     from rdkit import Chem  # pylint: disable=import-outside-toplevel
     from rdkit.Chem import AllChem  # pylint: disable=import-outside-toplevel
@@ -938,6 +953,30 @@ def _trigger_3d_conversion(ctx: Any) -> dict[str, Any]:
     ctx.enter_3d_viewer_mode()
     ctx.refresh_ui()
     return {"success": True}
+
+
+def _get_3d_conversion_status(ctx: Any) -> dict[str, Any]:
+    """Whether a background 2D-to-3D conversion is still running, and the
+    outcome once it is not (a failure leaves its message in the status bar)."""
+    mw = ctx.get_main_window()
+    cm = getattr(mw, "compute_manager", None) if mw is not None else None
+    running = bool(
+        getattr(cm, "_conversion_run_ids", None)
+        or getattr(cm, "active_worker_ids", None)
+    )
+    mol = ctx.current_molecule
+    message = ""
+    status_bar = getattr(mw, "statusBar", None) if mw is not None else None
+    if callable(status_bar):
+        try:
+            message = str(status_bar().currentMessage() or "")
+        except Exception:  # pylint: disable=broad-except
+            logger.debug("Status bar message unavailable", exc_info=True)
+    return {
+        "running": running,
+        "has_3d": mol is not None and mol.GetNumConformers() > 0,
+        "message": message,
+    }
 
 
 def _find_moleditpy_spec() -> Any:
@@ -1344,6 +1383,15 @@ def _render_3d_png(
         shot_kwargs: dict[str, Any] = {"window_size": [width, height]}
         if transparent:
             shot_kwargs["transparent_background"] = True
+        # pyvistaqt's render() goes through a Qt signal (threaded on macOS),
+        # so a capture straight after a style change or redraw could read a
+        # frame not yet drawn. Draw it synchronously first.
+        render_window = getattr(plotter, "render_window", None)
+        if render_window is not None:
+            try:
+                render_window.Render()
+            except Exception:  # pylint: disable=broad-except
+                logger.debug("Synchronous pre-capture render failed", exc_info=True)
         plotter.screenshot(path, **shot_kwargs)
         with open(path, "rb") as file_obj:
             return file_obj.read() or None
@@ -2411,14 +2459,23 @@ def _app_version(mw: Any) -> str:
             version = settings.get("app_version")
             if isinstance(version, str) and version:
                 return version
-    try:
-        # Canonical source: moleditpy.utils.constants.VERSION
-        from moleditpy import __version__  # pylint: disable=import-outside-toplevel
+    # Canonical source: <package>.utils.constants.VERSION, re-exported as
+    # __version__. Linux installs name the package "moleditpy_linux", so the
+    # package the main window came from is tried first.
+    import importlib  # pylint: disable=import-outside-toplevel
 
-        if isinstance(__version__, str) and __version__:
-            return __version__
-    except ImportError:
-        pass
+    names = ["moleditpy", "moleditpy_linux"]
+    if mw is not None:
+        root = type(mw).__module__.split(".")[0]
+        names = [root] + [name for name in names if name != root]
+    for name in names:
+        try:
+            version = getattr(importlib.import_module(name), "__version__", None)
+        except ImportError:
+            continue
+        # "Unknown" is what the app reports when it cannot read its own version.
+        if isinstance(version, str) and version and version != "Unknown":
+            return version
     return "unknown"
 
 

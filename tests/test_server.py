@@ -292,6 +292,75 @@ def test_dispatch_trigger_3d_conversion(srv):
     bridge.call.assert_called_with("trigger_3d_conversion", timeout=60.0)
 
 
+def _conversion_bridge(statuses):
+    """A bridge whose conversion runs in the background and reports
+    *statuses* one poll at a time."""
+    polls = iter(statuses)
+
+    def call(operation, args=None, timeout=10.0):
+        if operation == "trigger_3d_conversion":
+            return {"success": True, "async": True}
+        return next(polls)
+
+    bridge = MagicMock()
+    bridge.call.side_effect = call
+    return bridge
+
+
+def test_dispatch_trigger_3d_conversion_waits_for_the_worker(srv, monkeypatch):
+    monkeypatch.setattr(srv, "_CONVERSION_POLL_S", 0)
+    bridge = _conversion_bridge(
+        [
+            {"running": True, "has_3d": False, "message": ""},
+            {"running": True, "has_3d": False, "message": ""},
+            {"running": False, "has_3d": True, "message": ""},
+        ]
+    )
+    result = srv.dispatch_tool(bridge, "trigger_3d_conversion", {})
+    assert result.get("isError") is not True
+    assert "finished" in result["content"][0]["text"]
+    assert bridge.call.call_count == 4
+
+
+def test_dispatch_trigger_3d_conversion_reports_a_failure(srv, monkeypatch):
+    monkeypatch.setattr(srv, "_CONVERSION_POLL_S", 0)
+    bridge = _conversion_bridge(
+        [{"running": False, "has_3d": False, "message": "Error: embedding failed"}]
+    )
+    result = srv.dispatch_tool(bridge, "trigger_3d_conversion", {})
+    assert result.get("isError") is True
+    assert "embedding failed" in result["content"][0]["text"]
+
+
+def test_dispatch_trigger_3d_conversion_times_out(srv, monkeypatch):
+    monkeypatch.setattr(srv, "_CONVERSION_POLL_S", 0)
+    clock = iter([0.0, 0.5, 2.0, 5.0])
+    monkeypatch.setattr(srv.time, "monotonic", lambda: next(clock))
+    running = {"running": True, "has_3d": False, "message": ""}
+    bridge = _conversion_bridge([running] * 5)
+    result = srv.dispatch_tool(
+        bridge, "trigger_3d_conversion", {"timeout_seconds": 1}
+    )
+    assert result.get("isError") is True
+    assert "still running" in result["content"][0]["text"]
+
+
+def test_dispatch_trigger_3d_conversion_without_waiting(srv):
+    bridge = _conversion_bridge([])
+    result = srv.dispatch_tool(bridge, "trigger_3d_conversion", {"wait": False})
+    assert result.get("isError") is not True
+    assert "background" in result["content"][0]["text"]
+    assert bridge.call.call_count == 1
+
+
+def test_dispatch_load_from_mol_block_keeps_a_blank_title_line(srv):
+    bridge = _bridge({"load_mol_block": {"success": True}})
+    block = "\n     RDKit          2D\n\n  0  0  0  0  0  0  0  0  0  0999 V2000\nM  END\n"
+    srv.dispatch_tool(bridge, "load_from_mol_block", {"mol_block": block})
+    sent = bridge.call.call_args[0][1]["mol_block"]
+    assert sent.startswith("\n     RDKit")
+
+
 def test_dispatch_get_selected_atoms_empty(srv):
     bridge = _bridge({"get_selected_atoms": {"count": 0, "selected_atoms": []}})
     result = srv.dispatch_tool(bridge, "get_selected_atoms", {})
