@@ -287,18 +287,18 @@ Reloading plugins stops the running server and starts it again with the reloaded
 
 ## AI Skill (SKILL.md) — optional
 
-This repo ships a [`SKILL.md`](SKILL.md) that teaches AI agents *how* to use these tools well: always taking coordinates from the live molecule (never retyping them), checkpointing the undo stack after edits, configuring the file sandbox before writing, ready-made recipes for QM input generation and plugin authoring, and discovering/suggesting installable plugins.
+This repo ships a [`skills/moleditpy-mcp/SKILL.md`](skills/moleditpy-mcp/SKILL.md) that teaches AI agents *how* to use these tools well: always taking coordinates from the live molecule (never retyping them), checkpointing the undo stack after edits, configuring the file sandbox before writing, ready-made recipes for QM input generation and plugin authoring, and discovering/suggesting installable plugins.
 
-To install it for **Claude Code**, copy the file into a skill directory:
+To install it for **Claude Code**, copy the skill directory into a skills directory:
 
 ```bash
 # Personal (all projects)
-mkdir -p ~/.claude/skills/moleditpy-mcp
-cp SKILL.md ~/.claude/skills/moleditpy-mcp/SKILL.md
+mkdir -p ~/.claude/skills
+cp -r skills/moleditpy-mcp ~/.claude/skills/
 
 # Or per-project
-mkdir -p .claude/skills/moleditpy-mcp
-cp SKILL.md .claude/skills/moleditpy-mcp/SKILL.md
+mkdir -p .claude/skills
+cp -r skills/moleditpy-mcp .claude/skills/
 ```
 
 Claude loads it automatically whenever a task involves the MoleditPy MCP tools. Other agent frameworks that support Anthropic-style skills (a `SKILL.md` with YAML frontmatter) can consume the same file.
