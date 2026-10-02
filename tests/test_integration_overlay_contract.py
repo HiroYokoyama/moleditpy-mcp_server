@@ -65,7 +65,13 @@ def test_stick_style_name_and_radius_setting():
 
 def test_update_override_accepts_none_for_the_fallback_path():
     cls = _manager_class()
-    assert "if color_hex is None" in inspect.getsource(cls.update_atom_color_override)
+    manager = object.__new__(cls)  # skip __init__: no host window needed
+    manager._plugin_color_overrides = {}
+    manager.current_mol = None  # nothing to redraw
+    manager.update_atom_color_override(3, "#ff0000")
+    assert manager._plugin_color_overrides == {3: "#ff0000"}
+    manager.update_atom_color_override(3, None)
+    assert 3 not in manager._plugin_color_overrides
     assert callable(pi.Plugin3DController.set_atom_color)
 
 
