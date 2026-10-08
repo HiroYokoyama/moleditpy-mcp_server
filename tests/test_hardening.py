@@ -47,7 +47,9 @@ def _free_port() -> int:
 def live():
     from mcp_server.server import MCPHttpServer
 
-    server = MCPHttpServer(_StubBridge(), "Stub", "0", port=_free_port())
+    server = MCPHttpServer(
+        _StubBridge(), "Stub", "0", port=_free_port(), auth_token="test-token"
+    )
     server.start()
     try:
         yield server
@@ -64,7 +66,11 @@ def _post(
             "POST",
             path,
             body=body,
-            headers={"Content-Type": "application/json", **(headers or {})},
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer test-token",
+                **(headers or {}),
+            },
         )
         resp = conn.getresponse()
         return resp.status, {k.lower(): v for k, v in resp.getheaders()}, resp.read()

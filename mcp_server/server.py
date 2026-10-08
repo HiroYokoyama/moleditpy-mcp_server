@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import fnmatch
 import json
+import secrets
 import logging
 import os
 import re
@@ -3367,6 +3368,7 @@ class _MCPHandler(BaseHTTPRequestHandler):
     server_name: str = "MoleditPy MCP Server"
     server_version: str = "unknown"
     session_id: str = ""
+    auth_token: str = ""
     protocol_mode: str = "auto"
 
     def log_message(self, format_str: str, *args: Any) -> None:  # type: ignore[override]
@@ -3416,6 +3418,13 @@ class _MCPHandler(BaseHTTPRequestHandler):
                 return False
         return True
 
+    def _authenticated(self) -> bool:
+        token = self._cfg("auth_token")
+        supplied = self._header("Authorization") or ""
+        return bool(token) and secrets.compare_digest(
+            supplied.encode("utf-8"), ("Bearer " + token).encode("utf-8")
+        )
+
     def _send_cors(self) -> None:
         # Echo a loopback Origin (e.g. a local MCP Inspector) rather than
         # "*": a wildcard would let any web page read the responses.
@@ -3426,7 +3435,7 @@ class _MCPHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
         self.send_header(
             "Access-Control-Allow-Headers",
-            "Content-Type, Accept, Mcp-Session-Id, "
+            "Authorization, Content-Type, Accept, Mcp-Session-Id, "
             "MCP-Protocol-Version, Mcp-Method, Mcp-Name",
         )
         self.send_header("Access-Control-Expose-Headers", "Mcp-Session-Id")
@@ -3502,6 +3511,10 @@ class _MCPHandler(BaseHTTPRequestHandler):
             return
         if length > _MAX_BODY_BYTES:
             self.send_error(413, "Request body too large")
+            return
+        if not self._authenticated():
+            self.rfile.read(length)
+            self.send_error(401, "Bearer token required")
             return
         try:
             raw = self.rfile.read(length)
@@ -3754,8 +3767,10 @@ class MCPHttpServer:
         host: str = "127.0.0.1",
         port: int = 7891,
         protocol_mode: str = "auto",
+        auth_token: str | None = None,
     ) -> None:
         self._bridge = bridge
+        self.auth_token = auth_token or secrets.token_urlsafe(32)
         self._server_name = server_name
         self._server_version = server_version
         self._host = host
@@ -3772,6 +3787,7 @@ class MCPHttpServer:
     def start(self) -> None:
         """Start the HTTP server in a daemon thread."""
         self._httpd = _ThreadedHTTPServer((self._host, self._port), _MCPHandler)
+        self._httpd.mcp_auth_token = self.auth_token
         self._httpd.mcp_bridge = self._bridge
         self._httpd.mcp_server_name = self._server_name
         self._httpd.mcp_server_version = self._server_version

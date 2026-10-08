@@ -338,9 +338,7 @@ def test_dispatch_trigger_3d_conversion_times_out(srv, monkeypatch):
     monkeypatch.setattr(srv.time, "monotonic", lambda: next(clock))
     running = {"running": True, "has_3d": False, "message": ""}
     bridge = _conversion_bridge([running] * 5)
-    result = srv.dispatch_tool(
-        bridge, "trigger_3d_conversion", {"timeout_seconds": 1}
-    )
+    result = srv.dispatch_tool(bridge, "trigger_3d_conversion", {"timeout_seconds": 1})
     assert result.get("isError") is True
     assert "still running" in result["content"][0]["text"]
 
@@ -355,7 +353,9 @@ def test_dispatch_trigger_3d_conversion_without_waiting(srv):
 
 def test_dispatch_load_from_mol_block_keeps_a_blank_title_line(srv):
     bridge = _bridge({"load_mol_block": {"success": True}})
-    block = "\n     RDKit          2D\n\n  0  0  0  0  0  0  0  0  0  0999 V2000\nM  END\n"
+    block = (
+        "\n     RDKit          2D\n\n  0  0  0  0  0  0  0  0  0  0999 V2000\nM  END\n"
+    )
     srv.dispatch_tool(bridge, "load_from_mol_block", {"mol_block": block})
     sent = bridge.call.call_args[0][1]["mol_block"]
     assert sent.startswith("\n     RDKit")
@@ -696,6 +696,7 @@ def _make_handler(srv_mod: Any) -> Any:
     cls.server_name = "Test Server"
     cls.server_version = "1.0"
     handler = object.__new__(cls)
+    handler._authenticated = MagicMock(return_value=True)
     return handler
 
 
