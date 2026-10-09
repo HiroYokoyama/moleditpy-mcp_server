@@ -873,3 +873,11 @@ def test_new_tools_are_listed_with_annotations(srv):
     assert "background" in tools["save_molecule_image"]["inputSchema"]["properties"]
     assert "plane_atoms" in tools["set_3d_camera"]["inputSchema"]["properties"]
     assert "request_read_folder" in srv._SERVER_INSTRUCTIONS
+
+
+def test_approval_text_is_literal_even_with_client_markup(bridge_mod, monkeypatch):
+    _cls, box, _timer = _qmessagebox(monkeypatch, bridge_mod, False)
+    text = "Read /private/data? Reason: <b>Only a harmless preview</b>"
+    bridge_mod._ask_user(make_context(), "Approval", text)
+    box.setTextFormat.assert_called_once_with(bridge_mod.Qt.TextFormat.PlainText)
+    box.setText.assert_called_once_with(text)

@@ -19,6 +19,7 @@ import socket
 import socketserver
 import sys
 import threading
+import tempfile
 import time
 import urllib.parse
 import urllib.request
@@ -1731,6 +1732,21 @@ def _check_extension(path: Path, allowed_extensions: list[str]) -> None:
         )
 
 
+def _write_sandbox_file(target: Path, content: str, overwrite: bool) -> None:
+    """Replace a directory entry instead of truncating an existing hardlink."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+        prefix=".mcp-write-", dir=target.parent
+    ) as directory:
+        staged = Path(directory) / "content"
+        staged.write_text(content, encoding="utf-8")
+        if overwrite:
+            os.replace(staged, target)
+        else:
+            # Publishing a new name must not overwrite a concurrent creation.
+            os.link(staged, target)
+
+
 def normalize_extensions(raw: Any) -> list[str]:
     """Validate an extension allowlist and bring every entry to '.ext' form.
 
@@ -3044,8 +3060,7 @@ def dispatch_tool(
                 return _tool_err(
                     f"{user_path!r} already exists. Pass overwrite=true to replace it."
                 )
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content, encoding="utf-8")
+            _write_sandbox_file(target, content, overwrite)
             size = target.stat().st_size
             return _tool_ok(f"Written: {user_path} ({size:,} bytes)")
 
@@ -3096,8 +3111,7 @@ def dispatch_tool(
                 return _tool_err(
                     f"Content exceeds the {_MAX_FILE_BYTES // 1024 // 1024} MB limit."
                 )
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content, encoding="utf-8")
+            _write_sandbox_file(target, content, overwrite)
             size = target.stat().st_size
             return _tool_ok(
                 f"Written: {user_path} ({size:,} bytes, {n_atoms} atom(s) in coordinate block)"
@@ -3729,6 +3743,36 @@ class _MethodNotFound(Exception):
 
 
 class _ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
+    # A loopback client can stall before authentication by sending no headers
+    # or an incomplete body. Bound both idle time and concurrent handler threads.
+    request_timeout = 15.0
+    max_clients = 32
+
+    def __init__(self, *args, **kwargs):
+        self._client_slots = threading.BoundedSemaphore(self.max_clients)
+        super().__init__(*args, **kwargs)
+
+    def get_request(self):
+        request, address = super().get_request()
+        request.settimeout(self.request_timeout)
+        return request, address
+
+    def process_request(self, request, client_address):
+        if not self._client_slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._client_slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._client_slots.release()
+
     daemon_threads = True
     # SO_REUSEADDR means "may share a port in use" on Windows, not "may reuse
     # one in TIME_WAIT": a second MoleditPy would bind the same port without
@@ -3740,6 +3784,9 @@ class _ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
         if sys.platform == "win32" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
             self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
         super().server_bind()
+
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        logger.debug("MCP client disconnected or timed out", exc_info=True)
 
 
 def is_port_serving(host: str, port: int, timeout: float = 0.3) -> bool:
