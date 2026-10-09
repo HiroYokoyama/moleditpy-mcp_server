@@ -52,6 +52,7 @@ def on_base_dir_changed():
 def _make_fake_self(text: str, saved: str | None = None):
     """A duck-typed stand-in for MCPStatusDialog with just what the method touches."""
     fake = SimpleNamespace()
+    fake._feedback_lbl = MagicMock()
     fake._base_dir_edit = MagicMock()
     fake._base_dir_edit.text.return_value = text
     fake._plugin = MagicMock()

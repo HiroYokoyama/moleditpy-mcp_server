@@ -21,10 +21,10 @@ from __future__ import annotations
 
 import logging
 import secrets
-from typing import Any, Optional
+from typing import Any
 
 PLUGIN_NAME = "MCP Server"
-PLUGIN_VERSION = "1.8.6"
+PLUGIN_VERSION = "1.8.7"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Expose MoleditPy via Model Context Protocol (MCP) "
@@ -56,6 +56,7 @@ class MCPServerPlugin:
         self.context = context
         self._bridge: Any = None
         self._server: Any = None
+        self.last_error = ""
         token = context.get_setting("auth_token", None)
         if not isinstance(token, str) or len(token) < 32 or not token.isalnum():
             token = secrets.token_hex(32)
@@ -75,6 +76,7 @@ class MCPServerPlugin:
         if port is None:
             port = self.context.get_setting("port", 7891)
 
+        self.last_error = ""
         try:
             from .bridge import MCPBridge  # pylint: disable=import-outside-toplevel
             from .server import (  # pylint: disable=import-outside-toplevel
@@ -85,6 +87,7 @@ class MCPServerPlugin:
             # Another MoleditPy already serves this port: binding would fail
             # (or, off Windows, split the traffic), so leave it be.
             if is_port_serving(_HOST, port):
+                self.last_error = f"Another process is listening on port {port}. Choose a different port or stop that process."
                 self.context.show_status_message(
                     f"MCP Server is already running in another MoleditPy "
                     f"instance (port {port}); not starting a second one.",
@@ -111,7 +114,8 @@ class MCPServerPlugin:
             # (import failure, missing PluginContext attribute, socket error,
             # etc.) escape into the menu-action callback and crash the app —
             # it always reports failure via the status bar instead.
-            self.context.show_status_message(f"MCP Server failed to start: {exc}", 6000)
+            self.last_error = f"MCP Server failed to start: {exc}"
+            self.context.show_status_message(self.last_error, 6000)
             logger.exception("MCP Server start failed")
             self._bridge = None
             self._server = None

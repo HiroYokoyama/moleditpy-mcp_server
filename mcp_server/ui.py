@@ -3,12 +3,14 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QFont, QFontDatabase
 from PyQt6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QCheckBox,
     QComboBox,
@@ -16,12 +18,18 @@ from PyQt6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
     QTextEdit,
     QVBoxLayout,
+    QWidget,
 )
 
 if TYPE_CHECKING:
@@ -175,9 +183,14 @@ class MCPStatusDialog(QDialog):
         super().__init__(plugin.context.get_main_window())
         self._plugin = plugin
         self.setWindowTitle("MCP Server — Status & Settings")
-        self.setMinimumWidth(480)
+        self.resize(760, 620)
+        self.setMinimumWidth(520)
         self._build_ui()
         self.refresh()
+        self._timer = QTimer(self)
+        self._timer.setInterval(2000)
+        self._timer.timeout.connect(self._poll_status)
+        self._timer.start()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -199,6 +212,22 @@ class MCPStatusDialog(QDialog):
         )
         layout.addWidget(self._url_lbl)
 
+        self._feedback_lbl = QLabel()
+        self._feedback_lbl.setTextFormat(Qt.TextFormat.PlainText)
+        self._feedback_lbl.setWordWrap(True)
+        layout.addWidget(self._feedback_lbl)
+        self._tabs = QTabWidget()
+        layout.addWidget(self._tabs, 1)
+        server_page = QWidget()
+        server_layout = QVBoxLayout(server_page)
+        self._tabs.addTab(server_page, "Server")
+        files_page = QWidget()
+        files_layout = QVBoxLayout(files_page)
+        self._tabs.addTab(files_page, "File access")
+        client_page = QWidget()
+        client_layout = QVBoxLayout(client_page)
+        self._tabs.addTab(client_page, "Client configuration")
+
         # Port row
         port_row = QHBoxLayout()
         port_row.addWidget(QLabel("Port:"))
@@ -209,10 +238,10 @@ class MCPStatusDialog(QDialog):
             "The local port the MCP server listens on. "
             "Restart the server after changing."
         )
-        self._port_spin.valueChanged.connect(lambda _v: self._update_config_view())
+        self._port_spin.valueChanged.connect(lambda _v: self._on_port_changed())
         port_row.addWidget(self._port_spin)
         port_row.addStretch()
-        layout.addLayout(port_row)
+        server_layout.addLayout(port_row)
 
         # Protocol version row
         proto_row = QHBoxLayout()
@@ -232,7 +261,7 @@ class MCPStatusDialog(QDialog):
         )
         self._protocol_combo.currentIndexChanged.connect(self._on_protocol_changed)
         proto_row.addWidget(self._protocol_combo, 1)
-        layout.addLayout(proto_row)
+        server_layout.addLayout(proto_row)
 
         # Auto-start checkbox
         self._auto_start_chk = QCheckBox("Auto-start server on launch")
@@ -240,11 +269,12 @@ class MCPStatusDialog(QDialog):
             self._plugin.context.get_setting("auto_start", False)
         )
         self._auto_start_chk.toggled.connect(self._on_auto_start_toggled)
-        layout.addWidget(self._auto_start_chk)
+        server_layout.addWidget(self._auto_start_chk)
+        server_layout.addStretch()
 
         # File I/O base directory row
         dir_row = QHBoxLayout()
-        dir_row.addWidget(QLabel("File I/O base dir:"))
+        dir_row.addWidget(QLabel("Read/write folder:"))
         self._base_dir_edit = QLineEdit()
         self._base_dir_edit.setPlaceholderText("(not set: file tools are disabled)")
         saved_dir = self._plugin.context.get_setting("file_io_base_dir", None)
@@ -255,32 +285,77 @@ class MCPStatusDialog(QDialog):
         browse_btn = QPushButton("Browse…")
         browse_btn.clicked.connect(self._browse_base_dir)
         dir_row.addWidget(browse_btn)
-        layout.addLayout(dir_row)
+        files_layout.addLayout(dir_row)
+        note = QLabel(
+            "The base folder allows reading and writing. Additional folders below allow reading only. Paths inside the read/write folder remain writable. Changes apply immediately."
+        )
+        note.setWordWrap(True)
+        files_layout.addWidget(note)
 
         # Read-only folders: reading tools may use absolute paths inside them.
         # An MCP client can only *request* one (request_read_folder), which
         # the user approves in a dialog; adding or clearing here needs none.
-        ro_row = QHBoxLayout()
-        ro_row.addWidget(QLabel("Read-only folders:"))
-        self._read_roots_edit = QLineEdit()
-        self._read_roots_edit.setReadOnly(True)
-        self._read_roots_edit.setPlaceholderText(
-            "(none: an MCP client can request one, you approve it)"
+        files_layout.addWidget(QLabel("Read-only folders"))
+        self._read_roots_table = QTableWidget(0, 2)
+        self._read_roots_table.setHorizontalHeaderLabels(["Folder path", "Status"])
+        self._read_roots_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch
         )
-        ro_row.addWidget(self._read_roots_edit)
+        self._read_roots_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self._read_roots_table.verticalHeader().hide()
+        self._read_roots_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self._read_roots_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.ExtendedSelection
+        )
+        self._read_roots_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
+        self._read_roots_table.setAlternatingRowColors(True)
+        self._read_roots_table.setWordWrap(False)
+        self._read_roots_table.setAccessibleName("Read-only folders")
+        self._read_roots_table.itemSelectionChanged.connect(
+            self._on_read_root_selection
+        )
+        files_layout.addWidget(self._read_roots_table, 1)
+        ro_row = QHBoxLayout()
+        self._new_read_root_edit = QLineEdit()
+        self._new_read_root_edit.setPlaceholderText(
+            "Type a folder path, or leave empty and click Add to browse"
+        )
+        self._new_read_root_edit.setClearButtonEnabled(True)
+        self._new_read_root_edit.setAccessibleName("Read-only folder to add")
+        self._new_read_root_edit.returnPressed.connect(self._add_typed_read_root)
+        ro_row.addWidget(self._new_read_root_edit, 1)
         add_ro_btn = QPushButton("Add…")
-        add_ro_btn.clicked.connect(self._add_read_root)
+        add_ro_btn.setToolTip(
+            "Add the typed folder; if the path box is empty, choose a folder."
+        )
+        add_ro_btn.clicked.connect(self._add_folder)
         ro_row.addWidget(add_ro_btn)
-        clear_ro_btn = QPushButton("Clear")
-        clear_ro_btn.clicked.connect(self._clear_read_roots)
-        ro_row.addWidget(clear_ro_btn)
-        layout.addLayout(ro_row)
+        files_layout.addLayout(ro_row)
+        ro_actions = QHBoxLayout()
+        self._remove_ro_btn = QPushButton("Remove selected")
+        self._remove_ro_btn.clicked.connect(self._remove_read_roots)
+        ro_actions.addWidget(self._remove_ro_btn)
+        self._copy_ro_btn = QPushButton("Copy selected paths")
+        self._copy_ro_btn.clicked.connect(self._copy_read_roots)
+        ro_actions.addWidget(self._copy_ro_btn)
+        ro_actions.addStretch()
+        self._clear_ro_btn = QPushButton("Clear all…")
+        self._clear_ro_btn.clicked.connect(self._clear_read_roots)
+        ro_actions.addWidget(self._clear_ro_btn)
+        files_layout.addLayout(ro_actions)
+        self._shown_roots = None
         self._show_read_roots()
 
         # Copy URL button
         copy_btn = QPushButton("Copy Server URL")
         copy_btn.clicked.connect(self._copy_url)
-        layout.addWidget(copy_btn)
+        server_layout.addWidget(copy_btn)
 
         # Client configuration snippets (selector above the snippet view)
         client_row = QHBoxLayout()
@@ -293,30 +368,43 @@ class MCPStatusDialog(QDialog):
         copy_cfg_btn.setToolTip("Copy the snippet below to the clipboard")
         copy_cfg_btn.clicked.connect(self._copy_config)
         client_row.addWidget(copy_cfg_btn)
-        layout.addLayout(client_row)
+        client_layout.addLayout(client_row)
 
         self._config_view = QTextEdit()
         self._config_view.setReadOnly(True)
-        self._config_view.setMaximumHeight(120)
-        self._config_view.setStyleSheet(
-            "font-family: Consolas, monospace; font-size: 10px;"
+        self._config_view.setMinimumHeight(180)
+        self._config_view.setFont(
+            QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
         )
-        layout.addWidget(self._config_view)
+        client_layout.addWidget(self._config_view, 1)
 
         self._config_note = QLabel()
         self._config_note.setWordWrap(True)
         self._config_note.setStyleSheet("color: gray; font-size: 11px;")
-        layout.addWidget(self._config_note)
+        client_layout.addWidget(self._config_note)
+        private_note = QLabel(
+            "This configuration contains your private bearer token. Share it only with trusted clients."
+        )
+        private_note.setWordWrap(True)
+        client_layout.addWidget(private_note)
 
         # Start / Stop button
         self._toggle_btn = QPushButton()
         self._toggle_btn.clicked.connect(self._toggle)
-        layout.addWidget(self._toggle_btn)
+        action_row = QHBoxLayout()
+        action_row.addWidget(self._toggle_btn)
+        refresh_btn = QPushButton("Refresh status")
+        refresh_btn.clicked.connect(self.refresh)
+        action_row.addWidget(refresh_btn)
+        layout.addLayout(action_row)
 
         # Dialog buttons
         btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         btn_box.rejected.connect(self.close)
         layout.addWidget(btn_box)
+        for button in self.findChildren(QPushButton):
+            button.setAutoDefault(False)
+            button.setDefault(False)
 
     # ------------------------------------------------------------------
 
@@ -343,8 +431,9 @@ class MCPStatusDialog(QDialog):
             self._port_spin.setEnabled(True)
             self._protocol_combo.setEnabled(True)
 
-        url = self._plugin.url
-        self._url_lbl.setText(url)
+        self._url_lbl.setText(self._display_url())
+        self._last_running = running
+        self._show_read_roots()
         self._update_config_view()
 
     def _update_config_view(self) -> None:
@@ -353,7 +442,7 @@ class MCPStatusDialog(QDialog):
             return
         self._config_view.setPlainText(
             render_client_config(
-                client, self._port_spin.value(), self._plugin.auth_token
+                client, self._connection_port(), self._plugin.auth_token
             )
         )
         self._config_note.setText(_CLIENT_TEMPLATES[client][1])
@@ -373,7 +462,13 @@ class MCPStatusDialog(QDialog):
         else:
             port = self._port_spin.value()
             self._plugin.context.set_setting("port", port)
-            self._plugin.start(port=port)
+            if not self._plugin.start(port=port):
+                self._feedback_lbl.setText(
+                    getattr(self._plugin, "last_error", "")
+                    or "Could not start the server. Check the main window status message."
+                )
+            else:
+                self._feedback_lbl.clear()
         self.refresh()
 
     def _on_protocol_changed(self, _index: int) -> None:
@@ -391,25 +486,28 @@ class MCPStatusDialog(QDialog):
         text = self._base_dir_edit.text().strip()
         if not text:
             self._plugin.context.set_setting("file_io_base_dir", None)
+            self._feedback_lbl.setText("Base folder cleared. File writes are disabled.")
             return
-        path = Path(text).expanduser()
-        if not path.is_dir():
-            # Keep behavior consistent with the set_file_io_config MCP tool,
-            # which rejects a base_dir that doesn't exist. Without this check
-            # a typo here would silently sandbox the file I/O tools to a
-            # directory that never resolves, so every write/read/list call
-            # would fail with a confusing error instead of failing here.
-            self._plugin.context.show_status_message(
-                f"'{text}' is not an existing directory — "
-                "File I/O base directory was not changed.",
-                5000,
-            )
+        if len(text) >= 2 and text[0] == text[-1] and text[0] in ('"', "'"):
+            text = text[1:-1]
+        try:
+            path = Path(text).expanduser()
+            if not path.is_dir():
+                raise ValueError("not an existing directory")
+            resolved = str(path.resolve())
+        except (OSError, RuntimeError, ValueError) as exc:
+            message = f"'{text}' is not an existing directory — File I/O base directory was not changed. ({exc})"
+            self._feedback_lbl.setText(message)
+            self._plugin.context.show_status_message(message, 5000)
             saved = self._plugin.context.get_setting("file_io_base_dir", None)
             self._base_dir_edit.setText(saved or "")
             return
-        resolved = str(path.resolve())
         self._base_dir_edit.setText(resolved)
+        self._base_dir_edit.setCursorPosition(0)
         self._plugin.context.set_setting("file_io_base_dir", resolved)
+        self._feedback_lbl.setText(
+            "Base folder saved. Reading and writing are allowed inside this folder."
+        )
 
     def _browse_base_dir(self) -> None:
         directory = QFileDialog.getExistingDirectory(
@@ -425,27 +523,146 @@ class MCPStatusDialog(QDialog):
         return [r for r in raw if isinstance(r, str)] if isinstance(raw, list) else []
 
     def _show_read_roots(self) -> None:
-        self._read_roots_edit.setText("; ".join(self._read_roots()))
+        roots = self._read_roots()
+        state = [(root, Path(root).is_dir()) for root in roots]
+        if state == self._shown_roots:
+            return
+        selected = self._selected_read_roots()
+        pending_path = self._new_read_root_edit.text()
+        self._shown_roots = state
+        self._read_roots_table.blockSignals(True)
+        self._read_roots_table.setRowCount(len(roots))
+        for row, (root, exists) in enumerate(state):
+            path_item = QTableWidgetItem(root)
+            path_item.setToolTip(root)
+            self._read_roots_table.setItem(row, 0, path_item)
+            self._read_roots_table.setItem(
+                row, 1, QTableWidgetItem("Available" if exists else "Missing")
+            )
+        self._read_roots_table.clearSelection()
+        for row, root in enumerate(roots):
+            if root in selected:
+                self._read_roots_table.item(row, 0).setSelected(True)
+                self._read_roots_table.item(row, 1).setSelected(True)
+        self._read_roots_table.blockSignals(False)
+        self._clear_ro_btn.setEnabled(bool(roots))
+        self._on_read_root_selection()
+        if pending_path and pending_path not in selected:
+            self._new_read_root_edit.setText(pending_path)
+
+    def _selected_read_roots(self) -> list[str]:
+        return [
+            self._read_roots_table.item(index.row(), 0).text()
+            for index in self._read_roots_table.selectionModel().selectedRows()
+        ]
+
+    def _on_read_root_selection(self) -> None:
+        selected = self._selected_read_roots()
+        self._new_read_root_edit.setText(selected[0] if selected else "")
+        self._new_read_root_edit.setCursorPosition(0)
+        self._remove_ro_btn.setEnabled(bool(selected))
+        self._copy_ro_btn.setEnabled(bool(selected))
+
+    def _save_read_root(self, directory: str) -> bool:
+        text = directory.strip()
+        if len(text) >= 2 and text[0] == text[-1] and text[0] in ('"', "'"):
+            text = text[1:-1]
+        try:
+            path = Path(text).expanduser()
+            if not text or not path.is_dir():
+                self._feedback_lbl.setText(
+                    "Enter an existing folder. Read-only access was not changed."
+                )
+                return False
+            resolved = str(path.resolve())
+        except (OSError, RuntimeError, ValueError) as exc:
+            self._feedback_lbl.setText(f"Could not use this folder: {exc}")
+            return False
+        roots = self._read_roots()
+        if any(os.path.normcase(root) == os.path.normcase(resolved) for root in roots):
+            self._feedback_lbl.setText("This folder already has read-only access.")
+        else:
+            roots.append(resolved)
+            self._plugin.context.set_setting("file_io_read_roots", roots)
+            self._feedback_lbl.setText("Read-only folder added.")
+        self._show_read_roots()
+        return True
+
+    def _add_folder(self) -> None:
+        if self._new_read_root_edit.text().strip():
+            self._add_typed_read_root()
+        else:
+            self._add_read_root()
+
+    def _add_typed_read_root(self) -> None:
+        if self._save_read_root(self._new_read_root_edit.text()):
+            self._new_read_root_edit.clear()
 
     def _add_read_root(self) -> None:
         directory = QFileDialog.getExistingDirectory(
-            self, "Add Read-only Folder for MCP", ""
+            self, "Add Read-only Folder for MCP", self._new_read_root_edit.text()
         )
-        if not directory:
-            return
-        resolved = str(Path(directory).expanduser().resolve())
-        roots = self._read_roots()
-        if resolved not in roots:
-            roots.append(resolved)
-            self._plugin.context.set_setting("file_io_read_roots", roots)
-        self._show_read_roots()
+        if directory:
+            self._save_read_root(directory)
+
+    def _remove_read_roots(self) -> None:
+        selected = set(self._selected_read_roots())
+        if selected:
+            self._plugin.context.set_setting(
+                "file_io_read_roots",
+                [r for r in self._read_roots() if r not in selected],
+            )
+            self._feedback_lbl.setText(
+                f"Removed read-only access to {len(selected)} folder(s)."
+            )
+            self._show_read_roots()
+
+    def _copy_read_roots(self) -> None:
+        QApplication.clipboard().setText("\n".join(self._selected_read_roots()))
 
     def _clear_read_roots(self) -> None:
+        if (
+            QMessageBox.question(
+                self,
+                "Clear read-only folders",
+                "Remove read-only access to all listed folders?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            != QMessageBox.StandardButton.Yes
+        ):
+            return
         self._plugin.context.set_setting("file_io_read_roots", [])
+        self._feedback_lbl.setText("All read-only folder permissions removed.")
         self._show_read_roots()
 
+    def _poll_status(self) -> None:
+        # Local state and approvals refresh without a socket probe on the GUI thread.
+        if self._plugin.is_running != self._last_running:
+            self.refresh()
+        else:
+            self._show_read_roots()
+
+    def closeEvent(self, event) -> None:
+        self._timer.stop()
+        super().closeEvent(event)
+
+    def _connection_port(self) -> int:
+        if self._plugin.is_running:
+            from urllib.parse import urlsplit
+
+            return urlsplit(self._plugin.url).port or self._port_spin.value()
+        return self._port_spin.value()
+
+    def _display_url(self) -> str:
+        return f"http://127.0.0.1:{self._connection_port()}/mcp"
+
+    def _on_port_changed(self) -> None:
+        self._url_lbl.setText(self._display_url())
+        self._update_config_view()
+
     def _copy_url(self) -> None:
-        QApplication.clipboard().setText(self._plugin.url)
+        QApplication.clipboard().setText(self._display_url())
         self._plugin.context.show_status_message(
             "MCP server URL copied to clipboard.", 2000
         )

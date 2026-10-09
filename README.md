@@ -402,7 +402,7 @@ stdout, stderr, and the value of `result` are returned to the AI. There are no e
 
 #### Security model
 
-All file operations are restricted to a **base directory** you configure. Set it in **Plugins → MCP Server → Status & Settings** (File I/O base dir field), or let the LLM request it via `set_file_io_config`:
+All file operations are restricted to a **base directory** you configure. Set it in **Plugins → MCP Server → Status & Settings** (File access tab → Read/write folder), or let the LLM request it via `set_file_io_config`:
 
 ```
 Set the file I/O base directory to /home/you/dft_jobs
@@ -410,7 +410,12 @@ Set the file I/O base directory to /home/you/dft_jobs
 
 **Widening access always needs you.** When an AI calls `set_file_io_config` (base directory or extension list) or `request_read_folder`, MoleditPy shows a Yes/No dialog (default No) describing exactly what changes; nothing changes unless you press Yes. The MCP client cannot approve on your behalf.
 
-**Read-only folders.** Besides the base directory you can allow folders that are only *read*: add them in the Status & Settings dialog (Read-only folders: Add… / Clear), or approve an AI's `request_read_folder`. Inside them `read_text_file`, `list_directory`, `load_xyz_file` and `compare_structures` accept absolute paths; writing and deleting stay confined to the base directory.
+**Read-only folders.** Besides the base directory you can allow folders that are only *read*: add them in the Status & Settings dialog (File access tab → Read-only folders), or approve an AI's `request_read_folder`. Inside them `read_text_file`, `list_directory`, `load_xyz_file` and `compare_structures` accept absolute paths; writing and deleting stay confined to the base directory.
+
+The Status monitor separates **Server**, **File access**, and **Client configuration**. Read-only folders appear in a table with an availability status. Select a row to read or copy its path in the same editable box used for adding folders. Type/paste a folder and click **Add…**, or clear the box and click **Add…** to browse. **Remove selected** revokes only selected folders; **Clear all…** asks before revoking all read-only folders. Missing folders remain listed so their permissions can be removed. A path inside the read/write folder stays writable even if it is also listed as a read-only folder.
+
+Client-approved folders appear while the dialog is open. Start failures and invalid path entries remain visible in the dialog. Copied URLs and configuration snippets use the actual running port, or the selected port before starting.
+
 
 Security guarantees:
 - **Path traversal blocked** — `../../etc/passwd` is rejected; every path is resolved and must stay within the base directory (reads: or within an approved read-only folder; absolute paths are accepted only there).
