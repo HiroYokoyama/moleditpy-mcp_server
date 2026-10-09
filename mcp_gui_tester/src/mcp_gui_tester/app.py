@@ -60,6 +60,18 @@ from PyQt6.QtWidgets import (
 DEFAULT_URL = "http://127.0.0.1:7891/mcp"
 REQUEST_TIMEOUT = 60.0  # generous: some tools legitimately run for tens of seconds
 
+
+# A proxy cannot reach this user's loopback server and must not receive its token.
+_LOOPBACK_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def open_mcp_request(request, timeout):
+    host = urllib.parse.urlsplit(request.full_url).hostname
+    if host in ("127.0.0.1", "localhost", "::1"):
+        return _LOOPBACK_OPENER.open(request, timeout=timeout)
+    return urllib.request.urlopen(request, timeout=timeout)
+
+
 # Property names that get a multi-line editor instead of a single line
 _MULTILINE_HINTS = {"code", "content", "mol_block", "xyz_text"}
 
@@ -408,7 +420,7 @@ class MCPClient:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+            with open_mcp_request(req, timeout=REQUEST_TIMEOUT) as resp:
                 body = resp.read().decode("utf-8")
                 session = resp.headers.get("Mcp-Session-Id")
                 if session:

@@ -1144,6 +1144,7 @@ def _ask_user(ctx: Any, title: str, text: str) -> bool:
     parent = ctx.get_main_window() if hasattr(ctx, "get_main_window") else None
     box = QMessageBox(parent)
     box.setWindowTitle(title)
+    box.setTextFormat(Qt.TextFormat.PlainText)
     box.setText(text)
     box.setStandardButtons(
         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
