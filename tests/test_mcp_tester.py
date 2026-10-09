@@ -141,10 +141,15 @@ class TestMCPClient:
         cls.mod = _load_tester()
         cls.n_tools = len(_TOOLS)
         cls.port = _free_port()
-        cls.server = MCPHttpServer(_StubBridge(), "Stub MCP", "0.0", port=cls.port)
+        cls.server = MCPHttpServer(
+            _StubBridge(), "Stub MCP", "0.0", port=cls.port, auth_token="test-token"
+        )
         cls.server.start()
         time.sleep(0.2)
-        cls.client = cls.mod.MCPClient(f"http://127.0.0.1:{cls.port}/mcp")
+        cls.client = cls.mod.MCPClient(
+            f"http://127.0.0.1:{cls.port}/mcp",
+            headers={"Authorization": "Bearer test-token"},
+        )
 
     @classmethod
     def teardown_class(cls) -> None:
@@ -182,7 +187,8 @@ class TestMCPClient:
 
     def test_custom_headers_sent_on_every_request(self) -> None:
         client = self.mod.MCPClient(
-            f"http://127.0.0.1:{self.port}/mcp", headers={"X-Test": "yes"}
+            f"http://127.0.0.1:{self.port}/mcp",
+            headers={"X-Test": "yes", "Authorization": "Bearer test-token"},
         )
         captured = []
         real_urlopen = self.mod.urllib.request.urlopen
@@ -226,10 +232,15 @@ class TestTesterGUI:
         cls._history_tmpdir = tempfile.mkdtemp(prefix="mcp_gui_tester_history_")
         cls.app = QApplication.instance() or QApplication([])
         cls.port = _free_port()
-        cls.server = MCPHttpServer(_StubBridge(), "Stub MCP", "0.0", port=cls.port)
+        cls.server = MCPHttpServer(
+            _StubBridge(), "Stub MCP", "0.0", port=cls.port, auth_token="test-token"
+        )
         cls.server.start()
         time.sleep(0.2)
-        cls.client = cls.mod.MCPClient(f"http://127.0.0.1:{cls.port}/mcp")
+        cls.client = cls.mod.MCPClient(
+            f"http://127.0.0.1:{cls.port}/mcp",
+            headers={"Authorization": "Bearer test-token"},
+        )
         cls.tools = cls.client.list_tools()
 
     @classmethod
@@ -241,6 +252,7 @@ class TestTesterGUI:
 
     def _make_window(self):
         win = self.mod.MCPTesterWindow(f"http://127.0.0.1:{self.port}/mcp")
+        win.headers_edit.setText('{"Authorization": "Bearer test-token"}')
         win.tools = self.tools
         win._populate_tool_list()
         return win

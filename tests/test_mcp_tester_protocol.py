@@ -109,7 +109,12 @@ class TestProtocolEras:
         for mode in ("auto", "legacy", "modern"):
             port = _free_port()
             server = MCPHttpServer(
-                _StubBridge(), f"Stub {mode}", "0.0", port=port, protocol_mode=mode
+                _StubBridge(),
+                f"Stub {mode}",
+                "0.0",
+                port=port,
+                protocol_mode=mode,
+                auth_token="test-token",
             )
             server.start()
             cls.servers[mode] = server
@@ -123,7 +128,9 @@ class TestProtocolEras:
 
     def _client(self, server_mode: str, protocol: str = "auto"):
         return self.mod.MCPClient(
-            f"http://127.0.0.1:{self.ports[server_mode]}/mcp", protocol=protocol
+            f"http://127.0.0.1:{self.ports[server_mode]}/mcp",
+            protocol=protocol,
+            headers={"Authorization": "Bearer test-token"},
         )
 
     def _capture_requests(self, client, fn):
@@ -274,10 +281,15 @@ class TestTesterGUIProtocol:
         cls.mod = _load_tester()
         cls.app = QApplication.instance() or QApplication([])
         cls.port = _free_port()
-        cls.server = MCPHttpServer(_StubBridge(), "Stub MCP", "0.0", port=cls.port)
+        cls.server = MCPHttpServer(
+            _StubBridge(), "Stub MCP", "0.0", port=cls.port, auth_token="test-token"
+        )
         cls.server.start()
         time.sleep(0.2)
-        cls.client = cls.mod.MCPClient(f"http://127.0.0.1:{cls.port}/mcp")
+        cls.client = cls.mod.MCPClient(
+            f"http://127.0.0.1:{cls.port}/mcp",
+            headers={"Authorization": "Bearer test-token"},
+        )
         cls.client.connect()
         cls.tools = cls.client.list_tools()
 
@@ -289,6 +301,7 @@ class TestTesterGUIProtocol:
         win = self.mod.MCPTesterWindow(
             f"http://127.0.0.1:{self.port}/mcp", protocol=protocol
         )
+        win.headers_edit.setText('{"Authorization": "Bearer test-token"}')
         win.tools = self.tools
         win._populate_tool_list()
         return win

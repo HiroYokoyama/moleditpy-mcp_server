@@ -20,10 +20,11 @@ Usage:
 from __future__ import annotations
 
 import logging
+import secrets
 from typing import Any, Optional
 
 PLUGIN_NAME = "MCP Server"
-PLUGIN_VERSION = "1.8.5"
+PLUGIN_VERSION = "1.8.6"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Expose MoleditPy via Model Context Protocol (MCP) "
@@ -55,6 +56,11 @@ class MCPServerPlugin:
         self.context = context
         self._bridge: Any = None
         self._server: Any = None
+        token = context.get_setting("auth_token", None)
+        if not isinstance(token, str) or len(token) < 32 or not token.isalnum():
+            token = secrets.token_hex(32)
+            context.set_setting("auth_token", token)
+        self.auth_token = token
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -92,6 +98,7 @@ class MCPServerPlugin:
                 server_name=PLUGIN_NAME,
                 server_version=PLUGIN_VERSION,
                 port=port,
+                auth_token=self.auth_token,
                 protocol_mode=self.context.get_setting("protocol_mode", "auto"),
             )
             self._server.start()

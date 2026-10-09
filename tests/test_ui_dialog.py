@@ -53,6 +53,7 @@ def make_plugin(
 ):
     settings = dict(settings or {})
     plugin = MagicMock()
+    plugin.auth_token = "test-token"
     plugin.is_running = running
     plugin.url = url
     plugin.external_port = external_port
@@ -129,7 +130,9 @@ def test_update_config_view_and_client_change(ui_module):
     plugin, _ = make_plugin()
     dlg = ui_module.MCPStatusDialog(plugin)
     dlg._client_combo.setCurrentText("Cursor")
-    expected = ui_module.render_client_config("Cursor", dlg._port_spin.value())
+    expected = ui_module.render_client_config(
+        "Cursor", dlg._port_spin.value(), plugin.auth_token
+    )
     assert dlg._config_view.toPlainText() == expected
     assert dlg._config_note.text()  # non-empty note
 
@@ -418,3 +421,25 @@ def test_clear_read_roots(ui_module):
     dlg._clear_read_roots()
     assert settings["file_io_read_roots"] == []
     assert dlg._read_roots_edit.text() == ""
+
+
+def test_authenticated_configs_include_header(ui_module):
+    import json
+    import tomllib
+
+    for client in ui_module._CLIENT_TEMPLATES:
+        config = ui_module.render_client_config(client, 7891, "audit-token")
+        if client == "curl (raw HTTP)":
+            assert '-H "Authorization: Bearer audit-token"' in config
+            assert "\\n" not in config
+        elif client == "OpenAI Codex CLI":
+            data = tomllib.loads(config)
+            assert (
+                data["mcp_servers"]["moleditpy"]["http_headers"]["Authorization"]
+                == "Bearer audit-token"
+            )
+        else:
+            section = next(iter(json.loads(config).values()))
+            assert (
+                section["moleditpy"]["headers"]["Authorization"] == "Bearer audit-token"
+            )

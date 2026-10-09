@@ -129,6 +129,16 @@ def test_version_is_semver(pkg):
     assert all(p.isdigit() for p in parts)
 
 
+def test_authentication_token_is_random_and_persisted(pkg, ctx):
+    settings = {}
+    ctx.get_setting.side_effect = lambda key, default=None: settings.get(key, default)
+    ctx.set_setting.side_effect = lambda key, value: settings.__setitem__(key, value)
+    first = pkg.MCPServerPlugin(ctx)
+    second = pkg.MCPServerPlugin(ctx)
+    assert len(first.auth_token) == 64
+    assert first.auth_token == second.auth_token == settings["auth_token"]
+
+
 # ---------------------------------------------------------------------------
 # initialize()
 # ---------------------------------------------------------------------------

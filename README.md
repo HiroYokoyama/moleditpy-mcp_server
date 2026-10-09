@@ -485,3 +485,18 @@ Tests run fully headlessly — no GUI, no RDKit, no MoleditPy installation requi
 | MCP protocol | 2026-07-28 and 2024-11-05 … 2025-11-25 (Streamable HTTP, selectable) |
 
 No extra pip dependencies — uses Python's built-in `http.server` and `threading`.
+
+
+### Authentication (1.8.6 and later)
+
+Every MCP POST requires `Authorization: Bearer <token>`, including initialize,
+discovery, and tool calls. Open **MCP Server > Status & Settings** and copy the
+client configuration again after upgrading: the generated snippets include the
+token. The token is generated randomly and saved in this user's plugin settings,
+so it remains valid after a restart. Keep connection snippets private; avoid
+committing them to shared project configuration. The GUI tester's custom headers
+field accepts `{"Authorization": "Bearer <token>"}`.
+
+Loopback binding and Origin/Host checks still apply. A local TCP port is reachable
+by other OS users, so those checks alone cannot authorize privileged Python and
+file tools. The health endpoint remains public and never returns the token.

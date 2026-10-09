@@ -147,10 +147,25 @@ _PROTOCOL_MODES = (
 )
 
 
-def render_client_config(client: str, port: int) -> str:
+def render_client_config(client: str, port: int, token: str = "") -> str:
     """Return the configuration snippet for *client* with *port* filled in."""
     template = _CLIENT_TEMPLATES[client][0]
-    return template.replace("{PORT}", str(port))
+    rendered = template.replace("{PORT}", str(port))
+    if not token:
+        return rendered
+    if client == "curl (raw HTTP)":
+        return rendered.replace(
+            '-H "Content-Type:',
+            f'-H "Authorization: Bearer {token}" -H "Content-Type:',
+        )
+    if client == "OpenAI Codex CLI":
+        return rendered + '\nhttp_headers = { Authorization = "Bearer ' + token + '" }'
+    import json
+
+    config = json.loads(rendered)
+    section = next(iter(config.values()))
+    section["moleditpy"]["headers"] = {"Authorization": "Bearer " + token}
+    return json.dumps(config, indent=2)
 
 
 class MCPStatusDialog(QDialog):
@@ -337,7 +352,9 @@ class MCPStatusDialog(QDialog):
         if client not in _CLIENT_TEMPLATES:
             return
         self._config_view.setPlainText(
-            render_client_config(client, self._port_spin.value())
+            render_client_config(
+                client, self._port_spin.value(), self._plugin.auth_token
+            )
         )
         self._config_note.setText(_CLIENT_TEMPLATES[client][1])
 

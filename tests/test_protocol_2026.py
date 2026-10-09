@@ -28,6 +28,7 @@ def _make_handler(srv_mod: Any, mode: str = "auto") -> Any:
     cls.server_version = "1.0"
     cls.protocol_mode = mode
     handler = object.__new__(cls)
+    handler._authenticated = MagicMock(return_value=True)
     handler.send_response = MagicMock()
     handler.send_header = MagicMock()
     handler.end_headers = MagicMock()
