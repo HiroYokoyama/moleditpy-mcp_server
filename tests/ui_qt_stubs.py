@@ -35,7 +35,22 @@ class _Signal:
 
 class _QObjectBase:
     def __init__(self, *args, **kwargs):
-        pass
+        self._enabled = True
+
+    def setEnabled(self, value):
+        self._enabled = value
+
+    def setAccessibleName(self, name):
+        self._accessible_name = name
+
+    def setFont(self, font):
+        self._font = font
+
+    def setToolTip(self, text):
+        self._tooltip = text
+
+    def clear(self):
+        self.setText("")
 
 
 # ---------------------------------------------------------------------------
@@ -44,6 +59,9 @@ class _QObjectBase:
 
 
 class Qt:
+    class TextFormat:
+        PlainText = 0
+
     class AlignmentFlag:
         AlignCenter = 1
 
@@ -127,6 +145,9 @@ class QLabel(_QObjectBase):
     def setWordWrap(self, v):
         self._word_wrap = v
 
+    def setTextFormat(self, fmt):
+        self._format = fmt
+
 
 class QCheckBox(_QObjectBase):
     def __init__(self, text="", parent=None):
@@ -187,6 +208,10 @@ class QLineEdit(_QObjectBase):
         self._text = ""
         self._placeholder = ""
         self.editingFinished = _Signal()
+        self.returnPressed = _Signal()
+
+    def setClearButtonEnabled(self, enabled):
+        self._clear_button = enabled
 
     def setPlaceholderText(self, text):
         self._placeholder = text
@@ -199,6 +224,9 @@ class QLineEdit(_QObjectBase):
 
     def text(self):
         return self._text
+
+    def setCursorPosition(self, position):
+        self._cursor = position
 
 
 class QComboBox(_QObjectBase):
@@ -281,6 +309,9 @@ class QTextEdit(_QObjectBase):
     def setReadOnly(self, v):
         self._readonly = v
 
+    def setMinimumHeight(self, h):
+        self._min_height = h
+
     def setMaximumHeight(self, h):
         self._max_height = h
 
@@ -309,6 +340,12 @@ class QDialog(_QObjectBase):
         self._title = ""
         self._min_width = None
         self._closed = False
+
+    def resize(self, width, height):
+        self._size = (width, height)
+
+    def findChildren(self, cls):
+        return []
 
     def setWindowTitle(self, title):
         self._title = title
@@ -346,15 +383,166 @@ class QFileDialog:
         return QFileDialog._next_directory
 
 
+class QTimer(_QObjectBase):
+    def __init__(self, parent=None):
+        self.timeout = _Signal()
+
+    def setInterval(self, interval):
+        self._interval = interval
+
+    def start(self):
+        self._active = True
+
+    def stop(self):
+        self._active = False
+
+
+class QFontDatabase:
+    class SystemFont:
+        FixedFont = 1
+
+    @staticmethod
+    def systemFont(kind):
+        return QFont()
+
+
+class QWidget(_QObjectBase):
+    pass
+
+
+class QTabWidget(QWidget):
+    def __init__(self, parent=None):
+        self._tabs = []
+
+    def addTab(self, widget, title):
+        self._tabs.append((widget, title))
+
+
+class QHeaderView(_QObjectBase):
+    class ResizeMode:
+        Stretch = 1
+        ResizeToContents = 2
+
+    def setSectionResizeMode(self, *args):
+        pass
+
+    def hide(self):
+        pass
+
+
+class QAbstractItemView:
+    class SelectionBehavior:
+        SelectRows = 1
+
+    class SelectionMode:
+        ExtendedSelection = 1
+
+    class EditTrigger:
+        NoEditTriggers = 1
+
+
+class QTableWidgetItem(_QObjectBase):
+    def __init__(self, text):
+        self._text = text
+        self._selected = False
+
+    def text(self):
+        return self._text
+
+    def setSelected(self, selected):
+        self._selected = selected
+
+
+class QTableWidget(_QObjectBase):
+    def __init__(self, rows, columns):
+        self._rows = rows
+        self._items = {}
+        self.itemSelectionChanged = _Signal()
+
+    def setHorizontalHeaderLabels(self, labels):
+        self._labels = labels
+
+    def horizontalHeader(self):
+        return QHeaderView()
+
+    verticalHeader = horizontalHeader
+
+    def setSelectionBehavior(self, behavior):
+        pass
+
+    def setSelectionMode(self, mode):
+        pass
+
+    def setEditTriggers(self, triggers):
+        pass
+
+    def setAlternatingRowColors(self, enabled):
+        pass
+
+    def setWordWrap(self, enabled):
+        pass
+
+    def setRowCount(self, rows):
+        self._rows = rows
+        self._items = {
+            key: value for key, value in self._items.items() if key[0] < rows
+        }
+
+    def rowCount(self):
+        return self._rows
+
+    def setItem(self, row, column, item):
+        self._items[row, column] = item
+
+    def item(self, row, column):
+        return self._items.get((row, column))
+
+    def selectionModel(self):
+        return self
+
+    def selectedRows(self):
+        return [
+            types.SimpleNamespace(row=lambda r=row: r)
+            for row in range(self._rows)
+            if self.item(row, 0) and self.item(row, 0)._selected
+        ]
+
+    def clearSelection(self):
+        for item in self._items.values():
+            item.setSelected(False)
+
+    def blockSignals(self, enabled):
+        self._blocked = enabled
+
+
+class QMessageBox:
+    class StandardButton:
+        Yes = 1
+        No = 2
+
+    @staticmethod
+    def question(*args):
+        return QMessageBox.StandardButton.No
+
+
 def install_ui_qt_stubs():
     """Install rich, subclassable PyQt6 stand-ins into sys.modules."""
     qt_core = types.ModuleType("PyQt6.QtCore")
     qt_core.Qt = Qt
+    qt_core.QTimer = QTimer
 
     qt_gui = types.ModuleType("PyQt6.QtGui")
     qt_gui.QFont = QFont
+    qt_gui.QFontDatabase = QFontDatabase
 
     qt_widgets = types.ModuleType("PyQt6.QtWidgets")
+    qt_widgets.QAbstractItemView = QAbstractItemView
+    qt_widgets.QWidget = QWidget
+    qt_widgets.QTableWidget = QTableWidget
+    qt_widgets.QTableWidgetItem = QTableWidgetItem
+    qt_widgets.QTabWidget = QTabWidget
+    qt_widgets.QHeaderView = QHeaderView
+    qt_widgets.QMessageBox = QMessageBox
     qt_widgets.QApplication = QApplication
     qt_widgets.QCheckBox = QCheckBox
     qt_widgets.QComboBox = QComboBox

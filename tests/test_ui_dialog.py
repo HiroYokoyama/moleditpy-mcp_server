@@ -171,7 +171,7 @@ def test_copy_config_sets_clipboard_and_status(ui_module):
 
 
 def test_copy_url_sets_clipboard_and_status(ui_module):
-    plugin, _ = make_plugin(url="http://127.0.0.1:7000/mcp")
+    plugin, _ = make_plugin(url="http://127.0.0.1:7000/mcp", settings={"port": 7000})
     dlg = ui_module.MCPStatusDialog(plugin)
     dlg._copy_url()
     assert QApplication.clipboard().text_set == "http://127.0.0.1:7000/mcp"
@@ -253,11 +253,10 @@ def test_base_dir_changed_nonexistent_dir_rejected(ui_module, tmp_path):
         "file_io_base_dir" not in settings
         or settings["file_io_base_dir"] == "/prev/good"
     )
-    plugin.context.show_status_message.assert_any_call(
-        f"'{missing}' is not an existing directory — "
-        "File I/O base directory was not changed.",
-        5000,
-    )
+    message, timeout = plugin.context.show_status_message.call_args.args
+    assert "not an existing directory" in message
+    assert "not changed" in message
+    assert timeout == 5000
     assert dlg._base_dir_edit.text() == "/prev/good"
 
 
@@ -385,13 +384,16 @@ def test_protocol_combo_enabled_while_stopped(ui_module):
 def test_read_roots_shown_on_open(ui_module):
     plugin, _ = make_plugin(settings={"file_io_read_roots": ["/a", "/b", 3]})
     dlg = ui_module.MCPStatusDialog(plugin)
-    assert dlg._read_roots_edit.text() == "/a; /b"
+    assert [dlg._read_roots_table.item(row, 0).text() for row in range(2)] == [
+        "/a",
+        "/b",
+    ]
 
 
 def test_read_roots_setting_not_a_list(ui_module):
     plugin, _ = make_plugin(settings={"file_io_read_roots": "junk"})
     dlg = ui_module.MCPStatusDialog(plugin)
-    assert dlg._read_roots_edit.text() == ""
+    assert dlg._read_roots_table.rowCount() == 0
 
 
 def test_add_read_root_appends_once(ui_module, tmp_path):
@@ -404,7 +406,7 @@ def test_add_read_root_appends_once(ui_module, tmp_path):
     finally:
         QFileDialog._next_directory = ""
     assert settings["file_io_read_roots"] == [str(tmp_path.resolve())]
-    assert dlg._read_roots_edit.text() == str(tmp_path.resolve())
+    assert dlg._read_roots_table.item(0, 0).text() == str(tmp_path.resolve())
 
 
 def test_add_read_root_cancel_changes_nothing(ui_module):
@@ -415,12 +417,17 @@ def test_add_read_root_cancel_changes_nothing(ui_module):
     assert "file_io_read_roots" not in settings
 
 
-def test_clear_read_roots(ui_module):
+def test_clear_read_roots(ui_module, monkeypatch):
+    monkeypatch.setattr(
+        ui_module.QMessageBox,
+        "question",
+        lambda *args: ui_module.QMessageBox.StandardButton.Yes,
+    )
     plugin, settings = make_plugin(settings={"file_io_read_roots": ["/a"]})
     dlg = ui_module.MCPStatusDialog(plugin)
     dlg._clear_read_roots()
     assert settings["file_io_read_roots"] == []
-    assert dlg._read_roots_edit.text() == ""
+    assert dlg._read_roots_table.rowCount() == 0
 
 
 def test_authenticated_configs_include_header(ui_module):
