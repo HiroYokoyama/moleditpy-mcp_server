@@ -52,15 +52,15 @@ def _stub_urlopen(mod, responses):
             raise item
         return item
 
-    mod.urllib.request.urlopen = _fake
+    mod.open_mcp_request = _fake
     return sent
 
 
 @pytest.fixture(autouse=True)
 def _restore_urlopen(mod):
-    real = mod.urllib.request.urlopen
+    real = mod.open_mcp_request
     yield
-    mod.urllib.request.urlopen = real
+    mod.open_mcp_request = real
 
 
 def _http_error(mod, code: int, payload) -> urllib.error.HTTPError:
@@ -340,3 +340,22 @@ def _assert_worker_result(mod, fn, expected):
     worker.run_async(fn)
     _drain(app, lambda: bool(seen))
     assert seen == [expected]
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "[::1]"])
+def test_loopback_credentials_bypass_environment_proxy(mod, monkeypatch, host):
+    from unittest.mock import MagicMock
+
+    private = MagicMock()
+    external = MagicMock()
+    monkeypatch.setattr(mod._LOOPBACK_OPENER, "open", private)
+    monkeypatch.setattr(mod.urllib.request, "urlopen", external)
+    monkeypatch.setenv("HTTP_PROXY", "http://proxy.example:8080")
+    monkeypatch.setenv("NO_PROXY", "")
+    req = mod.urllib.request.Request(
+        "http://" + host + ":7891/mcp", headers={"Authorization": "Bearer audit-token"}
+    )
+    mod.open_mcp_request(req, timeout=5)
+    private.assert_called_once_with(req, timeout=5)
+    external.assert_not_called()
+    assert req.get_header("Authorization") == "Bearer audit-token"

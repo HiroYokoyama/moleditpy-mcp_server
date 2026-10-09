@@ -191,17 +191,17 @@ class TestMCPClient:
             headers={"X-Test": "yes", "Authorization": "Bearer test-token"},
         )
         captured = []
-        real_urlopen = self.mod.urllib.request.urlopen
+        real_urlopen = self.mod.open_mcp_request
 
         def _capturing_urlopen(req, *args, **kwargs):
             captured.append(dict(req.header_items()))
             return real_urlopen(req, *args, **kwargs)
 
-        self.mod.urllib.request.urlopen = _capturing_urlopen
+        self.mod.open_mcp_request = _capturing_urlopen
         try:
             client.initialize()
         finally:
-            self.mod.urllib.request.urlopen = real_urlopen
+            self.mod.open_mcp_request = real_urlopen
         assert captured
         assert captured[0].get("X-test") == "yes"
 

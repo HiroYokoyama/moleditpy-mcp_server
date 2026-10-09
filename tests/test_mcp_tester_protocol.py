@@ -136,7 +136,7 @@ class TestProtocolEras:
     def _capture_requests(self, client, fn):
         """Run *fn* while recording the outgoing urllib requests."""
         captured = []
-        real_urlopen = self.mod.urllib.request.urlopen
+        real_urlopen = self.mod.open_mcp_request
 
         def _capturing_urlopen(req, *args, **kwargs):
             captured.append(
@@ -147,11 +147,11 @@ class TestProtocolEras:
             )
             return real_urlopen(req, *args, **kwargs)
 
-        self.mod.urllib.request.urlopen = _capturing_urlopen
+        self.mod.open_mcp_request = _capturing_urlopen
         try:
             fn()
         finally:
-            self.mod.urllib.request.urlopen = real_urlopen
+            self.mod.open_mcp_request = real_urlopen
         return captured
 
     def test_auto_client_prefers_modern_on_dual_era_server(self) -> None:
