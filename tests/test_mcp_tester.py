@@ -6,8 +6,8 @@ Three tiers:
 1. Pure-function tests (_split_url, parse_json_param) — no Qt, no network.
 2. MCPClient tests against a real in-process MCPHttpServer with a stub
    bridge — no Qt required (server.py is stdlib-only).
-3. GUI tests using real PyQt6 offscreen — skipped automatically when
-   PyQt6 is not installed (e.g. in the no-Qt CI job).
+3. GUI tests using real PySide6 offscreen — skipped automatically when
+   PySide6 is not installed (e.g. in the no-Qt CI job).
 """
 
 from __future__ import annotations
@@ -27,25 +27,15 @@ TESTER_PATH = ROOT / "mcp_gui_tester" / "src" / "mcp_gui_tester" / "app.py"
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-# On Windows with both PyQt6 and PySide6 installed, the wrong Qt runtime can
-# be found first, breaking the PyQt6 import with "DLL load failed". Point the
-# DLL search at PyQt6's own Qt binaries before anything imports PyQt6.
-if sys.platform == "win32" and importlib.util.find_spec("PyQt6") is not None:
-    _spec = importlib.util.find_spec("PyQt6")
-    if _spec is not None and _spec.submodule_search_locations:
-        _qt_bin = Path(list(_spec.submodule_search_locations)[0]) / "Qt6" / "bin"
-        if _qt_bin.is_dir():
-            os.add_dll_directory(str(_qt_bin))
-
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
-def _has_pyqt6() -> bool:
-    return importlib.util.find_spec("PyQt6") is not None
+def _has_pyside6() -> bool:
+    return importlib.util.find_spec("PySide6") is not None
 
 
 def _load_tester():
-    """Import tools/mcp_tester.py as a module (requires real PyQt6)."""
+    """Import tools/mcp_tester.py as a module (requires real PySide6)."""
     spec = importlib.util.spec_from_file_location("mcp_tester", TESTER_PATH)
     assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
@@ -60,11 +50,11 @@ def _free_port() -> int:
 
 
 # ---------------------------------------------------------------------------
-# Tier 1: pure functions (need the module, hence PyQt6 for the import)
+# Tier 1: pure functions (need the module, hence PySide6 for the import)
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not _has_pyqt6(), reason="PyQt6 not installed")
+@pytest.mark.skipif(not _has_pyside6(), reason="PySide6 not installed")
 class TestPureHelpers:
     """_split_url and parse_json_param behave without any I/O."""
 
@@ -130,7 +120,7 @@ class _StubBridge:
         raise AssertionError(f"unexpected operation {operation!r}")
 
 
-@pytest.mark.skipif(not _has_pyqt6(), reason="PyQt6 not installed")
+@pytest.mark.skipif(not _has_pyside6(), reason="PySide6 not installed")
 class TestMCPClient:
     """The tester's JSON-RPC client speaks the server's transport correctly."""
 
@@ -211,11 +201,11 @@ class TestMCPClient:
 
 
 # ---------------------------------------------------------------------------
-# Tier 3: GUI (real PyQt6, offscreen)
+# Tier 3: GUI (real PySide6, offscreen)
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not _has_pyqt6(), reason="PyQt6 not installed")
+@pytest.mark.skipif(not _has_pyside6(), reason="PySide6 not installed")
 class TestTesterGUI:
     """Window construction, schema-driven form generation, and a live call."""
 
@@ -223,7 +213,7 @@ class TestTesterGUI:
     def setup_class(cls) -> None:
         import tempfile
 
-        from PyQt6.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication
 
         from mcp_server.server import MCPHttpServer
 
@@ -373,7 +363,7 @@ class TestTesterGUI:
     def test_response_rendering_image_and_resource_content(self) -> None:
         import base64
 
-        from PyQt6.QtWidgets import QLabel, QPlainTextEdit
+        from PySide6.QtWidgets import QLabel, QPlainTextEdit
 
         win = self._make_window()
         png_1x1 = base64.b64decode(
@@ -405,7 +395,7 @@ class TestTesterGUI:
         assert "something_else" in widgets[2].toPlainText()
 
     def test_response_rendering_bad_image_data_falls_back_to_json(self) -> None:
-        from PyQt6.QtWidgets import QPlainTextEdit
+        from PySide6.QtWidgets import QPlainTextEdit
 
         win = self._make_window()
         content = [{"type": "image", "data": "not-base64!!", "mimeType": "image/png"}]
@@ -452,13 +442,13 @@ class TestTesterGUI:
         assert field.value() == 5
 
 
-@pytest.mark.skipif(not _has_pyqt6(), reason="PyQt6 not installed")
+@pytest.mark.skipif(not _has_pyside6(), reason="PySide6 not installed")
 class TestUnionParamField:
     """string-or-array (oneOf) fields parse JSON arrays, pass strings through."""
 
     @classmethod
     def setup_class(cls) -> None:
-        from PyQt6.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication
 
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
         cls.app = QApplication.instance() or QApplication([])
@@ -475,7 +465,7 @@ class TestUnionParamField:
         return self.mod.ParamField("header", self.union_schema, required=False)
 
     def test_union_field_uses_multiline_editor(self) -> None:
-        from PyQt6.QtWidgets import QPlainTextEdit
+        from PySide6.QtWidgets import QPlainTextEdit
 
         assert isinstance(self._field().widget, QPlainTextEdit)
 
@@ -495,20 +485,20 @@ class TestUnionParamField:
         assert field.value() == '["broken'
 
 
-@pytest.mark.skipif(not _has_pyqt6(), reason="PyQt6 not installed")
+@pytest.mark.skipif(not _has_pyside6(), reason="PySide6 not installed")
 class TestGeneralizedOneOf:
     """Generalized oneOf handling beyond the string-or-array special case."""
 
     @classmethod
     def setup_class(cls) -> None:
-        from PyQt6.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication
 
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
         cls.app = QApplication.instance() or QApplication([])
         cls.mod = _load_tester()
 
     def test_string_or_object_uses_multiline_json_editor(self) -> None:
-        from PyQt6.QtWidgets import QPlainTextEdit
+        from PySide6.QtWidgets import QPlainTextEdit
 
         schema = {"oneOf": [{"type": "string"}, {"type": "object"}]}
         field = self.mod.ParamField("meta", schema, required=False)
@@ -519,7 +509,7 @@ class TestGeneralizedOneOf:
         assert field.value() == "plain text"
 
     def test_integer_or_boolean_falls_back_to_first_alternative_widget(self) -> None:
-        from PyQt6.QtWidgets import QSpinBox
+        from PySide6.QtWidgets import QSpinBox
 
         schema = {"oneOf": [{"type": "integer"}, {"type": "boolean"}]}
         field = self.mod.ParamField("level", schema, required=False)
@@ -528,7 +518,7 @@ class TestGeneralizedOneOf:
     def test_boolean_or_string_prefers_string_editor(self) -> None:
         # Per the widget-selection rule (array/object > string > fallback),
         # a boolean+string union still gets a text editor, not a checkbox.
-        from PyQt6.QtWidgets import QLineEdit
+        from PySide6.QtWidgets import QLineEdit
 
         schema = {"oneOf": [{"type": "boolean"}, {"type": "string"}]}
         field = self.mod.ParamField("flag", schema, required=False)
@@ -537,7 +527,7 @@ class TestGeneralizedOneOf:
         assert field.value() is True
 
     def test_boolean_only_oneof_falls_back_to_checkbox(self) -> None:
-        from PyQt6.QtWidgets import QCheckBox
+        from PySide6.QtWidgets import QCheckBox
 
         schema = {"oneOf": [{"type": "boolean"}, {"type": "integer"}]}
         field = self.mod.ParamField("flag", schema, required=False)
@@ -546,7 +536,7 @@ class TestGeneralizedOneOf:
         assert field.value() is True
 
     def test_number_or_integer_falls_back_to_double_spinbox(self) -> None:
-        from PyQt6.QtWidgets import QDoubleSpinBox
+        from PySide6.QtWidgets import QDoubleSpinBox
 
         schema = {"oneOf": [{"type": "number"}, {"type": "integer"}]}
         field = self.mod.ParamField("weight", schema, required=False)
@@ -572,12 +562,12 @@ class TestGeneralizedOneOf:
         # constructs must not go through the union widget path.
         schema = {"type": "string", "oneOf": [{"const": "a"}, {"const": "b"}]}
         field = self.mod.ParamField("choice", schema, required=False)
-        from PyQt6.QtWidgets import QLineEdit
+        from PySide6.QtWidgets import QLineEdit
 
         assert isinstance(field.widget, QLineEdit)
 
 
-@pytest.mark.skipif(not _has_pyqt6(), reason="PyQt6 not installed")
+@pytest.mark.skipif(not _has_pyside6(), reason="PySide6 not installed")
 class TestArgumentHistory:
     """Per-tool argument memory: in-memory + persisted JSON file."""
 

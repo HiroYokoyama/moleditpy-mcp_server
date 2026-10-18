@@ -3,7 +3,7 @@ Tests for mcp_gui_tester's dual-era protocol support (2026-07-28 + legacy),
 tool annotations, and the protocol selector in the GUI.
 
 Reuses the harness from test_mcp_tester.py: real in-process MCPHttpServer,
-real PyQt6 offscreen, skipped when PyQt6 is unavailable.
+real PySide6 offscreen, skipped when PySide6 is unavailable.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import time
 import pytest
 from test_mcp_tester import (
     _free_port,
-    _has_pyqt6,
+    _has_pyside6,
     _load_tester,
     _StubBridge,
 )
@@ -24,7 +24,7 @@ from test_mcp_tester import (
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not _has_pyqt6(), reason="PyQt6 not installed")
+@pytest.mark.skipif(not _has_pyside6(), reason="PySide6 not installed")
 class TestProtocolHelpers:
     @classmethod
     def setup_class(cls) -> None:
@@ -97,7 +97,7 @@ class TestProtocolHelpers:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not _has_pyqt6(), reason="PyQt6 not installed")
+@pytest.mark.skipif(not _has_pyside6(), reason="PySide6 not installed")
 class TestProtocolEras:
     @classmethod
     def setup_class(cls) -> None:
@@ -270,11 +270,11 @@ class TestProtocolEras:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not _has_pyqt6(), reason="PyQt6 not installed")
+@pytest.mark.skipif(not _has_pyside6(), reason="PySide6 not installed")
 class TestTesterGUIProtocol:
     @classmethod
     def setup_class(cls) -> None:
-        from PyQt6.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication
 
         from mcp_server.server import MCPHttpServer
 
@@ -345,7 +345,7 @@ class TestTesterGUIProtocol:
         assert "read-only" in win.desc_label.text()
 
     def test_destructive_call_is_confirmed(self, monkeypatch) -> None:
-        from PyQt6.QtWidgets import QMessageBox
+        from PySide6.QtWidgets import QMessageBox
 
         win = self._make_window()
         win.client = self.client

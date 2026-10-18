@@ -1,12 +1,14 @@
 # MoleditPy MCP Server Plugin
 
+This branch targets **MoleditPy 5.0.0a1–5.x** and uses **PySide6**. Plugin licensing is unchanged.
+
 Expose [MoleditPy](https://github.com/HiroYokoyama/python_molecular_editor) to AI assistants via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
 
 Once running, any MCP-compatible client — **Claude Desktop**, **Claude Code**, **Cursor**, **Windsurf**, **Zed**, **VS Code (Copilot)**, **OpenAI Codex CLI**, **Google Antigravity**, or any HTTP client — can query and control the molecular editor in real time.
 
 [![Tests](https://github.com/HiroYokoyama/moleditpy-mcp_server/actions/workflows/test.yml/badge.svg)](https://github.com/HiroYokoyama/moleditpy-mcp_server/actions/workflows/test.yml)
 ![Test Coverage](https://img.shields.io/badge/coverage->90%25-green)
-[![MoleditPy](https://img.shields.io/badge/MoleditPy->=4.0.0-3577F7)](https://github.com/HiroYokoyama/python_molecular_editor)
+[![MoleditPy](https://img.shields.io/badge/MoleditPy->=5.0.0a1-3577F7)](https://github.com/HiroYokoyama/python_molecular_editor)
 [![Downloads](https://img.shields.io/github/downloads/HiroYokoyama/moleditpy-mcp_server/total)](https://github.com/HiroYokoyama/moleditpy-mcp_server/releases)
 [![GitHub tag](https://img.shields.io/github/v/tag/HiroYokoyama/moleditpy-mcp_server?label=version)](https://github.com/HiroYokoyama/moleditpy-mcp_server/tags)
 [![PyPI - mcp-gui-tester](https://img.shields.io/pypi/v/mcp-gui-tester?label=mcp-gui-tester)](https://pypi.org/project/mcp-gui-tester/)
@@ -265,7 +267,7 @@ curl http://127.0.0.1:7891/health
 
 ![main](img/tester.png)
 
-A standalone PyQt6 test client, [`mcp-gui-tester`](mcp_gui_tester/), is included as a separate installable package for interactive debugging. It connects to any MCP server speaking the Streamable HTTP transport, lists the available tools, generates a parameter input form from each tool's `inputSchema` (with required/optional handling, JSON editors for array/object parameters, and enum dropdowns), and shows both the formatted result and the raw JSON-RPC response:
+A standalone PySide6 test client, [`mcp-gui-tester`](mcp_gui_tester/), is included as a separate installable package for interactive debugging. It connects to any MCP server speaking the Streamable HTTP transport, lists the available tools, generates a parameter input form from each tool's `inputSchema` (with required/optional handling, JSON editors for array/object parameters, and enum dropdowns), and shows both the formatted result and the raw JSON-RPC response:
 
 ```bash
 pip install mcp-gui-tester        # or: pip install -e mcp_gui_tester/ from this repo
@@ -485,7 +487,7 @@ Tests run fully headlessly — no GUI, no RDKit, no MoleditPy installation requi
 
 | Requirement | Version |
 |-------------|---------|
-| MoleditPy | ≥ 4.0.0, < 5.0.0 |
+| MoleditPy | ≥ 5.0.0a1, < 6.0.0 |
 | Python | 3.11+ |
 | MCP protocol | 2026-07-28 and 2024-11-05 … 2025-11-25 (Streamable HTTP, selectable) |
 

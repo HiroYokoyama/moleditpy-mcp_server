@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-MCP server tester — a standalone PyQt6 GUI for any MCP server that speaks
+MCP server tester — a standalone PySide6 GUI for any MCP server that speaks
 the Streamable HTTP transport (JSON-RPC over POST).
 
 Connects to a running MCP server (default http://127.0.0.1:7891/mcp — the
@@ -13,7 +13,7 @@ Usage:
     mcp-gui-tester [--url http://127.0.0.1:7891/mcp]
     python -m mcp_gui_tester [--url ...]
 
-Requires PyQt6 only (uses urllib for HTTP).
+Requires PySide6 only (uses urllib for HTTP).
 """
 
 from __future__ import annotations
@@ -31,9 +31,9 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import QObject, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QPixmap
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtGui import QColor, QFont, QPixmap
+from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
@@ -654,8 +654,8 @@ class MCPClient:
 class _Worker(QObject):
     """Runs a blocking callable off the GUI thread and emits the outcome."""
 
-    finished = pyqtSignal(object)
-    failed = pyqtSignal(object)
+    finished = Signal(object)
+    failed = Signal(object)
 
     def run_async(self, fn, *args: Any) -> None:
         def _target() -> None:

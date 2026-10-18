@@ -11,9 +11,9 @@ import json
 import urllib.error
 
 import pytest
-from test_mcp_tester import _has_pyqt6, _load_tester
+from test_mcp_tester import _has_pyside6, _load_tester
 
-pytestmark = pytest.mark.skipif(not _has_pyqt6(), reason="PyQt6 not installed")
+pytestmark = pytest.mark.skipif(not _has_pyside6(), reason="PySide6 not installed")
 
 URL = "http://127.0.0.1:1/mcp"
 
@@ -317,7 +317,7 @@ def _drain(app, predicate, timeout=5.0):
 
 
 def _worker_app():
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     return QApplication.instance() or QApplication([])
 

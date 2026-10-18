@@ -24,7 +24,7 @@ import secrets
 from typing import Any
 
 PLUGIN_NAME = "MCP Server"
-PLUGIN_VERSION = "1.8.7"
+PLUGIN_VERSION = "2.0.0a1"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Expose MoleditPy via Model Context Protocol (MCP) "
@@ -32,7 +32,7 @@ PLUGIN_DESCRIPTION = (
 )
 PLUGIN_CATEGORY = "Integration"
 PLUGIN_TAGS = ["AI"]
-PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=4.0.0, <5.0.0"
+PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=5.0.0a1, <6.0.0"
 
 logger = logging.getLogger(__name__)
 

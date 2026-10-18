@@ -9,8 +9,8 @@ from unittest.mock import patch
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-pytest.importorskip("PyQt6.QtWidgets")
-from PyQt6.QtWidgets import QApplication, QMessageBox  # noqa: E402
+pytest.importorskip("PySide6.QtWidgets")
+from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -128,8 +128,8 @@ def test_start_failure_stays_visible_and_close_stops_refresh(dialog):
 def test_enter_adds_folder_without_starting_server(dialog, tmp_path):
     from unittest.mock import Mock
 
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtTest import QTest
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
 
     window, settings, plugin = dialog
     plugin.start = Mock(return_value=True)

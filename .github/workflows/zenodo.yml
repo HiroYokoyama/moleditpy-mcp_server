@@ -59,7 +59,7 @@ jobs:
               TAG=$(gh release view --json tagName --template '{{.tagName}}')
             fi
           fi
-          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(a[0-9]+|b[0-9]+|rc[0-9]+)?$ ]]; then
             echo "ERROR: invalid release tag" >&2
             exit 1
           fi

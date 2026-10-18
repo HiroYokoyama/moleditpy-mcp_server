@@ -1,5 +1,5 @@
 """
-Rich, real (subclassable) PyQt6 stand-ins used only by test_ui_dialog.py to
+Rich, real (subclassable) PySide6 stand-ins used only by test_ui_dialog.py to
 genuinely import mcp_server.ui and drive MCPStatusDialog so its statements
 are actually executed and counted toward coverage.
 
@@ -15,7 +15,7 @@ from __future__ import annotations
 import sys
 import types
 
-_MODULE_NAMES = ("PyQt6", "PyQt6.QtCore", "PyQt6.QtGui", "PyQt6.QtWidgets")
+_MODULE_NAMES = ("PySide6", "PySide6.QtCore", "PySide6.QtGui", "PySide6.QtWidgets")
 
 
 class _Signal:
@@ -526,16 +526,16 @@ class QMessageBox:
 
 
 def install_ui_qt_stubs():
-    """Install rich, subclassable PyQt6 stand-ins into sys.modules."""
-    qt_core = types.ModuleType("PyQt6.QtCore")
+    """Install rich, subclassable PySide6 stand-ins into sys.modules."""
+    qt_core = types.ModuleType("PySide6.QtCore")
     qt_core.Qt = Qt
     qt_core.QTimer = QTimer
 
-    qt_gui = types.ModuleType("PyQt6.QtGui")
+    qt_gui = types.ModuleType("PySide6.QtGui")
     qt_gui.QFont = QFont
     qt_gui.QFontDatabase = QFontDatabase
 
-    qt_widgets = types.ModuleType("PyQt6.QtWidgets")
+    qt_widgets = types.ModuleType("PySide6.QtWidgets")
     qt_widgets.QAbstractItemView = QAbstractItemView
     qt_widgets.QWidget = QWidget
     qt_widgets.QTableWidget = QTableWidget
@@ -557,15 +557,15 @@ def install_ui_qt_stubs():
     qt_widgets.QTextEdit = QTextEdit
     qt_widgets.QVBoxLayout = QVBoxLayout
 
-    pyqt6 = types.ModuleType("PyQt6")
-    pyqt6.QtCore = qt_core
-    pyqt6.QtGui = qt_gui
-    pyqt6.QtWidgets = qt_widgets
+    pyside6 = types.ModuleType("PySide6")
+    pyside6.QtCore = qt_core
+    pyside6.QtGui = qt_gui
+    pyside6.QtWidgets = qt_widgets
 
-    sys.modules["PyQt6"] = pyqt6
-    sys.modules["PyQt6.QtCore"] = qt_core
-    sys.modules["PyQt6.QtGui"] = qt_gui
-    sys.modules["PyQt6.QtWidgets"] = qt_widgets
+    sys.modules["PySide6"] = pyside6
+    sys.modules["PySide6.QtCore"] = qt_core
+    sys.modules["PySide6.QtGui"] = qt_gui
+    sys.modules["PySide6.QtWidgets"] = qt_widgets
 
 
 def remove_ui_qt_stubs():

@@ -2,7 +2,7 @@
 Coverage for mcp_gui_tester's schema-driven widget building, value coercion,
 history prefill, result rendering, and the argparse entry point.
 
-Real PyQt6 offscreen; skipped when PyQt6 is unavailable.
+Real PySide6 offscreen; skipped when PySide6 is unavailable.
 """
 
 from __future__ import annotations
@@ -11,14 +11,14 @@ import base64
 import json
 
 import pytest
-from test_mcp_tester import _has_pyqt6, _load_tester
+from test_mcp_tester import _has_pyside6, _load_tester
 
-pytestmark = pytest.mark.skipif(not _has_pyqt6(), reason="PyQt6 not installed")
+pytestmark = pytest.mark.skipif(not _has_pyside6(), reason="PySide6 not installed")
 
 
 @pytest.fixture(scope="module")
 def app():
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     return QApplication.instance() or QApplication([])
 
@@ -209,7 +209,7 @@ def test_set_value_serializes_containers_into_json_editor(mod):
 
 
 def test_set_value_checks_the_include_box(mod):
-    from PyQt6.QtWidgets import QCheckBox
+    from PySide6.QtWidgets import QCheckBox
 
     field = _field(mod, "path", {"type": "string"})
     field.include_box = QCheckBox()
@@ -300,8 +300,8 @@ def test_form_shows_placeholder_when_tool_has_no_parameters(mod, win):
 
 
 def _png_bytes():
-    from PyQt6.QtCore import QBuffer, QByteArray
-    from PyQt6.QtGui import QImage
+    from PySide6.QtCore import QBuffer, QByteArray
+    from PySide6.QtGui import QImage
 
     image = QImage(2, 2, QImage.Format.Format_RGB32)
     image.fill(0)

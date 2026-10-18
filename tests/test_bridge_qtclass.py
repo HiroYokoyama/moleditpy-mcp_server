@@ -3,8 +3,8 @@ Tests for mcp_server/bridge.py's MCPBridge class that genuinely import the
 module.
 
 Unlike test_bridge.py (which loads bridge.py's module-level execute_operation
-dispatch logic under the blanket MagicMock PyQt6 mock), this file installs
-real, subclassable PyQt6.QtCore stand-ins from bridge_qt_stubs.py *before*
+dispatch logic under the blanket MagicMock PySide6 mock), this file installs
+real, subclassable PySide6.QtCore stand-ins from bridge_qt_stubs.py *before*
 importing mcp_server.bridge, so MCPBridge — a QObject subclass — is actually
 importable/instantiable and its __init__/call/_on_request statements are
 executed and counted toward coverage (mirrors test_ui_dialog.py's approach
@@ -27,7 +27,7 @@ def bridge_module():
     saved = {
         k: v
         for k, v in sys.modules.items()
-        if k.startswith("PyQt6") or k == "mcp_server.bridge"
+        if k.startswith("PySide6") or k == "mcp_server.bridge"
     }
     install_bridge_qt_stubs()
     try:
@@ -37,7 +37,7 @@ def bridge_module():
     finally:
         remove_bridge_qt_stubs()
         for k in list(sys.modules):
-            if k.startswith("PyQt6") or k == "mcp_server.bridge":
+            if k.startswith("PySide6") or k == "mcp_server.bridge":
                 del sys.modules[k]
         sys.modules.update(saved)
 

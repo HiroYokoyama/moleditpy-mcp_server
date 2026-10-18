@@ -20,7 +20,7 @@ currently sees.
 
 ## What MoleditPy is
 
-MoleditPy is a desktop molecular editor (PyQt6 + RDKit + PyVista) for
+MoleditPy is a desktop molecular editor (PySide6 + RDKit + PyVista) for
 preparing quantum-chemistry / DFT calculations. Its core workflow:
 
 1. **2D editing** — the user draws or loads a molecule on a 2D canvas

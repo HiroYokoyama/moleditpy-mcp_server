@@ -49,7 +49,9 @@ jobs:
         run: sudo apt-get install -y libegl1 libgl1
 
       - name: Install dependencies
-        run: pip install pytest moleditpy
+        run: |
+          git clone --depth 1 --branch "${{ vars.MOLEDITPY_REF || 'migrate/pyside6-without-openbabel' }}" https://github.com/HiroYokoyama/python_molecular_editor.git ../python_molecular_editor
+          pip install pytest ../python_molecular_editor/moleditpy
 
       - name: Run integration tests
         # test_integration_xyz_charge drives the app's real XYZ loader (real

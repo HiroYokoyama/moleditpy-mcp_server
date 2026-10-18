@@ -7,9 +7,9 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QFont, QFontDatabase
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QFont, QFontDatabase
+from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QCheckBox,

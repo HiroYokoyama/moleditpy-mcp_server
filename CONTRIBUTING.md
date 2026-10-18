@@ -53,7 +53,7 @@ Tests run fully headlessly — no GUI, no RDKit, no MoleditPy installation requi
 ## Coding standards
 
 - **Type hints** on all public functions.
-- **No Qt imports at module level** in `bridge.py` — all `from PyQt6…` must be inside method bodies so `execute_operation` stays unit-testable without a `QApplication`.
+- **No Qt imports at module level** in `bridge.py` — all `from PySide6…` must be inside method bodies so `execute_operation` stays unit-testable without a `QApplication`.
 - **Error handling** — `except` blocks must log or raise; never bare `pass`.
 - **Security** — file I/O tools must go through `_resolve_safe_path` and `_check_extension`. Any new network call must handle `urllib.error.HTTPError` and timeouts.
 
