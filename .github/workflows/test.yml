@@ -1,12 +1,20 @@
 name: Tests
 
 on:
+  workflow_dispatch:
+    inputs:
+      moleditpy_ref:
+        description: 'MoleditPy branch, tag, or full commit SHA (blank uses repository default)'
+        required: false
+        type: string
+        default: ''
   push:
     branches: [main]
   pull_request:
     branches: [main]
 
 env:
+  MOLEDITPY_REF: ${{ inputs.moleditpy_ref || vars.MOLEDITPY_REF || 'migrate/pyside6-without-openbabel' }}
   PYTEST_QT_API: pyside6
   QT_API: pyside6
   QT_QPA_PLATFORM: offscreen
@@ -54,8 +62,13 @@ jobs:
         run: sudo apt-get install -y libegl1 libgl1
 
       - name: Install dependencies
+        shell: bash
         run: |
-          git clone --depth 1 --branch "${{ vars.MOLEDITPY_REF || 'migrate/pyside6-without-openbabel' }}" https://github.com/HiroYokoyama/python_molecular_editor.git ../python_molecular_editor
+          git init "../python_molecular_editor"
+          git -C "../python_molecular_editor" remote add origin https://github.com/HiroYokoyama/python_molecular_editor.git
+          git -C "../python_molecular_editor" fetch --depth 1 origin "$MOLEDITPY_REF"
+          git -C "../python_molecular_editor" checkout --detach FETCH_HEAD
+          git -C "../python_molecular_editor" log -1 --format="%H %s"
           pip install pytest ../python_molecular_editor/moleditpy
 
       - name: Run integration tests
