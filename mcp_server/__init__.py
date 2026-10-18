@@ -32,7 +32,7 @@ PLUGIN_DESCRIPTION = (
 )
 PLUGIN_CATEGORY = "Integration"
 PLUGIN_TAGS = ["AI"]
-PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=5.0.0a1, <6.0.0"
+PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=5.0.0, <6.0.0"
 
 logger = logging.getLogger(__name__)
 

@@ -120,7 +120,7 @@ def test_metadata_constants(pkg):
     assert pkg.PLUGIN_VERSION
     assert pkg.PLUGIN_AUTHOR
     assert pkg.PLUGIN_DESCRIPTION
-    assert pkg.PLUGIN_SUPPORTED_MOLEDITPY_VERSION.startswith(">=5.0.0a1")
+    assert pkg.PLUGIN_SUPPORTED_MOLEDITPY_VERSION.startswith(">=5.0.0")
 
 
 def test_version_is_semver(pkg):
