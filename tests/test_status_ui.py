@@ -10,6 +10,7 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6.QtWidgets")
+from PySide6.QtCore import QCoreApplication, QEvent  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
 
@@ -23,9 +24,17 @@ def ui():
     return module
 
 
-@pytest.fixture
-def dialog(ui):
+@pytest.fixture(scope="session")
+def status_app():
+    """Keep QApplication alive until all native dialog objects are destroyed."""
     app = QApplication.instance() or QApplication([])
+    yield app
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    app.processEvents()
+
+
+@pytest.fixture
+def dialog(ui, status_app):
     settings = {"port": 7891}
     context = SimpleNamespace(
         get_main_window=lambda: None,
@@ -44,7 +53,9 @@ def dialog(ui):
     window = ui.MCPStatusDialog(plugin)
     yield window, settings, plugin
     window.close()
-    app.processEvents()
+    window.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    status_app.processEvents()
 
 
 def test_add_remove_copy_and_missing_folder(dialog, tmp_path):
