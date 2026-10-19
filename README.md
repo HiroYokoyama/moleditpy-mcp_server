@@ -1,7 +1,5 @@
 # MoleditPy MCP Server Plugin
 
-This branch targets **MoleditPy 5.0.0a1–5.x** and uses **PySide6**. Plugin licensing is unchanged.
-
 Expose [MoleditPy](https://github.com/HiroYokoyama/python_molecular_editor) to AI assistants via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
 
 Once running, any MCP-compatible client — **Claude Desktop**, **Claude Code**, **Cursor**, **Windsurf**, **Zed**, **VS Code (Copilot)**, **OpenAI Codex CLI**, **Google Antigravity**, or any HTTP client — can query and control the molecular editor in real time.
@@ -487,7 +485,7 @@ Tests run fully headlessly — no GUI, no RDKit, no MoleditPy installation requi
 
 | Requirement | Version |
 |-------------|---------|
-| MoleditPy | ≥ 5.0.0a1, < 6.0.0 |
+| MoleditPy | ≥ 5.0.0, < 6.0.0 |
 | Python | 3.11+ |
 | MCP protocol | 2026-07-28 and 2024-11-05 … 2025-11-25 (Streamable HTTP, selectable) |
 
