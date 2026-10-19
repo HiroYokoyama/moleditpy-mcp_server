@@ -14,7 +14,7 @@ on:
     branches: [main]
 
 env:
-  MOLEDITPY_REF: ${{ inputs.moleditpy_ref || vars.MOLEDITPY_REF || 'migrate/pyside6-without-openbabel' }}
+  MOLEDITPY_REF: ${{ inputs.moleditpy_ref || vars.MOLEDITPY_REF || 'main' }}
   PYTEST_QT_API: pyside6
   QT_API: pyside6
   QT_QPA_PLATFORM: offscreen
