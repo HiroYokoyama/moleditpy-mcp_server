@@ -117,4 +117,4 @@ official [MCP Inspector](https://github.com/modelcontextprotocol/inspector).
 
 ## License
 
-GPL-3.0-only — see [LICENSE](LICENSE).
+LGPL-3.0-or-later — see [LICENSE](LICENSE).

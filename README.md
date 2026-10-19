@@ -507,3 +507,7 @@ field accepts `{"Authorization": "Bearer <token>"}`.
 Loopback binding and Origin/Host checks still apply. A local TCP port is reachable
 by other OS users, so those checks alone cannot authorize privileged Python and
 file tools. The health endpoint remains public and never returns the token.
+
+## Licensing scope
+
+First-party code in this migration is LGPL-3.0-or-later. See [LICENSE](LICENSE), [COPYING](COPYING) and [dependency/provenance terms](LICENSING.md). Third-party components and historical releases retain their own terms.

@@ -66,7 +66,7 @@ Tests run fully headlessly — no GUI, no RDKit, no MoleditPy installation requi
 
 ## License
 
-By contributing you agree that your contributions will be licensed under the project's [GPL-3.0 License](./LICENSE).
+By contributing you agree that your contributions will be licensed under the project's [LGPL-3.0-or-later License](./LICENSE).
 
 ---
 *Happy coding!*
