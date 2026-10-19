@@ -1702,7 +1702,7 @@ _MISSING = object()
 
 
 def _qt_stub_if_missing():
-    """Put a minimal PyQt6.QtCore in sys.modules when PyQt6 is absent.
+    """Put a minimal PySide6.QtCore in sys.modules when PySide6 is absent.
 
     bridge.py imports QtCore at module level and MCPBridge subclasses QObject,
     so a blanket MagicMock cannot stand in -- it is not subclassable. Returns a
@@ -1713,7 +1713,7 @@ def _qt_stub_if_missing():
     from unittest.mock import MagicMock
 
     try:
-        import PyQt6.QtCore  # noqa: F401  pylint: disable=unused-import
+        import PySide6.QtCore  # noqa: F401  pylint: disable=unused-import
 
         return {}
     except ImportError:
@@ -1727,16 +1727,16 @@ def _qt_stub_if_missing():
         def __get__(self, obj, owner=None):
             return MagicMock()
 
-    qtcore = types.ModuleType("PyQt6.QtCore")
+    qtcore = types.ModuleType("PySide6.QtCore")
     qtcore.QObject = _QObject
-    qtcore.pyqtSignal = lambda *a, **k: _Signal()
+    qtcore.Signal = lambda *a, **k: _Signal()
     qtcore.QTimer = MagicMock()
     qtcore.Qt = MagicMock()
-    pyqt6 = types.ModuleType("PyQt6")
-    pyqt6.QtCore = qtcore
+    pyside6 = types.ModuleType("PySide6")
+    pyside6.QtCore = qtcore
 
     saved = {}
-    for name, module in (("PyQt6", pyqt6), ("PyQt6.QtCore", qtcore)):
+    for name, module in (("PySide6", pyside6), ("PySide6.QtCore", qtcore)):
         # None is a real sys.modules value meaning "blocked", so absence has to
         # be recorded with a sentinel rather than via .get().
         saved[name] = sys.modules[name] if name in sys.modules else _MISSING
@@ -1809,10 +1809,10 @@ def test_genuinely_invalid_product_still_reports_sanitization():
         _apply("[C:1][O:2]>>[C:1][O:2]([H])([H])([H])", "CCO")
 
 
-def test_reaction_tests_work_without_pyqt6(monkeypatch):
-    """CI has RDKit but no PyQt6, and bridge.py imports QtCore at module level.
+def test_reaction_tests_work_without_pyside6(monkeypatch):
+    """CI has RDKit but no PySide6, and bridge.py imports QtCore at module level.
 
-    Setting the sys.modules entries to None makes `import PyQt6.QtCore` raise
+    Setting the sys.modules entries to None makes `import PySide6.QtCore` raise
     ImportError, which is exactly what CI sees, so this exercises the stub path
     the CI run depends on. Without the stub the whole group failed there with
     ModuleNotFoundError while passing locally.
@@ -1820,8 +1820,8 @@ def test_reaction_tests_work_without_pyqt6(monkeypatch):
     import sys
 
     pytest.importorskip("rdkit")
-    monkeypatch.setitem(sys.modules, "PyQt6", None)
-    monkeypatch.setitem(sys.modules, "PyQt6.QtCore", None)
+    monkeypatch.setitem(sys.modules, "PySide6", None)
+    monkeypatch.setitem(sys.modules, "PySide6.QtCore", None)
 
     module = _real_bridge()
     assert hasattr(module, "_apply_reaction_smarts")
@@ -1843,11 +1843,11 @@ def test_qt_stub_is_not_left_behind(monkeypatch):
     import sys
 
     pytest.importorskip("rdkit")
-    monkeypatch.setitem(sys.modules, "PyQt6", None)
-    monkeypatch.setitem(sys.modules, "PyQt6.QtCore", None)
+    monkeypatch.setitem(sys.modules, "PySide6", None)
+    monkeypatch.setitem(sys.modules, "PySide6.QtCore", None)
     _real_bridge()
-    assert sys.modules["PyQt6"] is None
-    assert sys.modules["PyQt6.QtCore"] is None
+    assert sys.modules["PySide6"] is None
+    assert sys.modules["PySide6.QtCore"] is None
 
 
 # ---------------------------------------------------------------------------

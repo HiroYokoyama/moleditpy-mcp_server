@@ -1,10 +1,10 @@
 """
-Rich, real (subclassable) PyQt6.QtCore stand-ins used only by
+Rich, real (subclassable) PySide6.QtCore stand-ins used only by
 test_bridge_qtclass.py to genuinely import mcp_server.bridge and drive
 MCPBridge so its statements are actually executed and counted toward
 coverage.
 
-The blanket MagicMock PyQt6 mock in conftest.py makes QObject un-subclassable
+The blanket MagicMock PySide6 mock in conftest.py makes QObject un-subclassable
 (subclassing a MagicMock *instance* silently produces another MagicMock, not
 a real class), so MCPBridge can't be instantiated normally under it. This
 module mirrors the pattern in ui_qt_stubs.py: install real, minimal Qt
@@ -16,7 +16,7 @@ from __future__ import annotations
 import sys
 import types
 
-_MODULE_NAMES = ("PyQt6", "PyQt6.QtCore")
+_MODULE_NAMES = ("PySide6", "PySide6.QtCore")
 
 
 class _BoundSignal:
@@ -33,8 +33,8 @@ class _BoundSignal:
             fn(*args, **kwargs)
 
 
-class pyqtSignal:
-    """Descriptor mimicking PyQt6's per-instance bound-signal behavior."""
+class Signal:
+    """Descriptor mimicking PySide6's per-instance bound-signal behavior."""
 
     def __init__(self, *types):
         self._types = types
@@ -69,18 +69,18 @@ class QTimer:
 
 
 def install_bridge_qt_stubs() -> None:
-    """Install real, subclassable PyQt6.QtCore stand-ins into sys.modules."""
-    qt_core = types.ModuleType("PyQt6.QtCore")
+    """Install real, subclassable PySide6.QtCore stand-ins into sys.modules."""
+    qt_core = types.ModuleType("PySide6.QtCore")
     qt_core.QObject = QObject
     qt_core.Qt = Qt
     qt_core.QTimer = QTimer
-    qt_core.pyqtSignal = pyqtSignal
+    qt_core.Signal = Signal
 
-    pyqt6 = types.ModuleType("PyQt6")
-    pyqt6.QtCore = qt_core
+    pyside6 = types.ModuleType("PySide6")
+    pyside6.QtCore = qt_core
 
-    sys.modules["PyQt6"] = pyqt6
-    sys.modules["PyQt6.QtCore"] = qt_core
+    sys.modules["PySide6"] = pyside6
+    sys.modules["PySide6.QtCore"] = qt_core
 
 
 def remove_bridge_qt_stubs() -> None:

@@ -35,7 +35,7 @@ jobs:
           else
             VERSION="$INPUT_VERSION"
           fi
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(a[0-9]+|b[0-9]+|rc[0-9]+)?$ ]]; then
             echo "ERROR: invalid release version" >&2
             exit 1
           fi
@@ -67,7 +67,7 @@ jobs:
       - name: Build release package
         run: |
           TAG="$VERSION"
-          cp README.md LICENSE mcp_server/
+          cp README.md LICENSE COPYING LICENSING.md mcp_server/
           zip -r "mcp_server_${TAG}.zip" mcp_server/ --exclude "*/__pycache__/*" "*/.git/*"
 
       - name: Create GitHub Release

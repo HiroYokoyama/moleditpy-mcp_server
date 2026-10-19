@@ -120,13 +120,12 @@ def test_metadata_constants(pkg):
     assert pkg.PLUGIN_VERSION
     assert pkg.PLUGIN_AUTHOR
     assert pkg.PLUGIN_DESCRIPTION
-    assert pkg.PLUGIN_SUPPORTED_MOLEDITPY_VERSION.startswith(">=4")
+    assert pkg.PLUGIN_SUPPORTED_MOLEDITPY_VERSION.startswith(">=5.0.0")
 
 
 def test_version_is_semver(pkg):
-    parts = pkg.PLUGIN_VERSION.split(".")
-    assert len(parts) == 3
-    assert all(p.isdigit() for p in parts)
+    from packaging.version import Version
+    assert Version(pkg.PLUGIN_VERSION).public == pkg.PLUGIN_VERSION
 
 
 def test_authentication_token_is_random_and_persisted(pkg, ctx):

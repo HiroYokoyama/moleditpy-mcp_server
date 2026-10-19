@@ -1,7 +1,7 @@
 """
 Tests for mcp_server/ui.py — MCPStatusDialog.
 
-ui.py subclasses PyQt6.QtWidgets.QDialog, which under the headless mock
+ui.py subclasses PySide6.QtWidgets.QDialog, which under the headless mock
 environment (see conftest.mock_optional_imports) becomes a MagicMock
 instance rather than a real class, so MCPStatusDialog can't be
 instantiated or even imported normally in tests (subclassing a non-type

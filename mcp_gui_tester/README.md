@@ -2,7 +2,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/mcp-gui-tester)](https://pypi.org/project/mcp-gui-tester/) [![Python](https://img.shields.io/pypi/pyversions/mcp-gui-tester)](https://pypi.org/project/mcp-gui-tester/) [![Tests](https://github.com/HiroYokoyama/moleditpy-mcp_server/actions/workflows/test.yml/badge.svg)](https://github.com/HiroYokoyama/moleditpy-mcp_server/actions/workflows/test.yml)
 
-A lightweight **PyQt6 GUI tester for MCP servers** speaking the
+A lightweight **PySide6 GUI tester for MCP servers** speaking the
 [Model Context Protocol](https://modelcontextprotocol.io) **Streamable HTTP
 transport** (JSON-RPC over `POST`).
 
@@ -112,9 +112,9 @@ official [MCP Inspector](https://github.com/modelcontextprotocol/inspector).
 
 ## Requirements
 
-- Python 3.9+
-- PyQt6 (installed automatically)
+- Python 3.10+
+- PySide6 (installed automatically)
 
 ## License
 
-GPL-3.0-only — see [LICENSE](LICENSE).
+LGPL-3.0-or-later — see [LICENSE](LICENSE).

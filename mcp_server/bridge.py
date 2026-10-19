@@ -21,7 +21,7 @@ import threading
 from collections.abc import Iterator
 from typing import Any
 
-from PyQt6.QtCore import QObject, Qt, QTimer, pyqtSignal
+from PySide6.QtCore import QObject, Qt, QTimer, Signal
 
 logger = logging.getLogger(__name__)
 
@@ -1139,7 +1139,7 @@ def _ask_user(ctx: Any, title: str, text: str) -> bool:
         raise ValueError(
             "Another file-access request is waiting for the user's answer."
         )
-    from PyQt6.QtWidgets import QMessageBox  # pylint: disable=import-outside-toplevel
+    from PySide6.QtWidgets import QMessageBox  # pylint: disable=import-outside-toplevel
 
     parent = ctx.get_main_window() if hasattr(ctx, "get_main_window") else None
     box = QMessageBox(parent)
@@ -1308,18 +1308,18 @@ def _render_2d_png(
 ) -> bytes | None:
     """The 2D canvas, rendered to PNG bytes via QGraphicsScene.render()."""
     # Before the Qt imports: "there is no canvas" is answerable without them,
-    # and the environment that has no PyQt6 at all is exactly the one that
+    # and the environment that has no PySide6 at all is exactly the one that
     # reaches this function with no scene.
     scene = ctx.scene
     if scene is None:
         return None
 
-    from PyQt6.QtCore import (  # pylint: disable=import-outside-toplevel
+    from PySide6.QtCore import (  # pylint: disable=import-outside-toplevel
         QBuffer,
         QIODevice,
         QRectF,
     )
-    from PyQt6.QtGui import (  # pylint: disable=import-outside-toplevel
+    from PySide6.QtGui import (  # pylint: disable=import-outside-toplevel
         QColor,
         QImage,
         QPainter,
@@ -2506,7 +2506,7 @@ class MCPBridge(QObject):
     # Carries (operation_name, args_dict, result_container).
     # QueuedConnection is activated automatically when the signal is emitted
     # from a thread other than the one that owns this QObject.
-    _request = pyqtSignal(str, object, object)
+    _request = Signal(str, object, object)
 
     def __init__(self, context: Any, parent: QObject | None = None) -> None:
         super().__init__(parent)

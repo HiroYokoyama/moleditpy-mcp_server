@@ -2,7 +2,7 @@
 Shared test infrastructure for moleditpy-mcp_server.
 
 Mocks all heavy optional dependencies so tests run headlessly without
-PyQt6, RDKit, or a running MoleditPy instance.
+PySide6, RDKit, or a running MoleditPy instance.
 """
 
 from __future__ import annotations
@@ -17,13 +17,25 @@ from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import MagicMock
 
-# If pytest-qt is installed alongside PySide6, its binding auto-detection
-# loads PySide6's Qt DLLs first, which breaks any later real-PyQt6 import
-# on Windows (DLL "specified procedure not found"). Pin the binding.
-os.environ.setdefault("PYTEST_QT_API", "pyqt6")
+# Keep pytest-qt and Matplotlib on the host's binding.
+os.environ.setdefault("PYTEST_QT_API", "pyside6")
+os.environ.setdefault("QT_API", "pyside6")
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+# Initialize PySide's support modules before temporary import stubs can hide
+# them; reinitializing the native binding after a stub swap is unsafe.
+try:
+    import PySide6.QtCore
+    import PySide6.QtGui
+    import PySide6.QtWidgets
+except ImportError:
+    pass
 
 ROOT = Path(__file__).resolve().parents[1]
 PKG_DIR = ROOT / "mcp_server"
+HOST_SOURCE = ROOT.parent / "python_molecular_editor" / "moleditpy" / "src"
+if HOST_SOURCE.is_dir():
+    sys.path.insert(0, str(HOST_SOURCE))
 
 # Add repo root to sys.path so ``import mcp_server`` resolves correctly
 if str(ROOT) not in sys.path:
@@ -31,7 +43,7 @@ if str(ROOT) not in sys.path:
 
 BLOCKED_TOPS: frozenset[str] = frozenset(
     {
-        "PyQt6",
+        "PySide6",
         "rdkit",
         "pyvista",
         "pyvistaqt",

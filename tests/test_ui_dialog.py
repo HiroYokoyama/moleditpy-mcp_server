@@ -2,9 +2,9 @@
 Tests for mcp_server/ui.py that genuinely import the module.
 
 Unlike test_ui.py (which extracts method source via ast + exec against a
-fake ``self`` because the blanket MagicMock PyQt6 mock in conftest.py makes
+fake ``self`` because the blanket MagicMock PySide6 mock in conftest.py makes
 QDialog un-subclassable), this file installs its own rich, real
-(subclassable) PyQt6 stand-ins from ui_qt_stubs.py *before* importing
+(subclassable) PySide6 stand-ins from ui_qt_stubs.py *before* importing
 mcp_server.ui, so the module is actually imported and its statements are
 executed and counted toward coverage.
 
@@ -33,7 +33,7 @@ def ui_module():
     saved = {
         k: v
         for k, v in sys.modules.items()
-        if k.startswith("PyQt6") or k == "mcp_server.ui"
+        if k.startswith("PySide6") or k == "mcp_server.ui"
     }
     install_ui_qt_stubs()
     try:
@@ -43,7 +43,7 @@ def ui_module():
     finally:
         remove_ui_qt_stubs()
         for k in list(sys.modules):
-            if k.startswith("PyQt6") or k == "mcp_server.ui":
+            if k.startswith("PySide6") or k == "mcp_server.ui":
                 del sys.modules[k]
         sys.modules.update(saved)
 

@@ -9,7 +9,7 @@ Copy (or symlink) `mcp_server/` to the MoleditPy plugin directory:
 - **Windows:** `C:\Users\<You>\.moleditpy\plugins\mcp_server\`
 - **Linux/macOS:** `~/.moleditpy/plugins/mcp_server/`
 
-No `pip install` is needed — the plugin has no extra dependencies beyond MoleditPy itself: the HTTP server is the standard library's `http.server`, and RDKit/PyQt6 come from the host app.
+No `pip install` is needed — the plugin has no extra dependencies beyond MoleditPy itself: the HTTP server is the standard library's `http.server`, and RDKit/PySide6 come from the host app.
 
 ## Running Tests
 
@@ -24,7 +24,7 @@ pytest tests/ -v --cov=mcp_server --cov-report=term-missing
 pytest tests/test_bridge.py -v
 ```
 
-All tests run headlessly. `tests/conftest.py` mocks PyQt6, RDKit, pyvista, and `moleditpy` at the import level via a custom `MetaPathFinder`, so no real MoleditPy install is required for the unit suite.
+All tests run headlessly. `tests/conftest.py` mocks PySide6, RDKit, pyvista, and `moleditpy` at the import level via a custom `MetaPathFinder`, so no real MoleditPy install is required for the unit suite.
 
 ## Architecture
 

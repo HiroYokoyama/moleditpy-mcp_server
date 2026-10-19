@@ -185,7 +185,7 @@ def _qmessagebox(monkeypatch, bridge_mod, answer_is_yes):
     box.exec.return_value = 0x4000 if answer_is_yes else 0x10000
     widgets = MagicMock()
     widgets.QMessageBox = cls
-    monkeypatch.setitem(sys.modules, "PyQt6.QtWidgets", widgets)
+    monkeypatch.setitem(sys.modules, "PySide6.QtWidgets", widgets)
     timer = MagicMock()
     monkeypatch.setattr(bridge_mod, "QTimer", timer)
     return cls, box, timer
