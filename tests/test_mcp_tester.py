@@ -39,6 +39,8 @@ def _load_tester():
     spec = importlib.util.spec_from_file_location("mcp_tester", TESTER_PATH)
     assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
+    sys.path.insert(0, str(TESTER_PATH.parents[1]))
+    mod.__package__ = "mcp_gui_tester"
     spec.loader.exec_module(mod)
     return mod
 

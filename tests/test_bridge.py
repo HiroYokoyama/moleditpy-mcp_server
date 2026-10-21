@@ -1730,6 +1730,7 @@ def _qt_stub_if_missing():
     qtcore = types.ModuleType("PySide6.QtCore")
     qtcore.QObject = _QObject
     qtcore.Signal = lambda *a, **k: _Signal()
+    qtcore.Slot = lambda *args, **kwargs: lambda fn: fn
     qtcore.QTimer = MagicMock()
     qtcore.Qt = MagicMock()
     pyside6 = types.ModuleType("PySide6")

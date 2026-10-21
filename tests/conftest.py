@@ -68,6 +68,8 @@ class _MagicLoader(importlib.abc.Loader):
         m.__spec__ = spec
         m.__path__ = []
         m.__package__ = spec.name.split(".")[0]
+        if spec.name == "PySide6.QtCore":
+            m.Slot = lambda *args, **kwargs: lambda fn: fn
         return m  # type: ignore[return-value]
 
     def exec_module(self, module: object) -> None:
