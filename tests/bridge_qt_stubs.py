@@ -74,6 +74,7 @@ def install_bridge_qt_stubs() -> None:
     qt_core.QObject = QObject
     qt_core.Qt = Qt
     qt_core.QTimer = QTimer
+    qt_core.Slot = lambda *args, **kwargs: lambda fn: fn
     qt_core.Signal = Signal
 
     pyside6 = types.ModuleType("PySide6")

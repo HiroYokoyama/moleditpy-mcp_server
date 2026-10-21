@@ -18,6 +18,7 @@ Requires PySide6 only (uses urllib for HTTP).
 
 from __future__ import annotations
 
+
 import argparse
 import base64
 import json
@@ -31,7 +32,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtCore import QObject, Qt, Signal, Slot
 from PySide6.QtGui import QColor, QFont, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -1144,6 +1145,7 @@ class MCPTesterWindow(QMainWindow):
 
         self._run(_connect, self.client, on_done=self._on_connected)
 
+    @Slot(object)
     def _on_connected(self, result: dict[str, Any]) -> None:
         self._connected = True
         self.connect_btn.setEnabled(True)
@@ -1186,6 +1188,7 @@ class MCPTesterWindow(QMainWindow):
         self.status_label.setText("Refreshing tools…")
         self._run(self.client.list_tools, on_done=self._on_refreshed)
 
+    @Slot(object)
     def _on_refreshed(self, tools: list[dict[str, Any]]) -> None:
         self.refresh_btn.setEnabled(True)
         current_item = self.tool_list.currentItem()
@@ -1336,6 +1339,7 @@ class MCPTesterWindow(QMainWindow):
             on_done=self._on_call_done,
         )
 
+    @Slot(object)
     def _on_call_done(self, result: dict[str, Any]) -> None:
         self.call_btn.setEnabled(True)
         elapsed = ""
@@ -1416,17 +1420,19 @@ class MCPTesterWindow(QMainWindow):
         """Run *fn* in a background thread; route outcome to the GUI thread."""
         worker = _Worker()
         self._workers.add(worker)
-        worker.finished.connect(on_done)
-        worker.failed.connect(self._on_error)
+        worker.finished.connect(on_done, Qt.ConnectionType.QueuedConnection)
+        worker.failed.connect(self._on_error, Qt.ConnectionType.QueuedConnection)
         # Bound methods, not closures: PyQt holds a bound-method slot weakly,
         # so a closed window is not kept alive by a request still in flight.
         worker.finished.connect(self._forget_worker)
         worker.failed.connect(self._forget_worker)
         worker.run_async(fn, *args)
 
+    @Slot(object)
     def _forget_worker(self, _outcome: Any) -> None:
         self._workers.discard(self.sender())
 
+    @Slot(object)
     def _on_error(self, failure: Any) -> None:
         self.connect_btn.setEnabled(True)
         self.refresh_btn.setEnabled(self.client is not None and self._connected)

@@ -14,6 +14,7 @@ function with no Qt dependency) so it can be unit-tested without a QApplication.
 
 from __future__ import annotations
 
+
 import contextlib
 import logging
 import math
@@ -21,7 +22,7 @@ import threading
 from collections.abc import Iterator
 from typing import Any
 
-from PySide6.QtCore import QObject, Qt, QTimer, Signal
+from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
 
 logger = logging.getLogger(__name__)
 
@@ -2562,6 +2563,7 @@ class MCPBridge(QObject):
     # Private slot (runs on Qt main thread)
     # ------------------------------------------------------------------
 
+    @Slot(str, object, object)
     def _on_request(
         self,
         operation: str,
