@@ -17,7 +17,8 @@ try:
     from PySide6.QtCore import QThread, Slot
     from PySide6.QtWidgets import QApplication
     from shiboken6 import delete
-except ImportError:
+except ImportError as exc:
+    print(exc, file=__import__('sys').stderr)
     raise SystemExit(77)
 if os.environ.get('REQUIRED_QT_VERSION'):
     assert PySide6.__version__ == os.environ['REQUIRED_QT_VERSION']
