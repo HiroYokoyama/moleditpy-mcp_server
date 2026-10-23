@@ -88,3 +88,7 @@ non-string -> error) rather than `arguments.get(k, "").strip()`.
 Two jobs in `.github/workflows/test.yml`:
 - `test` — runs `pytest tests/` on Python 3.11–3.13, no MoleditPy install
 - `test-integration` — clones the main app (`HiroYokoyama/python_molecular_editor`) and runs the full suite against the real `PluginContext`
+
+## Copied maintenance scripts
+
+See [scripts/COMMON_TOOLS.md](scripts/COMMON_TOOLS.md) for canonical ownership, pinned versions and update instructions. Common script unit tests stay in the canonical repository; retain this repository's own integration checks.
