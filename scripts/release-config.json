@@ -1,0 +1,19 @@
+{
+  "source": "mcp_server/__init__.py",
+  "title": "MoleditPy MCP Server",
+  "package": "mcp_server",
+  "archive": "mcp_server_{version}.zip",
+  "assets": [
+    "mcp_server_{version}.zip"
+  ],
+  "include": [
+    "README.md",
+    "LICENSE",
+    "COPYING",
+    "LICENSING.md"
+  ],
+  "exclude": [
+    "*/__pycache__/*",
+    "*/.git/*"
+  ]
+}
