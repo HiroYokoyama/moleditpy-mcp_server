@@ -24,7 +24,7 @@ import secrets
 from typing import Any
 
 PLUGIN_NAME = "MCP Server"
-PLUGIN_VERSION = "2.0.1"
+PLUGIN_VERSION = "2.0.2"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Expose MoleditPy via Model Context Protocol (MCP) "
