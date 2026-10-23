@@ -319,11 +319,14 @@ def execute_operation(ctx: Any, operation: str, args: dict[str, Any]) -> Any:
 
 def _int_arg(value: Any, what: str) -> int:
     """``int(value)`` with an error message that names the argument."""
-    if isinstance(value, bool):
+    if isinstance(value, bool) or (
+        isinstance(value, float)
+        and (not math.isfinite(value) or not value.is_integer())
+    ):
         raise ValueError(f"Invalid {what} {value!r}: expected an integer.")
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         raise ValueError(f"Invalid {what} {value!r}: expected an integer.") from None
 
 
@@ -747,7 +750,7 @@ def _select_product_by_anchor(
     if atom_index is None:
         return 0
     try:
-        target = int(atom_index)
+        target = _int_arg(atom_index, "atom index")
         matches = reactant.GetSubstructMatches(rxn.GetReactants()[0], uniquify=False)
         candidates = []
         for i, match in enumerate(matches):
@@ -818,6 +821,10 @@ def _apply_reaction_smarts(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     if mol is None:
         raise ValueError("No molecule loaded")
 
+    anchor = args.get("atom_index")
+    if anchor is not None:
+        anchor = _check_atom_index(mol, anchor)
+
     try:
         rxn = AllChem.ReactionFromSmarts(reaction_smarts)
     except Exception as exc:
@@ -837,9 +844,7 @@ def _apply_reaction_smarts(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
         if not products:
             continue
         matched = True
-        selected = _select_product_by_anchor(
-            rxn, candidate, products, args.get("atom_index")
-        )
+        selected = _select_product_by_anchor(rxn, candidate, products, anchor)
         clean_mol = _clean_reaction_product(products[selected][0])
         if clean_mol is not None:
             attempt = (products, selected, clean_mol)
@@ -1800,9 +1805,12 @@ def _xyz_row(line: str) -> tuple:
         raise ValueError(f"Not an 'Element X Y Z' line: {line!r}")
     symbol = parts[0].strip().capitalize()
     try:
-        return (symbol, float(parts[1]), float(parts[2]), float(parts[3]))
+        coordinates = tuple(float(value) for value in parts[1:4])
     except ValueError:
         raise ValueError(f"Not an 'Element X Y Z' line: {line!r}") from None
+    if not all(math.isfinite(value) for value in coordinates):
+        raise ValueError("XYZ coordinates must contain finite numbers")
+    return (symbol, *coordinates)
 
 
 def _kabsch(p: Any, q: Any) -> tuple:
@@ -1828,7 +1836,7 @@ def _compare_structures(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     frames = parse_xyz_frames(args.get("xyz_text", ""))
     if not frames:
         raise ValueError("'xyz_text' contains no atoms")
-    frame_idx = int(args.get("frame", -1))
+    frame_idx = _int_arg(args.get("frame", -1), "frame")
     try:
         other = frames[frame_idx]
     except IndexError:
@@ -2311,8 +2319,8 @@ def _set_atom_charge(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("'atom_index' argument is required")
     if "charge" not in args:
         raise ValueError("'charge' argument is required")
-    atom_index = int(args["atom_index"])
-    charge = int(args["charge"])
+    atom_index = _int_arg(args["atom_index"], "atom index")
+    charge = _int_arg(args["charge"], "charge")
     num_atoms = mol.GetNumAtoms()
     if atom_index < 0 or atom_index >= num_atoms:
         raise ValueError(f"atom_index {atom_index} is out of range (0-{num_atoms - 1})")
@@ -2349,7 +2357,9 @@ def _delete_atoms(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     if not atom_indices:
         raise ValueError("'atom_indices' argument is required")
     num_atoms = mol.GetNumAtoms()
-    indices = sorted({int(i) for i in atom_indices}, reverse=True)
+    if not isinstance(atom_indices, (list, tuple)):
+        raise ValueError("'atom_indices' must be a list of integers")
+    indices = sorted({_int_arg(i, "atom index") for i in atom_indices}, reverse=True)
     for idx in indices:
         if idx < 0 or idx >= num_atoms:
             raise ValueError(f"atom_index {idx} is out of range (0-{num_atoms - 1})")

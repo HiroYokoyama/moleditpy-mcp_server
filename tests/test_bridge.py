@@ -575,6 +575,7 @@ def test_apply_reaction_smarts_guard_ignores_explicit_hydrogens(bridge_mod, ctx)
 def test_apply_reaction_smarts_anchor_selects_matching_site(bridge_mod, ctx):
     mol = MagicMock()
     mol.GetNumHeavyAtoms.return_value = 6
+    mol.GetNumAtoms.return_value = 6
     ctx.current_molecule = mol
     products = ((_make_product(7),), (_make_product(7),))
     with _RdkitPatch() as rd:
@@ -592,6 +593,7 @@ def test_apply_reaction_smarts_anchor_selects_matching_site(bridge_mod, ctx):
 def test_apply_reaction_smarts_anchor_not_found_falls_back(bridge_mod, ctx):
     mol = MagicMock()
     mol.GetNumHeavyAtoms.return_value = 6
+    mol.GetNumAtoms.return_value = 6
     ctx.current_molecule = mol
     products = ((_make_product(7),), (_make_product(7),))
     with _RdkitPatch() as rd:
@@ -600,7 +602,7 @@ def test_apply_reaction_smarts_anchor_not_found_falls_back(bridge_mod, ctx):
         result = bridge_mod.execute_operation(
             ctx,
             "apply_reaction_smarts",
-            {"reaction_smarts": "[c:1][H]>>[c:1][Cl]", "atom_index": 99},
+            {"reaction_smarts": "[c:1][H]>>[c:1][Cl]", "atom_index": 3},
         )
     assert result["selected_product"] == 0
 
@@ -612,6 +614,7 @@ def test_apply_reaction_smarts_anchor_more_matches_than_products_breaks(
     break the enumeration loop instead of indexing out of range."""
     mol = MagicMock()
     mol.GetNumHeavyAtoms.return_value = 6
+    mol.GetNumAtoms.return_value = 7
     ctx.current_molecule = mol
     products = ((_make_product(7),), (_make_product(7),))  # only 2 products
     with _RdkitPatch() as rd:
@@ -622,26 +625,21 @@ def test_apply_reaction_smarts_anchor_more_matches_than_products_breaks(
         result = bridge_mod.execute_operation(
             ctx,
             "apply_reaction_smarts",
-            {"reaction_smarts": "[c:1][H]>>[c:1][Cl]", "atom_index": 99},
+            {"reaction_smarts": "[c:1][H]>>[c:1][Cl]", "atom_index": 6},
         )
     assert result["selected_product"] == 0
 
 
-def test_apply_reaction_smarts_anchor_bad_atom_index_falls_back(bridge_mod, ctx):
-    """A non-integer atom_index must be caught by the broad except and fall
-    back to the first match instead of propagating."""
-    mol = MagicMock()
-    mol.GetNumHeavyAtoms.return_value = 6
-    ctx.current_molecule = mol
-    products = ((_make_product(7),),)
-    with _RdkitPatch() as rd:
-        _configure_reaction(rd, mol, products)
-        result = bridge_mod.execute_operation(
+def test_apply_reaction_smarts_anchor_bad_atom_index_is_rejected(bridge_mod, ctx):
+    ctx.current_molecule = MagicMock()
+    with pytest.raises(ValueError, match="integer"):
+        bridge_mod.execute_operation(
             ctx,
             "apply_reaction_smarts",
             {"reaction_smarts": "[c:1][H]>>[c:1][Cl]", "atom_index": "not-a-number"},
         )
-    assert result["selected_product"] == 0
+    ctx.clear_canvas.assert_not_called()
+    ctx.load_from_smiles.assert_not_called()
 
 
 def test_apply_reaction_smarts_sanitize_and_removehs_failures_continue(bridge_mod, ctx):
@@ -1976,6 +1974,72 @@ def test_set_atom_charge_success():
     assert result == {"success": True, "atom_index": 1, "charge": -1}
     assert ctx.current_molecule.GetAtomWithIdx(1).GetFormalCharge() == -1
     ctx.push_undo_checkpoint.assert_called_once()
+
+
+@pytest.mark.parametrize("value", [True, False, 0.9, float("nan"), float("inf")])
+@pytest.mark.parametrize(
+    "operation,arguments",
+    [
+        ("set_atom_charge", {"atom_index": 0, "charge": 0}),
+        ("delete_atoms", {"atom_indices": [0]}),
+        ("get_atom_properties", {"atom_indices": [0]}),
+    ],
+)
+def test_atom_indices_are_not_silently_truncated(value, operation, arguments):
+    mod, ctx = _ctx_with("CCO")
+    original = ctx.current_molecule
+    arguments = dict(arguments)
+    if operation == "set_atom_charge":
+        arguments["atom_index"] = value
+    else:
+        arguments["atom_indices"] = [value]
+    with pytest.raises(ValueError, match="integer"):
+        mod.execute_operation(ctx, operation, arguments)
+    assert ctx.current_molecule is original
+    ctx.push_undo_checkpoint.assert_not_called()
+
+
+@pytest.mark.parametrize("value", [True, 0.9, float("nan"), float("inf")])
+def test_formal_charge_must_be_an_integer_before_mutating_molecule(value):
+    mod, ctx = _ctx_with("CO")
+    original = ctx.current_molecule
+    with pytest.raises(ValueError, match="integer"):
+        mod.execute_operation(
+            ctx, "set_atom_charge", {"atom_index": 1, "charge": value}
+        )
+    assert ctx.current_molecule is original
+
+
+@pytest.mark.parametrize("indices", ["01", {"0": 1}, 1])
+def test_delete_atoms_rejects_non_list_indices(indices):
+    mod, ctx = _ctx_with("CCO")
+    with pytest.raises(ValueError, match="list"):
+        mod.execute_operation(ctx, "delete_atoms", {"atom_indices": indices})
+    ctx.push_undo_checkpoint.assert_not_called()
+
+
+@pytest.mark.parametrize("anchor", [True, 0.9, -1, 99])
+def test_reaction_rejects_invalid_anchor_before_changing_structure(anchor):
+    mod, ctx = _ctx_with("CCO")
+    original = ctx.current_molecule
+    with pytest.raises(ValueError):
+        mod.execute_operation(
+            ctx,
+            "apply_reaction_smarts",
+            {
+                "reaction_smarts": "[C:1]>>[C:1]",
+                "atom_index": anchor,
+            },
+        )
+    assert ctx.current_molecule is original
+    ctx.clear_canvas.assert_not_called()
+
+
+@pytest.mark.parametrize("coordinate", ["nan", "inf", "-inf"])
+def test_xyz_comparison_rejects_nonfinite_coordinates(coordinate):
+    mod = _real_bridge()
+    with pytest.raises(ValueError, match="finite"):
+        mod.parse_xyz_frames(f"1\nexample\nH {coordinate} 0 0\n")
 
 
 def test_set_atom_charge_invalid_result_raises():
