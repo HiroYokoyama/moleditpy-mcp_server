@@ -737,7 +737,7 @@ def _get_mapped_smiles(ctx: Any) -> dict[str, Any]:
 
 def _select_product_by_anchor(
     rxn: Any, reactant: Any, products: Any, atom_index: Any
-) -> int:
+) -> int | None:
     """
     Pick the RunReactants product whose match contains *atom_index*.
 
@@ -745,7 +745,7 @@ def _select_product_by_anchor(
     GetSubstructMatches(uniquify=False) enumerates matches, so the match
     index maps onto the product index. Among matches containing the anchor
     atom, the product retaining the most atoms is preferred (same heuristic
-    as the Chat with Molecule plugin). Falls back to the first product.
+    as the Chat with Molecule plugin). Reject an unmatched anchor.
     """
     if atom_index is None:
         return 0
@@ -761,12 +761,12 @@ def _select_product_by_anchor(
         if candidates:
             candidates.sort(key=lambda item: item[1], reverse=True)
             return candidates[0][0]
-        logger.warning(
-            "Anchor atom %s not found in any reaction match; using first match", target
-        )
+        logger.warning("Anchor atom %s not found in any reaction match", target)
     except Exception:  # pylint: disable=broad-except
-        logger.exception("Anchor atom filtering failed; using first match")
-    return 0
+        raise ValueError(
+            "Cannot identify a reaction product for the anchor atom"
+        ) from None
+    return None
 
 
 def _clean_reaction_product(new_mol: Any) -> Any:
@@ -843,8 +843,10 @@ def _apply_reaction_smarts(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
         products = rxn.RunReactants((candidate,))
         if not products:
             continue
-        matched = True
         selected = _select_product_by_anchor(rxn, candidate, products, anchor)
+        if selected is None:
+            continue
+        matched = True
         clean_mol = _clean_reaction_product(products[selected][0])
         if clean_mol is not None:
             attempt = (products, selected, clean_mol)
@@ -1029,6 +1031,19 @@ def _list_app_source_tree(args: dict[str, Any]) -> dict[str, Any]:
     return {"content": "\n".join(lines)}
 
 
+def _is_link(path: Any) -> bool:
+    import stat
+
+    try:
+        info = path.lstat()
+        return stat.S_ISLNK(info.st_mode) or bool(
+            getattr(info, "st_file_attributes", 0)
+            & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+        )
+    except OSError:
+        return True
+
+
 def _append_tree(directory: Any, prefix: str, lines: list[str]) -> None:
     from pathlib import Path  # pylint: disable=import-outside-toplevel
 
@@ -1037,7 +1052,9 @@ def _append_tree(directory: Any, prefix: str, lines: list[str]) -> None:
         [
             e
             for e in Path(directory).iterdir()
-            if e.name not in skip and not e.name.endswith((".pyc", ".pyo"))
+            if e.name not in skip
+            and not e.name.endswith((".pyc", ".pyo"))
+            and not _is_link(e)
         ],
         key=lambda p: (p.is_file(), p.name.lower()),
     )
@@ -1252,7 +1269,7 @@ def _clamp_dimension(value: Any, default: int = 900) -> int:
     clamping keeps the call useful instead of just failing it."""
     try:
         pixels = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         pixels = default
     return max(128, min(pixels, 2048))
 
@@ -1383,10 +1400,10 @@ def _render_3d_png(
     previous = getattr(plotter, "window_size", None)
     transparent = background is not None and background.strip().lower() == "transparent"
     old_background = None
-    if background is not None and not transparent:
-        old_background = getattr(plotter, "background_color", None)
-        plotter.set_background(background.strip())
     try:
+        if background is not None and not transparent:
+            old_background = getattr(plotter, "background_color", None)
+            plotter.set_background(background.strip())
         shot_kwargs: dict[str, Any] = {"window_size": [width, height]}
         if transparent:
             shot_kwargs["transparent_background"] = True
@@ -1618,6 +1635,13 @@ def _set_3d_camera(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
         # coordinate axis most perpendicular to it instead of failing.
         up = [0.0, 0.0, 0.0]
         up[min(range(3), key=lambda k: abs(view[k]))] = 1.0
+    zoom = args.get("zoom")
+    if zoom is not None:
+        if isinstance(zoom, bool):
+            raise ValueError("'zoom' must be a positive number")
+        zoom = float(zoom)
+        if not (math.isfinite(zoom) and zoom > 0):
+            raise ValueError("'zoom' must be a positive number")
     plotter.camera_position = [pos, focal, up]
     projection = args.get("parallel_projection")
     if projection is not None:
@@ -1628,11 +1652,7 @@ def _set_3d_camera(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     fit = args.get("fit", "direction" in args)
     if fit:
         plotter.reset_camera()
-    zoom = args.get("zoom")
     if zoom is not None:
-        zoom = float(zoom)
-        if not (math.isfinite(zoom) and zoom > 0):
-            raise ValueError("'zoom' must be a positive number")
         plotter.camera.zoom(zoom)
     plotter.render()
     return _camera_state(plotter)
@@ -1704,6 +1724,8 @@ def _measure_geometry(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
         if len(set(idx)) != len(idx):
             raise ValueError(f"Repeated atom index in {group}")
         pts = [[float(v) for v in conf.GetAtomPosition(i)] for i in idx]
+        if not all(math.isfinite(v) for point in pts for v in point):
+            raise ValueError("Coordinates must be finite numbers")
         if len(idx) == 2:
             kind, value = "distance", math.dist(pts[0], pts[1])
         elif len(idx) == 3:
@@ -2068,6 +2090,8 @@ def _draw_overlay(
     plotter = ctx.plotter
     if plotter is None:
         raise ValueError("The 3D viewer is not available.")
+    carbon_rgb = _hex_rgb(color)
+    _hex_rgb(current_color)
     _remove_overlay_actors(plotter)
     symbols = [mol.GetAtomWithIdx(i).GetSymbol() for i in range(mol.GetNumAtoms())]
     carbons = [i for i, s in enumerate(symbols) if s == "C"]
@@ -2085,7 +2109,6 @@ def _draw_overlay(
             manager, "stick"
         )  # redraws the molecule, so overlay goes after
 
-    carbon_rgb = _hex_rgb(color)
     rgb = np.array(
         [carbon_rgb if s == "C" else _element_rgb(s) for s in symbols], dtype=float
     )
@@ -2525,6 +2548,9 @@ class MCPBridge(QObject):
         # The bridge is built on the Qt main thread; remembered so call() can
         # tell when it is already there.
         self._owner_thread = threading.get_ident()
+        self._pending_lock = threading.Lock()
+        self._pending: dict[int, dict[str, Any]] = {}
+        self._closed = False
         self._request.connect(self._on_request, Qt.ConnectionType.QueuedConnection)
 
     # ------------------------------------------------------------------
@@ -2543,6 +2569,9 @@ class MCPBridge(QObject):
         Blocks the calling thread until the result is available or *timeout*
         seconds have elapsed (raises ``TimeoutError`` in the latter case).
         """
+        with self._pending_lock:
+            if self._closed:
+                raise RuntimeError("MCP bridge has stopped")
         if args is None:
             args = {}
         if threading.get_ident() == self._owner_thread:
@@ -2557,8 +2586,17 @@ class MCPBridge(QObject):
             "result": None,
             "error": None,
         }
-        self._request.emit(operation, args, container)
-        if not container["event"].wait(timeout):
+        with self._pending_lock:
+            if self._closed:
+                raise RuntimeError("MCP bridge has stopped")
+            self._pending[id(container)] = container
+        try:
+            self._request.emit(operation, dict(args), container)
+            completed = container["event"].wait(timeout)
+        finally:
+            with self._pending_lock:
+                self._pending.pop(id(container), None)
+        if not completed:
             with container["lock"]:
                 if container["state"] == "queued":
                     # Never started: withdraw it, so a busy main thread does
@@ -2572,6 +2610,18 @@ class MCPBridge(QObject):
     # ------------------------------------------------------------------
     # Private slot (runs on Qt main thread)
     # ------------------------------------------------------------------
+
+    def close(self) -> None:
+        """Reject new calls and wake callers whose GUI work has not started."""
+        with self._pending_lock:
+            self._closed = True
+            pending = list(self._pending.values())
+        for c in pending:
+            with c["lock"]:
+                if c["state"] == "queued":
+                    c["state"] = "cancelled"
+                    c["error"] = RuntimeError("MCP bridge has stopped")
+                    c["event"].set()
 
     @Slot(str, object, object)
     def _on_request(

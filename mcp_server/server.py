@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import fnmatch
 import json
+import math
 import secrets
 import logging
 import os
@@ -1085,7 +1086,7 @@ _TOOLS: list[dict[str, Any]] = [
     {
         "name": "get_plugin_dev_manual",
         "description": (
-            "Fetch the MoleditPy Plugin Development Manual (V4) from GitHub. "
+            "Fetch the MoleditPy Plugin Development Manual (V5) from GitHub. "
             "Read this FIRST before writing any plugin — it contains the full "
             "PluginContext API reference, lifecycle hooks, example code, and "
             "packaging instructions."
@@ -1732,14 +1733,17 @@ def _check_extension(path: Path, allowed_extensions: list[str]) -> None:
         )
 
 
-def _write_sandbox_file(target: Path, content: str, overwrite: bool) -> None:
+def _write_sandbox_file(target: Path, content: str | bytes, overwrite: bool) -> None:
     """Replace a directory entry instead of truncating an existing hardlink."""
     target.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(
         prefix=".mcp-write-", dir=target.parent
     ) as directory:
         staged = Path(directory) / "content"
-        staged.write_text(content, encoding="utf-8")
+        if isinstance(content, bytes):
+            staged.write_bytes(content)
+        else:
+            staged.write_text(content, encoding="utf-8")
         if overwrite:
             os.replace(staged, target)
         else:
@@ -1984,11 +1988,28 @@ def _walk_files(start: Path, name_glob: str) -> Any:
     them before filtering wastes the whole search on ``node_modules``.
     """
     pattern = name_glob or "*"
+    import stat
+
+    def _is_link(path: Path) -> bool:
+        try:
+            info = path.lstat()
+            return stat.S_ISLNK(info.st_mode) or bool(
+                getattr(info, "st_file_attributes", 0)
+                & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+            )
+        except OSError:
+            return True
+
     for dirpath, dirnames, filenames in os.walk(start):
-        dirnames[:] = sorted(d for d in dirnames if d not in _SEARCH_SKIP_DIRS)
+        dirnames[:] = sorted(
+            d
+            for d in dirnames
+            if d not in _SEARCH_SKIP_DIRS and not _is_link(Path(dirpath, d))
+        )
         for filename in sorted(filenames):
-            if fnmatch.fnmatch(filename, pattern):
-                yield Path(dirpath, filename)
+            path = Path(dirpath, filename)
+            if fnmatch.fnmatch(filename, pattern) and not _is_link(path):
+                yield path
 
 
 def _iter_search_files(
@@ -2094,9 +2115,11 @@ def run_find(
         if len(found) >= max_results:
             truncated = True
             break
-        found.append(
-            f"{path.relative_to(base).as_posix()}  ({path.stat().st_size:,} bytes)"
-        )
+        try:
+            size = path.stat().st_size
+        except OSError:
+            continue
+        found.append(f"{path.relative_to(base).as_posix()}  ({size:,} bytes)")
     if not found:
         return f"No files matching {name_glob or '*'} under {start}."
     header = f"{len(found)} file(s) under {base}" + (
@@ -2167,13 +2190,17 @@ def format_xyz_block(
             f"Unknown element_style {element_style!r}. "
             "Use 'symbol', 'atomic_number', or 'symbol_and_number'."
         )
-    if not 1 <= precision <= 12:
+    if type(precision) is not int or not 1 <= precision <= 12:
         raise ValueError("precision must be between 1 and 12.")
 
     by_index = {a["index"]: a for a in atoms}
     if atom_order is None:
         selected = atoms
     else:
+        if not isinstance(atom_order, list) or not atom_order:
+            raise ValueError("atom_order must be a non-empty list of integer indices.")
+        if any(type(i) is not int for i in atom_order):
+            raise ValueError("atom_order must contain only integer indices.")
         if len(set(atom_order)) != len(atom_order):
             raise ValueError("atom_order contains duplicate indices.")
         bad = [i for i in atom_order if i not in by_index]
@@ -2187,6 +2214,8 @@ def format_xyz_block(
     width = precision + 8  # room for sign, 4 integer digits, and the point
     lines = []
     for a in selected:
+        if not all(math.isfinite(a[axis]) for axis in ("x", "y", "z")):
+            raise ValueError(f"Atom {a['index']} has non-finite coordinates.")
         if element_style == "symbol":
             elem = f"{a['symbol']:<3}"
         elif element_style == "atomic_number":
@@ -2207,7 +2236,7 @@ def format_xyz_block(
 # ---------------------------------------------------------------------------
 
 
-_PLUGIN_DEV_MANUAL_URL = "https://hiroyokoyama.github.io/python_molecular_editor/docs/PLUGIN_DEVELOPMENT_MANUAL_V4.md"
+_PLUGIN_DEV_MANUAL_URL = "https://raw.githubusercontent.com/HiroYokoyama/python_molecular_editor/main/docs/PLUGIN_DEVELOPMENT_MANUAL_V5.md"
 
 _PLUGIN_REGISTRY_URL = (
     "https://hiroyokoyama.github.io/moleditpy-plugins/REGISTRY/plugins.json"
@@ -2286,6 +2315,8 @@ def _wait_for_3d_conversion(bridge: Any, arguments: dict[str, Any]) -> dict[str,
         limit = float(arguments.get("timeout_seconds", _CONVERSION_TIMEOUT_S))
     except (TypeError, ValueError):
         limit = _CONVERSION_TIMEOUT_S
+    if not math.isfinite(limit):
+        return _tool_err("timeout_seconds must be finite")
     limit = min(max(limit, 1.0), 600.0)
     deadline = time.monotonic() + limit
     while True:
@@ -2318,6 +2349,13 @@ def dispatch_tool(
     All calls to *bridge.call()* block until the Qt main thread processes them.
     """
     try:
+        # JSON Schema is advertised to clients, but HTTP requests can bypass
+        # client validation. In particular, bool("false") authorizes deletion.
+        schema = next((t["inputSchema"] for t in _TOOLS if t["name"] == name), {})
+        for key, prop in schema.get("properties", {}).items():
+            if prop.get("type") == "boolean" and key in arguments:
+                if type(arguments[key]) is not bool:
+                    raise ValueError(f"'{key}' must be a boolean (true or false).")
         if name == "get_current_molecule":
             info = bridge.call("get_molecule_info")
             if not info["loaded"]:
@@ -2456,8 +2494,7 @@ def dispatch_tool(
                 )
             data = bridge.call("get_molecule_image", _image_call_args(arguments))
             png = base64.b64decode(data["image_base64"])
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(png)
+            _write_sandbox_file(target, png, arguments.get("overwrite", False))
             return _tool_ok(
                 f"Saved {data['view'].upper()} view ({data['width']}x{data['height']}) "
                 f"to {user_path} ({len(png):,} bytes)"
@@ -3087,17 +3124,20 @@ def dispatch_tool(
                 data["atoms"],
                 element_style=arguments.get("element_style", "symbol"),
                 atom_order=arguments.get("atom_order"),
-                precision=int(arguments.get("precision", 6)),
+                precision=arguments.get("precision", 6),
             )
             n_atoms = (
                 len(arguments["atom_order"])
-                if arguments.get("atom_order")
+                if arguments.get("atom_order") is not None
                 else len(data["atoms"])
             )
 
             parts = []
             if bool(arguments.get("xyz_header", False)):
-                parts.append(f"{n_atoms}\n{arguments.get('comment', '')}\n")
+                comment = arguments.get("comment", "")
+                if not isinstance(comment, str) or "\n" in comment or "\r" in comment:
+                    raise ValueError("'comment' must be a single line of text.")
+                parts.append(f"{n_atoms}\n{comment}\n")
             header = _text_arg(arguments.get("header", ""))
             if header:
                 parts.append(header if header.endswith("\n") else header + "\n")

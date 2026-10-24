@@ -590,7 +590,7 @@ def test_apply_reaction_smarts_anchor_selects_matching_site(bridge_mod, ctx):
     assert result["num_products"] == 2
 
 
-def test_apply_reaction_smarts_anchor_not_found_falls_back(bridge_mod, ctx):
+def test_apply_reaction_smarts_anchor_not_found_rejects(bridge_mod, ctx):
     mol = MagicMock()
     mol.GetNumHeavyAtoms.return_value = 6
     mol.GetNumAtoms.return_value = 6
@@ -599,12 +599,13 @@ def test_apply_reaction_smarts_anchor_not_found_falls_back(bridge_mod, ctx):
     with _RdkitPatch() as rd:
         mol_h, _ = _configure_reaction(rd, mol, products)
         mol_h.GetSubstructMatches.return_value = ((0, 1), (4, 5))
-        result = bridge_mod.execute_operation(
-            ctx,
-            "apply_reaction_smarts",
-            {"reaction_smarts": "[c:1][H]>>[c:1][Cl]", "atom_index": 3},
-        )
-    assert result["selected_product"] == 0
+        with pytest.raises(ValueError, match="match"):
+            bridge_mod.execute_operation(
+                ctx,
+                "apply_reaction_smarts",
+                {"reaction_smarts": "[c:1][H]>>[c:1][Cl]", "atom_index": 3},
+            )
+    ctx.load_molecule.assert_not_called()
 
 
 def test_apply_reaction_smarts_anchor_more_matches_than_products_breaks(
@@ -622,12 +623,13 @@ def test_apply_reaction_smarts_anchor_more_matches_than_products_breaks(
         # 3 matches, none containing the anchor, so the loop runs past
         # len(products) and must break rather than IndexError.
         mol_h.GetSubstructMatches.return_value = ((0, 1), (2, 3), (4, 5))
-        result = bridge_mod.execute_operation(
-            ctx,
-            "apply_reaction_smarts",
-            {"reaction_smarts": "[c:1][H]>>[c:1][Cl]", "atom_index": 6},
-        )
-    assert result["selected_product"] == 0
+        with pytest.raises(ValueError, match="match"):
+            bridge_mod.execute_operation(
+                ctx,
+                "apply_reaction_smarts",
+                {"reaction_smarts": "[c:1][H]>>[c:1][Cl]", "atom_index": 6},
+            )
+    ctx.load_molecule.assert_not_called()
 
 
 def test_apply_reaction_smarts_anchor_bad_atom_index_is_rejected(bridge_mod, ctx):
@@ -2295,3 +2297,35 @@ def test_render_3d_png_restores_the_size_even_when_the_screenshot_fails():
     with pytest.raises(RuntimeError):
         mod._render_3d_png(ctx, 1600, 1200)
     assert plotter.window_size == [640, 480]
+
+
+def test_reaction_anchor_cannot_modify_another_site():
+    mod = _real_bridge()
+    from rdkit import Chem
+
+    _, ctx = _ctx_with("CCO", mod)
+    original = Chem.MolToSmiles(ctx.current_molecule)
+    with pytest.raises(ValueError, match="match"):
+        mod._apply_reaction_smarts(
+            ctx, {"reaction_smarts": "[O:1]>>[N:1]", "atom_index": 0}
+        )
+    assert Chem.MolToSmiles(ctx.current_molecule) == original
+    ctx.clear_document.assert_not_called()
+
+
+def test_screenshot_invalid_background_removes_temporary_file(
+    bridge_mod, ctx, tmp_path, monkeypatch
+):
+    import tempfile
+    import os
+
+    target = tmp_path / "shot.png"
+
+    def create(**kwargs):
+        return os.open(target, os.O_CREAT | os.O_WRONLY), str(target)
+
+    monkeypatch.setattr(tempfile, "mkstemp", create)
+    ctx.plotter.set_background.side_effect = ValueError("invalid color")
+    with pytest.raises(ValueError, match="invalid color"):
+        bridge_mod._render_3d_png(ctx, 300, 300, "invalid")
+    assert not target.exists()

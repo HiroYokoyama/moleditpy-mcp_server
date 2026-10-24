@@ -643,6 +643,14 @@ class MCPStatusDialog(QDialog):
         else:
             self._show_read_roots()
 
+    def hideEvent(self, event) -> None:
+        self._timer.stop()
+        super().hideEvent(event)
+
+    def showEvent(self, event) -> None:
+        self._timer.start()
+        super().showEvent(event)
+
     def closeEvent(self, event) -> None:
         self._timer.stop()
         super().closeEvent(event)

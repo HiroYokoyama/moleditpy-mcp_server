@@ -24,7 +24,7 @@ import secrets
 from typing import Any
 
 PLUGIN_NAME = "MCP Server"
-PLUGIN_VERSION = "2.0.2"
+PLUGIN_VERSION = "2.0.3"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Expose MoleditPy via Model Context Protocol (MCP) "
@@ -95,7 +95,9 @@ class MCPServerPlugin:
                 )
                 return False
 
-            self._bridge = MCPBridge(self.context)
+            self._bridge = MCPBridge(
+                self.context, parent=self.context.get_main_window()
+            )
             self._server = MCPHttpServer(
                 self._bridge,
                 server_name=PLUGIN_NAME,
@@ -117,15 +119,18 @@ class MCPServerPlugin:
             self.last_error = f"MCP Server failed to start: {exc}"
             self.context.show_status_message(self.last_error, 6000)
             logger.exception("MCP Server start failed")
-            self._bridge = None
-            self._server = None
+            self.stop()
             return False
 
     def stop(self) -> None:
         """Stop the MCP server."""
-        if self._server is not None and self._server.is_running:
+        if self._bridge is not None:
+            self._bridge.close()
+        if self._server is not None:
             self._server.stop()
             self.context.show_status_message("MCP Server stopped.", 3000)
+        if self._bridge is not None:
+            self._bridge.deleteLater()
         self._bridge = None
         self._server = None
 
@@ -136,7 +141,8 @@ class MCPServerPlugin:
     def show_status(self) -> None:
         """Open the status & settings dialog (singleton)."""
         win = self.context.get_window("status_dialog")
-        if win is not None and win.isVisible():
+        if win is not None:
+            win.show()
             win.raise_()
             win.activateWindow()
             return
@@ -205,6 +211,7 @@ def _retire_previous_load(context: Any) -> bool:
         # It drives the retired plugin object; a fresh one is built on demand.
         try:
             dialog.close()
+            context.register_window("status_dialog", None)
         except Exception:  # pylint: disable=broad-except
             logger.debug("Could not close the previous status dialog", exc_info=True)
     return was_running

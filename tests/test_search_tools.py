@@ -508,3 +508,28 @@ def test_grep_does_not_repeat_overlapping_context_lines(srv, tree):
     body = [line for line in out.splitlines() if "pair.py" in line]
     assert len(body) == 3  # 3 distinct lines, not 4 with 'middle' twice
     assert sum("middle" in line for line in body) == 1
+
+
+def test_search_does_not_follow_links(srv, tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret marker", encoding="utf-8")
+    try:
+        (root / "leak.txt").symlink_to(outside)
+        (root / "loop").symlink_to(root, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    assert "secret marker" not in srv.run_grep(root, root, "marker", "*")
+    assert "leak.txt" not in srv.run_find(root, root)
+    assert list(srv._walk_files(root, "*")) == []
+
+
+@pytest.mark.parametrize("limit", [float("nan"), float("inf"), -float("inf")])
+def test_conversion_rejects_nonfinite_wait(srv, limit):
+    from unittest.mock import MagicMock
+
+    bridge = MagicMock()
+    result = srv._wait_for_3d_conversion(bridge, {"timeout_seconds": limit})
+    assert result["isError"]
+    bridge.call.assert_not_called()
