@@ -1121,6 +1121,35 @@ def test_delete_file_with_confirm(srv, tmp_path):
     assert not (tmp_path / "gone.txt").exists()
 
 
+@pytest.mark.parametrize("value", ["false", "true", 1, 0, None, [], {}])
+def test_delete_file_rejects_non_boolean_confirmation(srv, tmp_path, value):
+    target = tmp_path / "keep.txt"
+    target.write_text("keep")
+    bridge = MagicMock()
+    result = srv.dispatch_tool(
+        bridge, "delete_file", {"path": "keep.txt", "confirm": value}
+    )
+    assert result["isError"]
+    assert target.read_text() == "keep"
+    bridge.call.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "tool", ["write_text_file", "write_file_with_xyz_block", "save_molecule_image"]
+)
+@pytest.mark.parametrize("value", ["false", "true", 1, None])
+def test_write_rejects_non_boolean_overwrite(srv, tmp_path, tool, value):
+    target = tmp_path / "keep.txt"
+    target.write_text("keep")
+    bridge = MagicMock()
+    result = srv.dispatch_tool(
+        bridge, tool, {"path": "keep.txt", "overwrite": value, "content": "changed"}
+    )
+    assert result["isError"]
+    assert target.read_text() == "keep"
+    bridge.call.assert_not_called()
+
+
 def test_delete_file_traversal_rejected(srv, tmp_path):
     bridge = _file_bridge(srv, tmp_path)
     result = srv.dispatch_tool(
@@ -1744,6 +1773,25 @@ def test_format_xyz_block_bad_style_rejected(srv):
 def test_format_xyz_block_bad_precision_rejected(srv):
     with pytest.raises(ValueError, match="precision"):
         srv.format_xyz_block(_XYZ_ATOMS, precision=0)
+
+
+@pytest.mark.parametrize("order", [[], [False], [0.0], ["0"], "0", [[0]]])
+def test_format_xyz_block_rejects_invalid_order_types(srv, order):
+    with pytest.raises(ValueError, match="atom_order"):
+        srv.format_xyz_block(_XYZ_ATOMS, atom_order=order)
+
+
+@pytest.mark.parametrize("precision", [True, 6.0, 6.5, "6", None])
+def test_format_xyz_block_rejects_invalid_precision_types(srv, precision):
+    with pytest.raises(ValueError, match="precision"):
+        srv.format_xyz_block(_XYZ_ATOMS, precision=precision)
+
+
+@pytest.mark.parametrize("coordinate", [float("nan"), float("inf"), -float("inf")])
+def test_format_xyz_block_rejects_nonfinite_coordinates(srv, coordinate):
+    atoms = [dict(_XYZ_ATOMS[0], x=coordinate)]
+    with pytest.raises(ValueError, match="non-finite"):
+        srv.format_xyz_block(atoms)
 
 
 def test_write_xyz_tool_is_registered(srv):

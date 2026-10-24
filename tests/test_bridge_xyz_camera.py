@@ -1080,3 +1080,23 @@ def test_compare_no_current_3d(bridge_mod, real_numpy):
         bridge_mod.execute_operation(
             ctx, "compare_structures", {"xyz_text": water_xyz()}
         )
+
+
+@pytest.mark.parametrize("zoom", [0, -1, float("nan"), float("inf"), True])
+def test_bad_zoom_leaves_camera_unchanged(bridge_mod, zoom):
+    ctx = make_context()
+    ctx.plotter = FakePlotter()
+    previous = list(ctx.plotter.camera_position)
+    with pytest.raises(ValueError):
+        bridge_mod._set_3d_camera(
+            ctx, {"direction": [1, 0, 0], "fit": True, "zoom": zoom}
+        )
+    assert ctx.plotter.camera_position == previous
+    assert ctx.plotter.reset_calls == ctx.plotter.renders == 0
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), -float("inf")])
+def test_geometry_rejects_nonfinite_coordinates(bridge_mod, bad):
+    ctx = geo_ctx(coords=[(bad, 0, 0), (1, 0, 0), (0, 1, 0)])
+    with pytest.raises(ValueError, match="finite"):
+        bridge_mod._measure_geometry(ctx, {"atoms": [[0, 1, 2]]})

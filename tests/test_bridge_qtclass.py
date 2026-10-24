@@ -154,3 +154,36 @@ def test_mcpbridge_call_on_owner_thread_runs_directly(bridge_module, monkeypatch
     bridge._request._fns.clear()  # a queued delivery would never happen
     monkeypatch.setattr(bridge_module, "execute_operation", lambda c, op, a: {"op": op})
     assert bridge.call("refresh_ui", timeout=0.05) == {"op": "refresh_ui"}
+
+
+def test_stop_cancels_queued_edit_and_wakes_caller(bridge_module, monkeypatch):
+    bridge = bridge_module.MCPBridge(MagicMock())
+    queued = []
+    ready = threading.Event()
+
+    def enqueue(*args):
+        queued.append(args)
+        ready.set()
+
+    bridge._request._fns[:] = [enqueue]
+    errors = []
+
+    def call():
+        try:
+            bridge.call("delete_atoms", timeout=5)
+        except RuntimeError as exc:
+            errors.append(str(exc))
+
+    worker = threading.Thread(target=call)
+    worker.start()
+    assert ready.wait(2)
+    bridge.close()
+    worker.join(2)
+    assert not worker.is_alive()
+    assert errors == ["MCP bridge has stopped"]
+    execute = MagicMock()
+    monkeypatch.setattr(bridge_module, "execute_operation", execute)
+    bridge._on_request(*queued[0])
+    execute.assert_not_called()
+    with pytest.raises(RuntimeError, match="stopped"):
+        bridge.call("delete_atoms")
