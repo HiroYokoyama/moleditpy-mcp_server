@@ -1,0 +1,45 @@
+title: "MCP Server"
+description: "Connect AI assistants to MoleditPy through the Model Context Protocol."
+baseurl: "/moleditpy-mcp_server"
+url: "https://hiroyokoyama.github.io"
+main_site_url: "https://hiroyokoyama.github.io/python_molecular_editor"
+repository: "HiroYokoyama/moleditpy-mcp_server"
+
+markdown: kramdown
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+
+plugins:
+  - jekyll-optional-front-matter
+  - jekyll-readme-index
+  - jekyll-relative-links
+
+readme_index:
+  enabled: true
+  remove_originals: false
+  with_frontmatter: true
+
+defaults:
+  - scope:
+      path: ""
+      type: pages
+    values:
+      layout: page
+
+exclude:
+  - scripts
+  - __pycache__
+  - .pytest_cache
+  - .ruff_cache
+  - AGENTS.md
+  - CLAUDE.md
+  - CHANGELOG.md
+  - "*.py"
+  - "*.toml"
+  - "*.ini"
+  - "*.cfg"
+  - "*.zip"
+  - "*.whl"
+  - "*.egg-info"
+  - "*.json"
