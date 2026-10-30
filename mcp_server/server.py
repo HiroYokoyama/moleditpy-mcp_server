@@ -87,7 +87,11 @@ _SERVER_INSTRUCTIONS = (
     "\n"
     "XYZ data (show_xyz_in_viewer, load_xyz_file) never opens the app's charge "
     "dialog over MCP: pass 'charge' for ions, or skip_chemistry=true to keep "
-    "distance-based bonds only. For figures, fix the view with set_3d_camera "
+    "distance-based bonds only. Loading replaces the document: when it has "
+    "unsaved changes (MCP edits count) the call returns an error instead of "
+    "opening the app's 'Unsaved Changes' dialog; pass discard_unsaved=true to "
+    "discard them. A call that opens any other dialog returns an error "
+    "naming it, rather than timing out. For figures, fix the view with set_3d_camera "
     "(atom-based directions, parallel projection), choose set_3d_style, add "
     "long contacts with edit_bonds, and write it with "
     "save_molecule_image (background may be 'transparent').\n"
@@ -145,6 +149,16 @@ _XYZ_LOAD_PROPERTIES: dict[str, Any] = {
         "description": (
             "Keep the current 3D viewpoint instead of re-framing (for "
             "stepping through frames or comparing similar structures)."
+        ),
+    },
+    "discard_unsaved": {
+        "type": "boolean",
+        "description": (
+            "Loading replaces the current document. If it has unsaved "
+            "changes (MCP edits such as edit_bonds count), the call fails "
+            "with an error and nothing is loaded, instead of opening the "
+            "app's 'Unsaved Changes' dialog. Pass true to discard those "
+            "changes and load anyway. Default false."
         ),
     },
 }
@@ -265,7 +279,9 @@ _TOOLS: list[dict[str, Any]] = [
         "description": (
             "Display XYZ coordinate data in the MoleditPy 3D viewer. "
             "Each line of xyz_text must have the format: Element X Y Z. "
-            "Standard XYZ file headers (atom count, comment line) are also accepted."
+            "Standard XYZ file headers (atom count, comment line) are also accepted. "
+            "Replaces the current document: if it has unsaved changes, pass "
+            "discard_unsaved=true (otherwise the call returns an error)."
         ),
         "inputSchema": {
             "type": "object",
@@ -301,8 +317,9 @@ _TOOLS: list[dict[str, Any]] = [
             "without pasting coordinates. Multi-frame files (optimization "
             "trajectories) are supported: 'frame' picks one (default: the "
             "last); step through a trajectory by calling again with "
-            "keep_camera=true. Same charge / skip_chemistry handling as "
-            "show_xyz_in_viewer, so no dialog blocks the call."
+            "keep_camera=true. Same charge / skip_chemistry / "
+            "discard_unsaved handling as show_xyz_in_viewer, so no dialog "
+            "blocks the call."
         ),
         "inputSchema": {
             "type": "object",
@@ -1862,7 +1879,7 @@ def _show_xyz(
 ) -> dict[str, Any]:
     """Shared body of show_xyz_in_viewer and load_xyz_file."""
     call_args: dict[str, Any] = {"xyz_text": xyz_text, "source_name": source_name}
-    for key in ("charge", "skip_chemistry", "frame", "keep_camera"):
+    for key in ("charge", "skip_chemistry", "frame", "keep_camera", "discard_unsaved"):
         if arguments.get(key) is not None:
             call_args[key] = arguments[key]
     result = bridge.call("show_xyz", call_args)
@@ -3227,7 +3244,8 @@ def dispatch_tool(
 
     except TimeoutError:
         return _tool_err(
-            "Timed out waiting for MoleditPy to respond. The application may be busy."
+            "Timed out waiting for MoleditPy to respond. The application may be "
+            "busy, or waiting for the user to answer a dialog."
         )
     except Exception as exc:  # pylint: disable=broad-except
         logger.exception("Tool %r raised an unhandled exception", name)

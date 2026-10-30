@@ -109,8 +109,12 @@ def execute_operation(ctx: Any, operation: str, args: dict[str, Any]) -> Any:
         xyz_text, frame_idx, n_frames = _select_xyz_frame(xyz_text, frame)
         plotter = ctx.plotter if args.get("keep_camera") else None
         camera = plotter.camera_position if plotter is not None else None
-        with _xyz_charge_override(ctx, charge, skip) as state:
-            mol = ctx.show_xyz_data(xyz_text, source_name=source_name)
+        discard = bool(args.get("discard_unsaved", False))
+        with _unsaved_changes_override(ctx, discard) as unsaved:
+            with _xyz_charge_override(ctx, charge, skip) as state:
+                mol = ctx.show_xyz_data(xyz_text, source_name=source_name)
+        if unsaved["blocked"]:
+            raise ValueError(_UNSAVED_MESSAGE)
         if camera is not None and mol is not None:
             plotter.camera_position = camera
             plotter.render()
@@ -679,6 +683,65 @@ def _xyz_charge_override(
                 settings.pop(key, None)
             else:
                 settings[key] = value
+
+
+_UNSAVED_MESSAGE = (
+    "MoleditPy has unsaved changes, and loading would replace them. Nothing "
+    "was loaded. Save the document in MoleditPy first, or call again with "
+    "discard_unsaved=true to discard the changes and load."
+)
+
+
+def _document_has_unsaved_work(mw: Any, state_mgr: Any) -> bool:
+    """Whether the app's check_unsaved_changes would open its dialog: there
+    are unsaved changes and the document is not empty."""
+    if not getattr(state_mgr, "has_unsaved_changes", False):
+        return False
+    data = getattr(state_mgr, "data", None)
+    atoms = getattr(data, "atoms", None)
+    current_3d = getattr(getattr(mw, "view_3d_manager", None), "current_mol", None)
+    return bool(atoms) or current_3d is not None
+
+
+@contextlib.contextmanager
+def _unsaved_changes_override(ctx: Any, discard: bool) -> Iterator[dict[str, Any]]:
+    """Answer MoleditPy's "Unsaved Changes" question on the caller's behalf.
+
+    Loading a new document first calls ``state_manager.check_unsaved_changes``,
+    which opens a modal Yes/No/Cancel box when the document has unsaved
+    edits -- and MCP edits (edit_bonds, delete_atoms, ...) always leave some.
+    Over MCP no one is there to answer it, so the call would time out with
+    the box left on screen. For the duration of the call the check is
+    replaced: with *discard* it proceeds (the "No" answer); otherwise it
+    cancels the load when there is unsaved work and sets ``blocked``, so the
+    caller can report it instead of silently throwing the edits away.
+    """
+    state: dict[str, Any] = {"blocked": False}
+    mw = ctx.get_main_window() if hasattr(ctx, "get_main_window") else None
+    state_mgr = getattr(mw, "state_manager", None)
+    if state_mgr is None or not hasattr(state_mgr, "check_unsaved_changes"):
+        yield state
+        return
+
+    def _check() -> bool:
+        if discard or not _document_has_unsaved_work(mw, state_mgr):
+            return True
+        state["blocked"] = True
+        return False
+
+    own = vars(state_mgr) if hasattr(state_mgr, "__dict__") else {}
+    saved = own.get("check_unsaved_changes", _MISSING)
+    state_mgr.check_unsaved_changes = _check
+    try:
+        yield state
+    finally:
+        if saved is _MISSING:
+            try:
+                del state_mgr.check_unsaved_changes
+            except AttributeError:
+                pass
+        else:
+            state_mgr.check_unsaved_changes = saved
 
 
 def _show_xyz_result(
@@ -2637,13 +2700,84 @@ class MCPBridge(QObject):
                 logger.warning("Skipping %r: the caller already timed out", operation)
                 return
             c["state"] = "running"
+        watch = (
+            None
+            if operation in _ASKS_USER_OPERATIONS
+            else _start_modal_watch(operation, c)
+        )
+        result: Any = None
+        error: Exception | None = None
         try:
-            c["result"] = execute_operation(
+            result = execute_operation(
                 self._context,
                 operation,
                 dict(args),  # type: ignore[arg-type]
             )
         except Exception as exc:  # pylint: disable=broad-except
-            c["error"] = exc
+            error = exc
         finally:
+            if watch is not None:
+                watch.stop()
+            with c["lock"]:
+                # The modal watch may already have answered the caller.
+                if c["state"] != "answered":
+                    c["state"] = "done"
+                    c["result"] = result
+                    c["error"] = error
             c["event"].set()
+
+
+#: How often a running operation checks for a modal dialog it opened.
+_MODAL_POLL_MS = 250
+
+#: Operations whose modal dialog is the point: they ask the user to approve.
+_ASKS_USER_OPERATIONS = frozenset({"request_read_folder", "set_file_io_config"})
+
+
+def _start_modal_watch(operation: str, c: dict[str, Any]) -> Any:
+    """Answer the waiting caller with an error if *operation* opens a modal
+    dialog.
+
+    A modal dialog runs its own event loop, so the operation that opened it
+    does not return until the user answers -- and the MCP client would only
+    see a time-out, with the dialog left on screen and no hint why. The
+    nested loop still fires timers, so a timer started here notices the new
+    modal widget and wakes the caller with an explanation. The operation
+    itself keeps waiting for the user; its eventual result is discarded.
+    Returns the running timer, or None when Qt widgets are unavailable.
+    """
+    try:
+        from PySide6.QtWidgets import (  # pylint: disable=import-outside-toplevel
+            QApplication,
+        )
+
+        baseline = QApplication.activeModalWidget()
+        timer = QTimer()
+        timer.setInterval(_MODAL_POLL_MS)
+    except Exception:  # pylint: disable=broad-except
+        return None
+
+    def _check() -> None:
+        widget = QApplication.activeModalWidget()
+        if widget is None or widget is baseline:
+            return
+        try:
+            title = widget.windowTitle()
+        except Exception:  # pylint: disable=broad-except
+            title = ""
+        with c["lock"]:
+            if c["state"] != "running":
+                return
+            c["state"] = "answered"
+            c["error"] = RuntimeError(
+                f"Operation {operation!r} opened a dialog in MoleditPy"
+                + (f" ({title!r})" if title else "")
+                + " that is waiting for the user. Ask the user to answer or "
+                "close it in the MoleditPy window, then retry."
+            )
+        timer.stop()
+        c["event"].set()
+
+    timer.timeout.connect(_check)
+    timer.start()
+    return timer
