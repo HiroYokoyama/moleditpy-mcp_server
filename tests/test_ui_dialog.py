@@ -432,6 +432,7 @@ def test_clear_read_roots(ui_module, monkeypatch):
 
 def test_authenticated_configs_include_header(ui_module):
     import json
+
     import tomllib
 
     for client in ui_module._CLIENT_TEMPLATES:

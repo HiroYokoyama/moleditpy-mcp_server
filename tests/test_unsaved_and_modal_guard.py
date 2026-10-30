@@ -223,7 +223,9 @@ def run(operation):
 
 def test_modal_dialog_returns_an_error_instead_of_timing_out():
     source = Path(__file__).resolve().parents[1] / "mcp_server" / "bridge.py"
-    script = _QT_PRELUDE.format(source=str(source), close_ms=3000) + """
+    script = (
+        _QT_PRELUDE.format(source=str(source), close_ms=3000)
+        + """
 start = time.monotonic()
 kind, message, answered = run('show_xyz')
 elapsed = answered - start
@@ -237,14 +239,18 @@ while not ran and time.monotonic() < deadline:
     time.sleep(0.01)
 assert ran == ['show_xyz']
 """
+    )
     _run_qt(script)
 
 
 def test_approval_dialogs_are_not_cut_short():
     source = Path(__file__).resolve().parents[1] / "mcp_server" / "bridge.py"
-    script = _QT_PRELUDE.format(source=str(source), close_ms=700) + """
+    script = (
+        _QT_PRELUDE.format(source=str(source), close_ms=700)
+        + """
 kind, value, _ = run('request_read_folder')
 assert kind == 'ok', (kind, value)
 assert value == {'finished': 'request_read_folder'}
 """
+    )
     _run_qt(script)

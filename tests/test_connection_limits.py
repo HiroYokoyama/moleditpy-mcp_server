@@ -2,8 +2,6 @@ import socket
 import socketserver
 import threading
 
-import pytest
-
 from conftest import load_module, mock_optional_imports
 
 

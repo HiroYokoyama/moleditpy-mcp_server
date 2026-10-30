@@ -1,9 +1,10 @@
 """Run native Qt lifetime checks in a clean interpreter, outside import stubs."""
 
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
+
 import pytest
 
 

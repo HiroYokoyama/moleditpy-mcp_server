@@ -14,7 +14,6 @@ function with no Qt dependency) so it can be unit-tested without a QApplication.
 
 from __future__ import annotations
 
-
 import contextlib
 import logging
 import math

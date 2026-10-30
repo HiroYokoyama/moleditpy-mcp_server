@@ -1,9 +1,9 @@
 """Manual workflow input must stay data, even when it resembles shell code."""
 
 import os
-from pathlib import Path
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 

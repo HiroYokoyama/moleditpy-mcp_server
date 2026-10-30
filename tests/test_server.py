@@ -1379,11 +1379,13 @@ def test_fetch_smiles_http_error(srv):
 
 
 def test_fetch_smiles_network_error(srv):
-    with patch.object(
-        srv.urllib.request, "urlopen", MagicMock(side_effect=OSError("boom"))
+    with (
+        patch.object(
+            srv.urllib.request, "urlopen", MagicMock(side_effect=OSError("boom"))
+        ),
+        pytest.raises(ValueError, match="PubChem lookup error"),
     ):
-        with pytest.raises(ValueError, match="PubChem lookup error"):
-            srv._fetch_smiles_by_name("aspirin")
+        srv._fetch_smiles_by_name("aspirin")
 
 
 def test_load_molecule_by_name_empty(srv):
@@ -1610,13 +1612,13 @@ def test_fetch_plugin_dev_manual_http_error(srv):
 
 
 def test_fetch_plugin_dev_manual_generic_error(srv):
-    with patch.object(
-        srv.urllib.request, "urlopen", MagicMock(side_effect=OSError("offline"))
+    with (
+        patch.object(
+            srv.urllib.request, "urlopen", MagicMock(side_effect=OSError("offline"))
+        ),
+        pytest.raises(ValueError, match="Failed to fetch plugin development manual"),
     ):
-        with pytest.raises(
-            ValueError, match="Failed to fetch plugin development manual"
-        ):
-            srv._fetch_plugin_dev_manual()
+        srv._fetch_plugin_dev_manual()
 
 
 def test_get_app_source_ok(srv):

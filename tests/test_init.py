@@ -125,6 +125,7 @@ def test_metadata_constants(pkg):
 
 def test_version_is_semver(pkg):
     from packaging.version import Version
+
     assert Version(pkg.PLUGIN_VERSION).public == pkg.PLUGIN_VERSION
 
 

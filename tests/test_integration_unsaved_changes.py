@@ -39,8 +39,8 @@ pi = pytest.importorskip(
     "moleditpy.plugins.plugin_interface", reason="moleditpy not installed"
 )
 
-from rdkit import Chem  # noqa: E402
-from rdkit.Chem import AllChem  # noqa: E402
+from rdkit import Chem
+from rdkit.Chem import AllChem
 
 ETHANOL = (
     "9\nethanol\n"
@@ -139,7 +139,9 @@ def test_contract_show_xyz_data_checks_unsaved_changes():
         (True, {}, object()),
     ],
 )
-def test_contract_unsaved_predicate_matches_app(monkeypatch, bridge, unsaved, atoms, mol_3d):
+def test_contract_unsaved_predicate_matches_app(
+    monkeypatch, bridge, unsaved, atoms, mol_3d
+):
     """The bridge's "would the app ask?" test agrees with the real check."""
     asked = []
 

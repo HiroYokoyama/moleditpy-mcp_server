@@ -18,7 +18,6 @@ Requires PySide6 only (uses urllib for HTTP).
 
 from __future__ import annotations
 
-
 import argparse
 import base64
 import json

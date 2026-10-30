@@ -449,11 +449,10 @@ def _configure_reaction(rd, mol, products, final_smiles="CCO", clean_atoms=None)
 
 
 def test_apply_reaction_smarts_empty_raises(bridge_mod, ctx):
-    with _RdkitPatch():
-        with pytest.raises(ValueError, match="required"):
-            bridge_mod.execute_operation(
-                ctx, "apply_reaction_smarts", {"reaction_smarts": " "}
-            )
+    with _RdkitPatch(), pytest.raises(ValueError, match="required"):
+        bridge_mod.execute_operation(
+            ctx, "apply_reaction_smarts", {"reaction_smarts": " "}
+        )
 
 
 def test_apply_reaction_smarts_no_molecule_raises(bridge_mod, ctx):
@@ -2316,8 +2315,8 @@ def test_reaction_anchor_cannot_modify_another_site():
 def test_screenshot_invalid_background_removes_temporary_file(
     bridge_mod, ctx, tmp_path, monkeypatch
 ):
-    import tempfile
     import os
+    import tempfile
 
     target = tmp_path / "shot.png"
 
