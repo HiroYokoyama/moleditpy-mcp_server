@@ -279,6 +279,27 @@ Host, port, endpoint path, and the **protocol era** (auto-detect / 2026-07-28 / 
 
 To start the server automatically every time MoleditPy launches, open **Plugins → MCP Server → Status & Settings** and check **Auto-start server on launch**.
 
+### Where MCP settings are saved
+
+From version 2.1.0, all MCP settings are stored in `mcp_server/settings.json`
+inside the installed plugin folder. This includes the port, auto-start, protocol
+mode, authentication token, file I/O base directory, allowed extensions, and
+read-only folders. GUI and MCP-tool changes are saved there immediately.
+The Plugin Installer preserves this file when updating the plugin; release
+packages do not contain your settings.
+
+On the first launch after upgrading, the plugin imports its existing values
+from MoleditPy's shared app settings if the local `settings.json` is absent.
+The existing authentication token is retained, so configured clients keep
+working. The old app settings file and its MCP keys are **not deleted**.
+Once the local file exists, only it is read and written; the old keys are not
+used as fallbacks. If you delete the local file, the legacy import runs again.
+A malformed local file is reported as an error and is left untouched.
+
+The settings file contains the authentication token. Keep it private and out
+of source control or shared plugin folders.
+
+
 If another MoleditPy instance is already serving the configured port, starting (manually or on launch) is skipped and the dialog shows that it is running in another instance.
 
 Reloading plugins stops the running server and starts it again with the reloaded code, so the port is never left held by the old copy.

@@ -18,6 +18,13 @@ pi = pytest.importorskip(
 PluginContext = pi.PluginContext
 
 
+@pytest.fixture(autouse=True)
+def isolated_plugin_settings(tmp_path, monkeypatch):
+    import mcp_server as pkg
+
+    monkeypatch.setattr(pkg, "_SETTINGS_PATH", tmp_path / "settings.json")
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -122,3 +129,28 @@ class TestInitialize:
         _settings(ctx)["plugin.mcp_server.auto_start"] = False
         pkg.initialize(ctx)
         assert not pkg._plugin.is_running
+
+
+def test_local_settings_migrate_real_namespaced_values_without_mutating_host():
+    import mcp_server as pkg
+
+    ctx = _make_context()
+    legacy = _settings(ctx)
+    legacy.update(
+        {
+            "plugin.mcp_server.port": 9999,
+            "plugin.mcp_server.auth_token": "a" * 64,
+            "plugin.mcp_server.file_io_read_roots": ["/data/shared"],
+            "plugin.other_plugin.port": 1234,
+        }
+    )
+    original = dict(legacy)
+    pkg.initialize(ctx)
+    plugin = pkg._plugin
+    assert plugin.auth_token == "a" * 64
+    assert plugin.context.get_setting("port") == 9999
+    plugin.context.set_setting("port", 7892)
+    assert plugin.context.get_setting("port") == 7892
+    assert plugin.context.get_setting("file_io_read_roots") == ["/data/shared"]
+    assert legacy == original
+    assert not ctx.get_main_window().init_manager.settings_dirty

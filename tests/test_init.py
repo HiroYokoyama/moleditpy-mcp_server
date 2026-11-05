@@ -95,12 +95,13 @@ def _mock_server_modules():
 
 
 @pytest.fixture()
-def pkg():
+def pkg(tmp_path, monkeypatch):
     """Import mcp_server with a clean sys.modules slate; restore on teardown."""
     saved = _clear_mcp_submodules()
     with mock_optional_imports():
         import mcp_server as _pkg
 
+        monkeypatch.setattr(_pkg, "_SETTINGS_PATH", tmp_path / "settings.json")
         yield _pkg
     _restore_mcp_submodules(saved)
 
@@ -136,7 +137,10 @@ def test_authentication_token_is_random_and_persisted(pkg, ctx):
     first = pkg.MCPServerPlugin(ctx)
     second = pkg.MCPServerPlugin(ctx)
     assert len(first.auth_token) == 64
-    assert first.auth_token == second.auth_token == settings["auth_token"]
+    assert first.auth_token == second.auth_token
+    assert first.context.get_setting("auth_token") == first.auth_token
+    assert settings == {}
+    ctx.set_setting.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -485,3 +489,15 @@ def test_reload_survives_a_previous_plugin_that_cannot_stop(pkg, ctx):
     registry["server_plugin"] = broken
     pkg.initialize(ctx)  # must not raise
     assert registry["server_plugin"] is pkg._plugin
+
+
+def test_bridge_uses_the_same_local_settings_as_the_plugin(pkg, ctx):
+    with _mock_server_modules():
+        plugin = pkg.MCPServerPlugin(ctx)
+        assert plugin.start(port=0)
+        bridge_context = sys.modules["mcp_server.bridge"].MCPBridge.call_args.args[0]
+        assert bridge_context is plugin.context
+        bridge_context.set_setting("file_io_base_dir", "/data/example")
+        assert plugin.context.get_setting("file_io_base_dir") == "/data/example"
+        ctx.set_setting.assert_not_called()
+        plugin.stop()

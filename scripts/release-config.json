@@ -14,6 +14,7 @@
   ],
   "exclude": [
     "*/__pycache__/*",
-    "*/.git/*"
+    "*/.git/*",
+    "*/.settings-*.tmp"
   ]
 }

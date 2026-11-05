@@ -21,7 +21,10 @@ from __future__ import annotations
 
 import logging
 import secrets
+from pathlib import Path
 from typing import Any
+
+from .settings import SettingsContext
 
 PLUGIN_NAME = "MCP Server"
 PLUGIN_VERSION = "2.0.4"
@@ -37,6 +40,7 @@ PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=5.0.0, <6.0.0"
 logger = logging.getLogger(__name__)
 
 _HOST = "127.0.0.1"
+_SETTINGS_PATH = Path(__file__).with_name("settings.json")
 
 #: Key under which the live plugin object is kept in the host's registry.
 _HANDLE_KEY = "server_plugin"
@@ -53,14 +57,14 @@ class MCPServerPlugin:
     """Manages the MCPBridge and MCPHttpServer lifecycle."""
 
     def __init__(self, context: Any) -> None:
-        self.context = context
+        self.context = SettingsContext(context, _SETTINGS_PATH)
         self._bridge: Any = None
         self._server: Any = None
         self.last_error = ""
-        token = context.get_setting("auth_token", None)
+        token = self.context.get_setting("auth_token", None)
         if not isinstance(token, str) or len(token) < 32 or not token.isalnum():
             token = secrets.token_hex(32)
-            context.set_setting("auth_token", token)
+            self.context.set_setting("auth_token", token)
         self.auth_token = token
 
     # ------------------------------------------------------------------
@@ -228,5 +232,5 @@ def initialize(context: Any) -> None:
     context.add_plugin_menu("MCP Server/Start Server", _plugin.start)
     context.add_plugin_menu("MCP Server/Stop Server", _plugin.stop)
 
-    if was_running or context.get_setting("auto_start", False):
+    if was_running or _plugin.context.get_setting("auto_start", False):
         _plugin.start()

@@ -6,3 +6,6 @@ __pycache__/
 htmlcov/
 dist/
 build/
+
+mcp_server/settings.json
+mcp_server/.settings-*.tmp

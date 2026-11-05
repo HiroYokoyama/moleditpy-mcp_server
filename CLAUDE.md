@@ -35,14 +35,25 @@ All tests run headlessly. `tests/conftest.py` mocks PySide6, RDKit, pyvista, and
 | `mcp_server/server.py` | `MCPHttpServer` — Streamable HTTP transport (stdlib `http.server`) on a daemon thread; speaks both the 2026-07-28 stateless protocol and the `initialize` handshake era, selected by `protocol_mode` |
 | `mcp_server/ui.py` | `MCPStatusDialog` — Qt settings dialog (port, auto-start, file I/O base dir) |
 
-The plugin follows the standard MoleditPy plugin contract: `initialize(context: PluginContext)` registers menu items and reads/writes settings through `context.get_setting` / `context.set_setting`.
+The plugin follows the standard MoleditPy plugin contract: `initialize(context: PluginContext)` registers menu items and delegates host operations through `PluginContext`. A `SettingsContext` adapter
+keeps `get_setting` / `set_setting` calls in the plugin-local JSON file.
 
 ## Key Settings
 
-All settings are stored under `plugin.mcp_server.<key>` in the app's persistent settings (namespaced automatically by `PluginContext`). Setting keys used by this plugin:
+All settings are stored in `mcp_server/settings.json`, beside `__init__.py`.
+`settings.py::SettingsContext` wraps the host context, so UI and bridge calls
+read/write the same local file. It imports known `plugin.mcp_server.<key>`
+legacy host settings only when the local file is absent; never deletes or
+writes old app settings. Existing local files are authoritative. Keep corrupt
+files untouched and use atomic writes. Never package or commit settings.json.
+Tests must redirect `_SETTINGS_PATH` to a synthetic temporary directory.
+
+Setting keys used by this plugin:
 
 | Key | Type | Default | Where set |
 |---|---|---|---|
+| `auth_token` | str | random token | Plugin startup; preserved during migration |
+| `file_io_read_roots` | list[str] | `[]` | GUI / approved folder request |
 | `auto_start` | bool | `False` | GUI checkbox (Status & Settings dialog) |
 | `port` | int | `7891` | GUI port spinner |
 | `file_io_base_dir` | str or None | `None` (file tools disabled) | GUI browse field or `set_file_io_config` MCP tool |
