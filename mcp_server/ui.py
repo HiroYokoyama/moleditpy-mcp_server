@@ -155,6 +155,30 @@ _PROTOCOL_MODES = (
 )
 
 
+# run_python choices: label -> (setting value, tooltip). The values are
+# bridge.RUN_PYTHON_MODES; spelled out so this module needs no Qt-side import.
+_RUN_PYTHON_MODES = (
+    (
+        "Allowed",
+        "allow",
+        "A connected client can run Python code inside MoleditPy without "
+        "asking. That code has your full access to this computer, so the "
+        "file-access settings below do not limit it.",
+    ),
+    (
+        "Ask each time",
+        "ask",
+        "Each run_python call shows its code in a dialog here and runs only "
+        "if you choose Yes.",
+    ),
+    (
+        "Off",
+        "off",
+        "run_python is refused and is not offered to clients at all.",
+    ),
+)
+
+
 def render_client_config(client: str, port: int, token: str = "") -> str:
     """Return the configuration snippet for *client* with *port* filled in."""
     template = _CLIENT_TEMPLATES[client][0]
@@ -262,6 +286,27 @@ class MCPStatusDialog(QDialog):
         self._protocol_combo.currentIndexChanged.connect(self._on_protocol_changed)
         proto_row.addWidget(self._protocol_combo, 1)
         server_layout.addLayout(proto_row)
+
+        # run_python row
+        python_row = QHBoxLayout()
+        python_row.addWidget(QLabel("run_python tool:"))
+        self._run_python_combo = QComboBox()
+        saved_python = self._plugin.context.get_setting("run_python_mode", "allow")
+        for label, value, tip in _RUN_PYTHON_MODES:
+            self._run_python_combo.addItem(label, value)
+            self._run_python_combo.setItemData(
+                self._run_python_combo.count() - 1, tip, Qt.ItemDataRole.ToolTipRole
+            )
+        self._run_python_combo.setCurrentIndex(
+            max(self._run_python_combo.findData(saved_python), 0)
+        )
+        self._run_python_combo.setToolTip(
+            "Whether a connected client may run arbitrary Python code in "
+            "MoleditPy. Takes effect at once."
+        )
+        self._run_python_combo.currentIndexChanged.connect(self._on_run_python_changed)
+        python_row.addWidget(self._run_python_combo, 1)
+        server_layout.addLayout(python_row)
 
         # Auto-start checkbox
         self._auto_start_chk = QCheckBox("Auto-start server on launch")
@@ -470,6 +515,11 @@ class MCPStatusDialog(QDialog):
             else:
                 self._feedback_lbl.clear()
         self.refresh()
+
+    def _on_run_python_changed(self, _index: int) -> None:
+        self._plugin.context.set_setting(
+            "run_python_mode", self._run_python_combo.currentData()
+        )
 
     def _on_protocol_changed(self, _index: int) -> None:
         mode = self._protocol_combo.currentData()

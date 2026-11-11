@@ -54,6 +54,7 @@ Setting keys used by this plugin:
 |---|---|---|---|
 | `auth_token` | str | random token | Plugin startup; preserved during migration |
 | `file_io_read_roots` | list[str] | `[]` | GUI / approved folder request |
+| `run_python_mode` | str (`allow`/`ask`/`off`) | `allow` | GUI combo (Status & Settings dialog); read by the bridge before any code runs |
 | `auto_start` | bool | `False` | GUI checkbox (Status & Settings dialog) |
 | `port` | int | `7891` | GUI port spinner |
 | `file_io_base_dir` | str or None | `None` (file tools disabled) | GUI browse field or `set_file_io_config` MCP tool |
