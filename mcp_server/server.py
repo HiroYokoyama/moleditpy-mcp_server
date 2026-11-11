@@ -1800,6 +1800,30 @@ def _resolve_safe_path(user_path: str, base_dir: str) -> Path:
     return resolved
 
 
+#: This plugin's own settings: the bearer token, the folders the user approved
+#: and whether run_python may run. Beside this module, as __init__ places it.
+_OWN_SETTINGS = Path(__file__).with_name("settings.json")
+
+
+def _refuse_own_settings(target: Path) -> None:
+    """Keep the file tools from rewriting what the user decides in the dialog.
+
+    A base directory that contains the plugin folder, with .json allowed,
+    would otherwise let a client switch run_python back on or approve its own
+    folders by writing the file instead of asking.
+    """
+    try:
+        same = target.resolve() == _OWN_SETTINGS.resolve()
+    except OSError:
+        same = False
+    if same:
+        raise ValueError(
+            "The MCP Server's own settings file cannot be written or deleted "
+            "through the file tools. Change settings in MCP Server > Status & "
+            "Settings."
+        )
+
+
 def _check_extension(path: Path, allowed_extensions: list[str]) -> None:
     """Raise ValueError if path's extension is not in *allowed_extensions*."""
     ext = path.suffix.lower()
@@ -3190,6 +3214,7 @@ def dispatch_tool(
             base_dir, allowed_exts = _get_sandbox(bridge)
             target = _resolve_safe_path(user_path, base_dir)
             _check_extension(target, allowed_exts)
+            _refuse_own_settings(target)
             if target.exists() and not overwrite:
                 return _tool_err(
                     f"{user_path!r} already exists. Pass overwrite=true to replace it."
@@ -3206,6 +3231,7 @@ def dispatch_tool(
             base_dir, allowed_exts = _get_sandbox(bridge)
             target = _resolve_safe_path(user_path, base_dir)
             _check_extension(target, allowed_exts)
+            _refuse_own_settings(target)
             if target.exists() and not overwrite:
                 return _tool_err(
                     f"{user_path!r} already exists. Pass overwrite=true to replace it."
@@ -3313,6 +3339,7 @@ def dispatch_tool(
             base_dir, allowed_exts = _get_sandbox(bridge)
             target = _resolve_safe_path(user_path, base_dir)
             _check_extension(target, allowed_exts)
+            _refuse_own_settings(target)
             if not target.exists():
                 return _tool_err(f"{user_path!r} does not exist.")
             if not target.is_file():

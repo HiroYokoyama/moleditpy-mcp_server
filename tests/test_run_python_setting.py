@@ -272,3 +272,62 @@ def test_a_compound_name_stays_one_path_segment(srv, monkeypatch):
     assert srv._fetch_smiles_by_name("a/../../cid/2244") == "C"
     path = asked[0].split("/rest/pug/compound/name/", 1)[1]
     assert path == "a%2F..%2F..%2Fcid%2F2244/property/SMILES/JSON"
+
+
+# ---------------------------------------------------------------------------
+# The settings file itself
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("tool", "extra"),
+    [
+        ("write_text_file", {"content": "{}", "overwrite": True}),
+        ("write_file_with_xyz_block", {"overwrite": True}),
+        ("delete_file", {"confirm": True}),
+    ],
+)
+def test_file_tools_cannot_rewrite_the_plugins_own_settings(
+    srv, tmp_path, monkeypatch, tool, extra
+):
+    """A base directory holding the plugin folder must not let a client switch
+    run_python back on by writing the file the dialog writes."""
+    settings = tmp_path / "mcp_server" / "settings.json"
+    settings.parent.mkdir()
+    settings.write_text('{"run_python_mode": "off"}', encoding="utf-8")
+    monkeypatch.setattr(srv, "_OWN_SETTINGS", settings)
+    bridge = make_bridge(
+        {
+            "get_file_io_config": {
+                "base_dir": str(tmp_path),
+                "allowed_extensions": [".json"],
+                "read_roots": [],
+            }
+        }
+    )
+    result = srv.dispatch_tool(
+        bridge, tool, {"path": "mcp_server/settings.json", **extra}
+    )
+    assert result["isError"] is True
+    assert "own settings file" in result["content"][0]["text"]
+    assert settings.read_text(encoding="utf-8") == '{"run_python_mode": "off"}'
+
+
+def test_another_json_file_in_the_same_folder_is_still_writable(
+    srv, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(srv, "_OWN_SETTINGS", tmp_path / "mcp_server" / "settings.json")
+    bridge = make_bridge(
+        {
+            "get_file_io_config": {
+                "base_dir": str(tmp_path),
+                "allowed_extensions": [".json"],
+                "read_roots": [],
+            }
+        }
+    )
+    result = srv.dispatch_tool(
+        bridge, "write_text_file", {"path": "mcp_server/other.json", "content": "{}"}
+    )
+    assert result.get("isError") is not True
+    assert (tmp_path / "mcp_server" / "other.json").read_text(encoding="utf-8") == "{}"
