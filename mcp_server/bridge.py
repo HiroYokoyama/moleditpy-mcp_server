@@ -218,6 +218,9 @@ def execute_operation(ctx: Any, operation: str, args: dict[str, Any]) -> Any:
     if operation == "run_python":
         return _run_python(ctx, args)
 
+    if operation == "get_run_python_mode":
+        return {"mode": run_python_mode(ctx)}
+
     if operation == "get_selected_atoms":
         return _get_selected_atoms(ctx)
 
@@ -1160,6 +1163,27 @@ def _get_app_source(args: dict[str, Any]) -> dict[str, Any]:
     return {"type": "file", "content": target.read_text(encoding="utf-8")}
 
 
+RUN_PYTHON_ALLOW = "allow"
+RUN_PYTHON_ASK = "ask"
+RUN_PYTHON_OFF = "off"
+RUN_PYTHON_MODES = (RUN_PYTHON_ALLOW, RUN_PYTHON_ASK, RUN_PYTHON_OFF)
+
+#: How much of the code the approval dialog shows. The rest still runs, so the
+#: dialog says when there is more than it can show.
+_RUN_PYTHON_PREVIEW_CHARS = 4000
+
+
+class RunPythonRefused(ValueError):
+    """run_python is switched off, or the user said no to this call."""
+
+
+def run_python_mode(ctx: Any) -> str:
+    """What the user allows run_python to do. Anything unreadable is "allow",
+    the behaviour before the setting existed."""
+    mode = ctx.get_setting("run_python_mode", RUN_PYTHON_ALLOW)
+    return mode if mode in RUN_PYTHON_MODES else RUN_PYTHON_ALLOW
+
+
 def _run_python(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     import contextlib  # pylint: disable=import-outside-toplevel
     import io  # pylint: disable=import-outside-toplevel
@@ -1167,6 +1191,31 @@ def _run_python(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     code = args.get("code", "").strip()
     if not code:
         raise ValueError("'code' argument is required")
+    # Decided here, on the GUI thread, from the user's own setting: the file
+    # sandbox and its approval dialogs mean nothing to code that can open any
+    # file and rewrite those settings itself.
+    mode = run_python_mode(ctx)
+    if mode == RUN_PYTHON_OFF:
+        raise RunPythonRefused(
+            "run_python is switched off in MCP Server > Status & Settings. "
+            "Only the user can enable it there; do not retry."
+        )
+    if mode == RUN_PYTHON_ASK:
+        shown = code[:_RUN_PYTHON_PREVIEW_CHARS]
+        more = len(code) - len(shown)
+        text = (
+            "An MCP client asks to run this Python code inside MoleditPy. It "
+            "runs with your full access to this computer, not only to the "
+            "molecule:\n\n"
+            f"{shown}\n\n"
+            + (f"... and {more:,} more characters not shown.\n\n" if more > 0 else "")
+            + "Run it?"
+        )
+        if not _ask_user(ctx, "MCP Server: run Python code?", text):
+            raise RunPythonRefused(
+                "The user declined to run this code; nothing was executed. "
+                "Do not retry the same request."
+            )
     namespace: dict[str, Any] = {"ctx": ctx, "result": None}
     stdout_buf = io.StringIO()
     stderr_buf = io.StringIO()
@@ -1177,6 +1226,45 @@ def _run_python(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
         "stderr": stderr_buf.getvalue(),
         "result": repr(namespace.get("result")),
     }
+
+
+# The same two functions as in server.py. Each module is loaded on its own by
+# the test suite, so neither can import from the other or from a third.
+def is_network_path(path: str) -> bool:
+    """A UNC or Windows device path: ``\\\\host\\share``, ``//host/share``, ``\\\\.\\pipe``.
+
+
+
+    By its spelling alone, so nothing has to touch the path to find out.
+
+    """
+
+    text = str(path).strip()
+
+    return len(text) >= 2 and text[0] in "\\/" and text[1] in "\\/"
+
+
+def refuse_network_path(path: str) -> None:
+    """Raise before a client-supplied path can make this process reach a host.
+
+
+
+    Resolving or testing a UNC path on Windows opens an SMB connection to the
+
+    host it names and offers the user's credentials to it. A folder on a share
+
+    can still be the base directory: the user picks that in the dialog, and
+
+    paths relative to it are unaffected.
+
+    """
+
+    if is_network_path(path):
+        raise ValueError(
+            "Network (UNC) and device paths are not accepted from an MCP "
+            "client. Use a path on a local drive, or one relative to the base "
+            "directory."
+        )
 
 
 def _get_file_io_config(ctx: Any) -> dict[str, Any]:
@@ -1221,9 +1309,7 @@ def _ask_user(ctx: Any, title: str, text: str) -> bool:
     """
     global _approval_pending  # pylint: disable=global-statement
     if _approval_pending:
-        raise ValueError(
-            "Another file-access request is waiting for the user's answer."
-        )
+        raise ValueError("Another request is waiting for the user's answer.")
     from PySide6.QtWidgets import QMessageBox  # pylint: disable=import-outside-toplevel
 
     parent = ctx.get_main_window() if hasattr(ctx, "get_main_window") else None
@@ -1249,6 +1335,10 @@ def _request_read_folder(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     import os  # pylint: disable=import-outside-toplevel
 
     path = args.get("path")
+    if isinstance(path, str):
+        # Before isdir(): on Windows that alone opens a connection to the host
+        # a UNC path names, and the user has not been asked anything yet.
+        refuse_network_path(path)
     if not isinstance(path, str) or not os.path.isabs(path) or not os.path.isdir(path):
         raise ValueError("'path' must be an existing absolute directory")
     target = os.path.realpath(path)
@@ -2701,7 +2791,7 @@ class MCPBridge(QObject):
             c["state"] = "running"
         watch = (
             None
-            if operation in _ASKS_USER_OPERATIONS
+            if _asks_user_itself(self._context, operation)
             else _start_modal_watch(operation, c)
         )
         result: Any = None
@@ -2731,6 +2821,16 @@ _MODAL_POLL_MS = 250
 
 #: Operations whose modal dialog is the point: they ask the user to approve.
 _ASKS_USER_OPERATIONS = frozenset({"request_read_folder", "set_file_io_config"})
+
+
+def _asks_user_itself(ctx: Any, operation: str) -> bool:
+    """Whether *operation* opens its own approval dialog, which is not a stray one."""
+    if operation in _ASKS_USER_OPERATIONS:
+        return True
+    try:
+        return operation == "run_python" and run_python_mode(ctx) == RUN_PYTHON_ASK
+    except Exception:  # pylint: disable=broad-except
+        return False
 
 
 def _start_modal_watch(operation: str, c: dict[str, Any]) -> Any:

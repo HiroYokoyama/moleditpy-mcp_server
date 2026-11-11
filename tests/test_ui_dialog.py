@@ -451,3 +451,24 @@ def test_authenticated_configs_include_header(ui_module):
             assert (
                 section["moleditpy"]["headers"]["Authorization"] == "Bearer audit-token"
             )
+
+
+# ---------------------------------------------------------------------------
+# run_python setting combo
+# ---------------------------------------------------------------------------
+
+
+def test_run_python_combo_lists_all_modes_and_defaults_to_allowed(ui_module):
+    plugin, _ = make_plugin()
+    dlg = ui_module.MCPStatusDialog(plugin)
+    combo = dlg._run_python_combo
+    assert [combo.itemData(i) for i in range(combo.count())] == ["allow", "ask", "off"]
+    assert combo.currentData() == "allow"
+
+
+def test_run_python_combo_shows_and_saves_the_choice(ui_module):
+    plugin, settings = make_plugin(settings={"run_python_mode": "ask"})
+    dlg = ui_module.MCPStatusDialog(plugin)
+    assert dlg._run_python_combo.currentData() == "ask"
+    dlg._run_python_combo.setCurrentIndex(dlg._run_python_combo.findData("off"))
+    assert settings["run_python_mode"] == "off"

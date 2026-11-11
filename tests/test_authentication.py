@@ -39,9 +39,12 @@ def test_python_dispatch_requires_bearer_token(token):
         response.read()
         assert response.status == (200 if token == "audit-token" else 401)
         if token == "audit-token":
-            bridge.call.assert_called_once_with(
+            # The run_python setting is looked up first; the code runs once.
+            bridge.call.assert_called_with(
                 "run_python", {"code": "result = 'audit-marker'"}, timeout=30.0
             )
+            ran = [c for c in bridge.call.call_args_list if c.args[0] == "run_python"]
+            assert len(ran) == 1
         else:
             bridge.call.assert_not_called()
         conn.close()
