@@ -645,6 +645,10 @@ def _xyz_charge_override(
     same answer would never end). An explicit *charge* also bypasses the
     silent charge-0 attempt, which can "succeed" with wrong bond orders for
     an ion. The app's settings and prompt are restored afterwards.
+
+    From MoleditPy 5.3.1, an XYZ with a d/f-block metal skips perception and
+    asks exactly once: *charge* is then recorded with distance-based bonds,
+    and without one the "skip chemistry" answer records charge 0.
     """
     state: dict[str, Any] = {"prompts": 0, "fallback": False}
     mw = ctx.get_main_window() if hasattr(ctx, "get_main_window") else None
@@ -756,16 +760,38 @@ def _show_xyz_result(
     skipped = bool(
         mol.HasProp("_xyz_skip_checks") and mol.GetIntProp("_xyz_skip_checks")
     )
+    recorded = mol.GetIntProp("_xyz_charge") if mol.HasProp("_xyz_charge") else None
+    # MoleditPy 5.3.1+ marks elements RDKit has no valence list for (d/f-block
+    # metals): bonds can only come from distances, but the charge is kept.
+    no_valence = (
+        mol.GetProp("_xyz_no_valence_elements")
+        if mol.HasProp("_xyz_no_valence_elements")
+        else ""
+    )
+    if not isinstance(no_valence, str):
+        no_valence = ""
+    if skipped and not no_valence:
+        reported = None
+    else:
+        reported = recorded if recorded is not None else charge
     result: dict[str, Any] = {
         "success": True,
         "chemistry_skipped": skipped,
-        "charge": None
-        if skipped
-        else (mol.GetIntProp("_xyz_charge") if mol.HasProp("_xyz_charge") else charge),
+        "charge": reported,
         "num_atoms": mol.GetNumAtoms(),
         "num_bonds": mol.GetNumBonds(),
     }
-    if state.get("fallback"):
+    if no_valence:
+        note = (
+            f"RDKit cannot assign bond orders to {no_valence}, so bonds were "
+            "estimated from interatomic distances. "
+        )
+        if charge is not None:
+            note += f"Charge {reported} was kept."
+        else:
+            note += "Pass 'charge' to record the total charge."
+        result["note"] = note
+    elif state.get("fallback"):
         result["note"] = (
             f"Bond perception failed with charge {charge}; loaded with distance-based bonds."
             if charge is not None
