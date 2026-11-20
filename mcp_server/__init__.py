@@ -27,7 +27,7 @@ from typing import Any
 from .settings import SettingsContext
 
 PLUGIN_NAME = "MCP Server"
-PLUGIN_VERSION = "2.2.0"
+PLUGIN_VERSION = "2.2.1"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Expose MoleditPy via Model Context Protocol (MCP) "
