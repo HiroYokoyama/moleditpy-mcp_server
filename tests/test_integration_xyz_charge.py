@@ -15,6 +15,7 @@ Install with: pip install moleditpy
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import os
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -34,6 +35,12 @@ pi = pytest.importorskip(
 
 WATER = "3\nwater\nO 0.0 0.0 0.117\nH 0.0 0.757 -0.469\nH 0.0 -0.757 -0.469"
 HYDROXIDE = "2\nhydroxide\nO 0.0 0.0 0.0\nH 0.0 0.0 0.97"
+# Tetrachloroferrate(III): Fe has no RDKit valence list, so bond orders can
+# never be perceived for it.
+FECL4 = (
+    "5\nFeCl4-\nFe 0.0 0.0 0.0\nCl 1.27 1.27 1.27\nCl -1.27 -1.27 1.27\n"
+    "Cl -1.27 1.27 -1.27\nCl 1.27 -1.27 -1.27"
+)
 
 
 def _load_bridge():
@@ -148,3 +155,34 @@ def test_trajectory_frame_through_real_loader(bridge, app):
     result = bridge.execute_operation(ctx, "show_xyz", {"xyz_text": traj, "frame": 0})
     assert result["frame"] == 0 and result["num_frames"] == 2
     assert result["num_bonds"] == 2
+
+
+def _app_marks_no_valence_elements() -> bool:
+    """MoleditPy 5.3.1+ asks once for d/f-block metals and marks the mol."""
+    source = inspect.getsource(io_logic.IOManager._mol_from_xyz_lines)
+    return "_xyz_no_valence_elements" in source
+
+
+@pytest.mark.parametrize("charge", [-1, None])
+def test_metal_complex_through_real_loader(bridge, app, charge):
+    ctx, io_mgr, settings = app
+    before = dict(settings)
+    args = {"xyz_text": FECL4}
+    if charge is not None:
+        args["charge"] = charge
+    result = bridge.execute_operation(ctx, "show_xyz", args)
+    assert result["success"] is True
+    assert result["chemistry_skipped"] is True
+    assert result["num_bonds"] == 4
+    if _app_marks_no_valence_elements():
+        assert result["charge"] == (0 if charge is None else charge)
+        assert "RDKit cannot assign bond orders to Fe" in result["note"]
+        if charge is None:
+            assert "Pass 'charge' to record the total charge" in result["note"]
+        else:
+            assert f"Charge {charge} was kept" in result["note"]
+    else:
+        assert result["charge"] is None
+        assert "Bond perception failed" in result["note"]
+    assert settings == before
+    assert "prompt_for_charge" not in vars(io_mgr)
