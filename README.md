@@ -340,7 +340,7 @@ Claude loads it automatically whenever a task involves the MoleditPy MCP tools. 
 | `load_molecule_from_smiles` | Draw a molecule from a SMILES string |
 | `load_from_mol_block` | Load a molecule from a MOL/SDF block |
 | `load_molecule_by_name` | Look up by common/IUPAC name on PubChem and load (e.g. `"aspirin"`) |
-| `show_xyz_in_viewer` | Display an XYZ block in the 3D viewer. `charge` (for ions) or `skip_chemistry` (distance-based bonds) answer the app's charge prompt so no dialog blocks the call; `frame` picks one frame of a trajectory; the camera is re-fitted to the new molecule unless `keep_camera` |
+| `show_xyz_in_viewer` | Display an XYZ block in the 3D viewer. `charge` (for ions) or `skip_chemistry` (distance-based bonds) answer the app's charge prompt, and a d/f-block metal's distance-bond confirmation is answered too, so no dialog blocks the call; `frame` picks one frame of a trajectory; the camera is re-fitted to the new molecule unless `keep_camera` |
 | `load_xyz_file` | Same as `show_xyz_in_viewer`, but reads an `.xyz` file from the sandbox — no pasting of coordinates; multi-frame files default to the last frame |
 | `get_mapped_smiles` | SMILES with atom indices embedded as map numbers + legend (find atom_index targets) |
 | `apply_reaction_smarts` | Modify the 2D molecule with a Reaction SMARTS transformation (optional anchor atom) |

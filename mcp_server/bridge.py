@@ -646,9 +646,10 @@ def _xyz_charge_override(
     silent charge-0 attempt, which can "succeed" with wrong bond orders for
     an ion. The app's settings and prompt are restored afterwards.
 
-    From MoleditPy 5.3.1, an XYZ with a d/f-block metal skips perception and
-    asks exactly once: *charge* is then recorded with distance-based bonds,
-    and without one the "skip chemistry" answer records charge 0.
+    From MoleditPy 5.3.1, an XYZ containing an element RDKit cannot assign
+    bond orders to (d/f-block metals) asks no charge: it asks
+    confirm_distance_bonds() whether to load distance-based bonds, and that
+    is answered "yes" here. A *charge* given for such a file is not applied.
     """
     state: dict[str, Any] = {"prompts": 0, "fallback": False}
     mw = ctx.get_main_window() if hasattr(ctx, "get_main_window") else None
@@ -665,10 +666,15 @@ def _xyz_charge_override(
         state["fallback"] = True
         return 0, True, True
 
+    def _confirm(_elements: str) -> bool:
+        return True
+
+    answers = {"prompt_for_charge": _prompt, "confirm_distance_bonds": _confirm}
     own = vars(io_mgr) if hasattr(io_mgr, "__dict__") else {}
-    saved_prompt = own.get("prompt_for_charge", _MISSING)
+    saved_answers = {name: own.get(name, _MISSING) for name in answers}
     saved = {k: settings.get(k, _MISSING) for k in _XYZ_SETTING_KEYS}
-    io_mgr.prompt_for_charge = _prompt
+    for name, answer in answers.items():
+        setattr(io_mgr, name, answer)
     if skip:
         settings["skip_chemistry_checks"] = True
     elif charge is not None:
@@ -677,13 +683,11 @@ def _xyz_charge_override(
     try:
         yield state
     finally:
-        if saved_prompt is _MISSING:
-            try:
-                del io_mgr.prompt_for_charge
-            except AttributeError:
-                pass
-        else:
-            io_mgr.prompt_for_charge = saved_prompt
+        for name, original in saved_answers.items():
+            if original is _MISSING:
+                delattr(io_mgr, name)
+            else:
+                setattr(io_mgr, name, original)
         for key, value in saved.items():
             if value is _MISSING:
                 settings.pop(key, None)
@@ -760,36 +764,24 @@ def _show_xyz_result(
     skipped = bool(
         mol.HasProp("_xyz_skip_checks") and mol.GetIntProp("_xyz_skip_checks")
     )
-    recorded = mol.GetIntProp("_xyz_charge") if mol.HasProp("_xyz_charge") else None
-    # MoleditPy 5.3.1+ marks elements RDKit has no valence list for (d/f-block
-    # metals): bonds can only come from distances, but the charge is kept.
-    no_valence = (
-        mol.GetProp("_xyz_no_valence_elements")
-        if mol.HasProp("_xyz_no_valence_elements")
-        else ""
-    )
-    if not isinstance(no_valence, str):
-        no_valence = ""
-    if skipped and not no_valence:
-        reported = None
-    else:
-        reported = recorded if recorded is not None else charge
     result: dict[str, Any] = {
         "success": True,
         "chemistry_skipped": skipped,
-        "charge": reported,
+        "charge": None
+        if skipped
+        else (mol.GetIntProp("_xyz_charge") if mol.HasProp("_xyz_charge") else charge),
         "num_atoms": mol.GetNumAtoms(),
         "num_bonds": mol.GetNumBonds(),
     }
-    if no_valence:
+    # Set by MoleditPy 5.3.1+ for elements RDKit cannot assign bond orders to.
+    if mol.HasProp("_xyz_no_valence_elements"):
+        elements = mol.GetProp("_xyz_no_valence_elements")
         note = (
-            f"RDKit cannot assign bond orders to {no_valence}, so bonds were "
-            "estimated from interatomic distances. "
+            f"RDKit cannot assign bond orders to {elements}, so bonds were "
+            "estimated from interatomic distances."
         )
         if charge is not None:
-            note += f"Charge {reported} was kept."
-        else:
-            note += "Pass 'charge' to record the total charge."
+            note += f" The charge {charge} was not applied."
         result["note"] = note
     elif state.get("fallback"):
         result["note"] = (

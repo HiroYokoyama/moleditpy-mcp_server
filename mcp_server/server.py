@@ -86,7 +86,7 @@ _SERVER_INSTRUCTIONS = (
     "get_plugin_dev_manual and get_app_source) when writing MoleditPy plugins.\n"
     "\n"
     "XYZ data (show_xyz_in_viewer, load_xyz_file) never opens the app's charge "
-    "dialog over MCP: pass 'charge' for ions, or skip_chemistry=true to keep "
+    "dialog or its distance-bond confirmation over MCP: pass 'charge' for ions, or skip_chemistry=true to keep "
     "distance-based bonds only. Loading replaces the document: when it has "
     "unsaved changes (MCP edits count) the call returns an error instead of "
     "opening the app's 'Unsaved Changes' dialog; pass discard_unsaved=true to "
@@ -133,9 +133,9 @@ _XYZ_LOAD_PROPERTIES: dict[str, Any] = {
             "Total molecular charge for bond-order perception. Without it the "
             "app tries 0 and, if that fails, falls back to distance-based "
             "bonds instead of opening its charge dialog. Pass it for ions: "
-            "charge 0 can 'succeed' with wrong bond orders. With d/f-block "
-            "metals (MoleditPy 5.3.1+) bonds always come from distances; the "
-            "charge is still recorded."
+            "charge 0 can 'succeed' with wrong bond orders. For d/f-block "
+            "metals RDKit cannot assign bond orders, so bonds come from "
+            "distances and the charge is not applied."
         ),
     },
     "skip_chemistry": {
@@ -1983,11 +1983,7 @@ def _show_xyz(
         text += f" Frame {result['frame']} of {result['num_frames']} (0-based)."
     if "num_atoms" in result:
         if result.get("chemistry_skipped"):
-            text += f" {result['num_atoms']} atoms, {result['num_bonds']} bonds by distance (chemistry skipped)"
-            # Set for d/f-block metals (MoleditPy 5.3.1+), which keep the charge.
-            if result.get("charge") is not None:
-                text += f", charge {result['charge']}"
-            text += "."
+            text += f" {result['num_atoms']} atoms, {result['num_bonds']} bonds by distance (chemistry skipped)."
         else:
             text += (
                 f" {result['num_atoms']} atoms, {result['num_bonds']} bonds, "

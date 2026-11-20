@@ -165,17 +165,17 @@ def test_show_xyz_reports_skipped_chemistry_and_note(srv):
     assert "by distance" in text and "Bond perception failed" in text
 
 
-def test_show_xyz_reports_kept_charge_for_metal(srv):
+def test_show_xyz_reports_the_metal_note(srv):
     note = (
         "RDKit cannot assign bond orders to Fe, so bonds were estimated from "
-        "interatomic distances. Charge 2 was kept."
+        "interatomic distances. The charge 2 was not applied."
     )
     bridge = make_bridge(
         {
             "show_xyz": {
                 "success": True,
                 "chemistry_skipped": True,
-                "charge": 2,
+                "charge": None,
                 "num_atoms": 3,
                 "num_bonds": 2,
                 "note": note,
@@ -183,7 +183,7 @@ def test_show_xyz_reports_kept_charge_for_metal(srv):
         }
     )
     text = _text(srv.dispatch_tool(bridge, "show_xyz_in_viewer", {"xyz_text": WATER}))
-    assert "bonds by distance (chemistry skipped), charge 2." in text
+    assert "3 atoms, 2 bonds by distance (chemistry skipped)." in text
     assert note in text
 
 

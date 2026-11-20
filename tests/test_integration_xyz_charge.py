@@ -15,7 +15,6 @@ Install with: pip install moleditpy
 from __future__ import annotations
 
 import importlib.util
-import inspect
 import os
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -37,6 +36,8 @@ WATER = "3\nwater\nO 0.0 0.0 0.117\nH 0.0 0.757 -0.469\nH 0.0 -0.757 -0.469"
 HYDROXIDE = "2\nhydroxide\nO 0.0 0.0 0.0\nH 0.0 0.0 0.97"
 # Tetrachloroferrate(III): Fe has no RDKit valence list, so bond orders can
 # never be perceived for it.
+# MoleditPy 5.3.1+ confirms distance-based bonds for such elements.
+APP_CONFIRMS_DISTANCE_BONDS = hasattr(io_logic.IOManager, "confirm_distance_bonds")
 FECL4 = (
     "5\nFeCl4-\nFe 0.0 0.0 0.0\nCl 1.27 1.27 1.27\nCl -1.27 -1.27 1.27\n"
     "Cl -1.27 1.27 -1.27\nCl 1.27 -1.27 -1.27"
@@ -67,7 +68,14 @@ def app(monkeypatch):
     def _dialog(self):
         raise AssertionError("the app's modal charge dialog would have opened")
 
+    def _confirm(self, elements):
+        raise AssertionError("the app's modal distance-bond question would have opened")
+
     monkeypatch.setattr(io_logic.IOManager, "prompt_for_charge", _dialog)
+    # MoleditPy 5.3.1+; on older apps nothing calls it, so adding it is harmless.
+    monkeypatch.setattr(
+        io_logic.IOManager, "confirm_distance_bonds", _confirm, raising=False
+    )
     settings = {"skip_chemistry_checks": False, "always_ask_charge": False}
     host = MagicMock()
     host.init_manager.settings = settings
@@ -157,12 +165,6 @@ def test_trajectory_frame_through_real_loader(bridge, app):
     assert result["num_bonds"] == 2
 
 
-def _app_marks_no_valence_elements() -> bool:
-    """MoleditPy 5.3.1+ asks once for d/f-block metals and marks the mol."""
-    source = inspect.getsource(io_logic.IOManager._mol_from_xyz_lines)
-    return "_xyz_no_valence_elements" in source
-
-
 @pytest.mark.parametrize("charge", [-1, None])
 def test_metal_complex_through_real_loader(bridge, app, charge):
     ctx, io_mgr, settings = app
@@ -174,15 +176,17 @@ def test_metal_complex_through_real_loader(bridge, app, charge):
     assert result["success"] is True
     assert result["chemistry_skipped"] is True
     assert result["num_bonds"] == 4
-    if _app_marks_no_valence_elements():
-        assert result["charge"] == (0 if charge is None else charge)
-        assert "RDKit cannot assign bond orders to Fe" in result["note"]
-        if charge is None:
-            assert "Pass 'charge' to record the total charge" in result["note"]
-        else:
-            assert f"Charge {charge} was kept" in result["note"]
+    assert result["charge"] is None
+    if APP_CONFIRMS_DISTANCE_BONDS:
+        expected = (
+            "RDKit cannot assign bond orders to Fe, so bonds were estimated from "
+            "interatomic distances."
+        )
+        if charge is not None:
+            expected += f" The charge {charge} was not applied."
+        assert result["note"] == expected
     else:
-        assert result["charge"] is None
         assert "Bond perception failed" in result["note"]
     assert settings == before
     assert "prompt_for_charge" not in vars(io_mgr)
+    assert "confirm_distance_bonds" not in vars(io_mgr)

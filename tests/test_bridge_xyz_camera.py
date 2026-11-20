@@ -241,40 +241,38 @@ def test_show_xyz_skip_chemistry(bridge_mod):
 
 
 # ---------------------------------------------------------------------------
-# show_xyz: d/f-block metals (MoleditPy 5.3.1 asks once, keeps the charge)
+# show_xyz: d/f-block metals (MoleditPy 5.3.1 confirms instead of asking a charge)
 # ---------------------------------------------------------------------------
 
 FE_SYMBOLS = ["Fe", "C", "O"]
 FE_COORDS = [[0.0, 0.0, 0.0], [0.0, 0.0, 1.8], [0.0, 0.0, 2.95]]
+FE_NOTE = (
+    "RDKit cannot assign bond orders to Fe, so bonds were estimated from "
+    "interatomic distances."
+)
 
 
 class FakeMetalIOManager(FakeIOManager):
-    """Mimics MoleditPy 5.3.1's XYZ loader for a d/f-block metal: no
-    DetermineBonds attempt, prompt_for_charge called exactly once, distance
-    bonds kept with the entered charge (0 on 'skip chemistry')."""
+    """Mimics MoleditPy 5.3.1's XYZ loader for a d/f-block metal: no charge
+    prompt, one confirm_distance_bonds() question, distance bonds at charge 0;
+    with 'skip chemistry checks' on, neither dialog."""
+
+    def __init__(self, settings: dict) -> None:
+        super().__init__(settings)
+        self.confirm_opened = 0
+
+    def confirm_distance_bonds(self, elements: str) -> bool:  # real one is modal
+        self.confirm_opened += 1
+        raise AssertionError("modal distance-bond confirmation opened")
 
     def load(self, text: str) -> FakeMol | None:
         self.calls.append(("load", text))
-        if self.settings.get("skip_chemistry_checks"):
-            return FakeMol(
-                FE_SYMBOLS,
-                FE_COORDS,
-                [(0, 1), (1, 2)],
-                {"_xyz_skip_checks": 1, "_xyz_charge": 0},
-            )
-        charge, ok, skip = self.prompt_for_charge()
-        if not ok:
-            return None
-        return FakeMol(
-            FE_SYMBOLS,
-            FE_COORDS,
-            [(0, 1), (1, 2)],
-            {
-                "_xyz_skip_checks": 1,
-                "_xyz_charge": 0 if skip or charge is None else int(charge),
-                "_xyz_no_valence_elements": "Fe",
-            },
-        )
+        props = {"_xyz_skip_checks": 1, "_xyz_charge": 0}
+        if not self.settings.get("skip_chemistry_checks"):
+            if not self.confirm_distance_bonds("Fe"):
+                return None
+            props["_xyz_no_valence_elements"] = "Fe"
+        return FakeMol(FE_SYMBOLS, FE_COORDS, [(0, 1), (1, 2)], props)
 
 
 def metal_ctx():
@@ -286,46 +284,76 @@ def metal_ctx():
     mw.init_manager.settings = settings
     ctx.get_main_window.return_value = mw
     ctx.show_xyz_data.side_effect = lambda text, source_name="": io_mgr.load(text)
-    return ctx, io_mgr
+    return ctx, io_mgr, settings
 
 
-def test_show_xyz_metal_with_charge_reports_kept_charge(bridge_mod):
-    ctx, io_mgr = metal_ctx()
+def test_show_xyz_metal_answers_the_confirmation(bridge_mod):
+    ctx, io_mgr, _ = metal_ctx()
+    result = bridge_mod.execute_operation(ctx, "show_xyz", {"xyz_text": "Fe 0 0 0"})
+    assert result == {
+        "success": True,
+        "chemistry_skipped": True,
+        "charge": None,
+        "num_atoms": 3,
+        "num_bonds": 2,
+        "note": FE_NOTE,
+    }
+    assert io_mgr.confirm_opened == 0
+    assert io_mgr.dialog_opened == 0
+
+
+def test_show_xyz_metal_says_the_charge_was_not_applied(bridge_mod):
+    ctx, io_mgr, _ = metal_ctx()
     result = bridge_mod.execute_operation(
         ctx, "show_xyz", {"xyz_text": "Fe 0 0 0", "charge": 2}
     )
-    assert result["success"] is True
     assert result["chemistry_skipped"] is True
-    assert result["charge"] == 2
-    assert "RDKit cannot assign bond orders to Fe" in result["note"]
-    assert "distances" in result["note"]
-    assert "Charge 2 was kept" in result["note"]
-    assert "Bond perception failed" not in result["note"]
+    assert result["charge"] is None
+    assert result["note"] == FE_NOTE + " The charge 2 was not applied."
+    assert io_mgr.confirm_opened == 0
     assert io_mgr.dialog_opened == 0
 
 
-def test_show_xyz_metal_without_charge_suggests_passing_one(bridge_mod):
-    ctx, io_mgr = metal_ctx()
+def test_show_xyz_metal_with_skip_chemistry_has_no_metal_note(bridge_mod):
+    ctx, io_mgr, _ = metal_ctx()
+    result = bridge_mod.execute_operation(
+        ctx, "show_xyz", {"xyz_text": "Fe 0 0 0", "skip_chemistry": True}
+    )
+    assert result["chemistry_skipped"] is True
+    assert "note" not in result
+    assert io_mgr.confirm_opened == 0
+
+
+def test_show_xyz_metal_restores_the_confirmation(bridge_mod):
+    ctx, io_mgr, _ = metal_ctx()
+    bridge_mod.execute_operation(ctx, "show_xyz", {"xyz_text": "Fe 0 0 0"})
+    assert "confirm_distance_bonds" not in vars(io_mgr)
+    assert "prompt_for_charge" not in vars(io_mgr)
+    with pytest.raises(AssertionError, match="confirmation opened"):
+        io_mgr.confirm_distance_bonds("Fe")
+
+
+def test_show_xyz_restores_an_instance_confirmation(bridge_mod):
+    ctx, io_mgr, _ = metal_ctx()
+
+    def own(elements):
+        return False
+
+    io_mgr.confirm_distance_bonds = own
     result = bridge_mod.execute_operation(ctx, "show_xyz", {"xyz_text": "Fe 0 0 0"})
     assert result["success"] is True
-    assert result["chemistry_skipped"] is True
-    assert result["charge"] == 0
-    assert "RDKit cannot assign bond orders to Fe" in result["note"]
-    assert "Pass 'charge' to record the total charge" in result["note"]
-    assert "Bond perception failed" not in result["note"]
-    assert io_mgr.dialog_opened == 0
+    assert io_mgr.confirm_distance_bonds is own
 
 
-def test_show_xyz_metal_lists_several_elements(bridge_mod):
+def test_show_xyz_metal_names_several_elements(bridge_mod):
     mol = FakeMol(
         ["La", "Pt"],
         [[0.0, 0.0, 0.0], [0.0, 0.0, 2.8]],
         [(0, 1)],
-        {"_xyz_skip_checks": 1, "_xyz_charge": 1, "_xyz_no_valence_elements": "La, Pt"},
+        {"_xyz_skip_checks": 1, "_xyz_charge": 0, "_xyz_no_valence_elements": "La, Pt"},
     )
-    result = bridge_mod._show_xyz_result(mol, 1, {"prompts": 1, "fallback": False})
-    assert result["charge"] == 1
-    assert "La, Pt" in result["note"]
+    result = bridge_mod._show_xyz_result(mol, None, {"prompts": 0, "fallback": False})
+    assert result["note"].startswith("RDKit cannot assign bond orders to La, Pt,")
 
 
 def test_show_xyz_metal_older_app_without_prop_keeps_old_result(bridge_mod):
