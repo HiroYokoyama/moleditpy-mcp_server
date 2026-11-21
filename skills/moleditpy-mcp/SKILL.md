@@ -64,9 +64,10 @@ and follow-up coordinate reads work without an extra conversion step.
    mutations, ...) so the change lands in the undo history — the system
    snapshots the current state and only records it if it differs from
    the previous checkpoint. Calling it before the edit does nothing.
-4. **Loading adds, it does not replace.** `load_molecule_from_smiles`
-   and friends add to the existing canvas. Call `clear_canvas` first
-   when the user means "replace the molecule".
+4. **Loading replaces by default.** `load_molecule_from_smiles`,
+   `load_molecule_by_name` and `load_from_mol_block` clear the 2D canvas
+   first (undoable, like `clear_canvas`). Pass `clear: false` only when
+   the user wants the new molecule added beside the existing one.
 5. **Search before reading.** `grep_files` answers "where is this
    defined / used" in one call — the app source (`root: "app_source"`),
    the user's plugins (`root: "plugins"`), or the sandbox

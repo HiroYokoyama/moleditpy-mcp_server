@@ -337,9 +337,9 @@ Claude loads it automatically whenever a task involves the MoleditPy MCP tools. 
 | `get_atom_properties` | Per-atom: symbol, Z, charge, hybridization, Hs, radical electrons |
 | `get_bond_info` | Full bond table: endpoints and bond type (SINGLE/DOUBLE/TRIPLE/AROMATIC) |
 | `get_selected_atoms` | Indices and symbols of user-selected atoms |
-| `load_molecule_from_smiles` | Draw a molecule from a SMILES string |
-| `load_from_mol_block` | Load a molecule from a MOL/SDF block |
-| `load_molecule_by_name` | Look up by common/IUPAC name on PubChem and load (e.g. `"aspirin"`) |
+| `load_molecule_from_smiles` | Draw a molecule from a SMILES string (replaces the canvas; `clear: false` adds) |
+| `load_from_mol_block` | Load a molecule from a MOL/SDF block (replaces the canvas; `clear: false` keeps the 2D drawing) |
+| `load_molecule_by_name` | Look up by common/IUPAC name on PubChem and load (e.g. `"aspirin"`); replaces the canvas unless `clear: false` |
 | `show_xyz_in_viewer` | Display an XYZ block in the 3D viewer. `charge` (for ions) or `skip_chemistry` (distance-based bonds) answer the app's charge prompt, and a d/f-block metal's distance-bond confirmation is answered too, so no dialog blocks the call; `frame` picks one frame of a trajectory; the camera is re-fitted to the new molecule unless `keep_camera` |
 | `load_xyz_file` | Same as `show_xyz_in_viewer`, but reads an `.xyz` file from the sandbox — no pasting of coordinates; multi-frame files default to the last frame |
 | `get_mapped_smiles` | SMILES with atom indices embedded as map numbers + legend (find atom_index targets) |

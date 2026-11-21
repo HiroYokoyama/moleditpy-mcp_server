@@ -246,7 +246,7 @@ def test_dispatch_load_smiles_ok(srv):
         bridge, "load_molecule_from_smiles", {"smiles": "c1ccccc1"}
     )
     assert result.get("isError") is not True
-    bridge.call.assert_called_with("load_smiles", {"smiles": "c1ccccc1"})
+    bridge.call.assert_called_with("load_smiles", {"smiles": "c1ccccc1", "clear": True})
 
 
 def test_dispatch_show_xyz_missing_arg(srv):
