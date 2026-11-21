@@ -89,8 +89,9 @@ def execute_operation(ctx: Any, operation: str, args: dict[str, Any]) -> Any:
         smiles = args.get("smiles", "").strip()
         if not smiles:
             raise ValueError("'smiles' argument is required")
+        cleared = _clear_before_load(ctx, args)
         ctx.load_from_smiles(smiles)
-        return {"success": True}
+        return {"success": True, "cleared": cleared}
 
     if operation == "show_xyz":
         xyz_text = args.get("xyz_text", "").strip()
@@ -621,10 +622,33 @@ def _load_mol_block(ctx: Any, args: dict[str, Any]) -> dict[str, Any]:
     mol = Chem.MolFromMolBlock(mol_block, removeHs=False)
     if mol is None:
         return {"success": False}
+    # Parse first: a bad block must leave the canvas as it was.
+    cleared = _clear_before_load(ctx, args)
     ctx.current_molecule = mol
     ctx.push_undo_checkpoint()
     ctx.refresh_ui()
-    return {"success": True}
+    return {"success": True, "cleared": cleared}
+
+
+def _clear_before_load(ctx: Any, args: dict[str, Any]) -> bool:
+    """Clear the 2D canvas and the current molecule before a load.
+
+    MoleditPy's SMILES import *adds* to the 2D scene, and setting the
+    current molecule leaves the scene alone, so a load would otherwise merge
+    into (or sit beside) whatever is already drawn -- including a structure
+    left on the canvas after another plugin opened a file. ``clear`` (default
+    true) clears exactly as the clear_canvas tool does, undo checkpoint
+    included, so the user can undo back to the previous structure.
+    Returns whether the canvas was cleared.
+    """
+    clear = args.get("clear", True)
+    if clear is None:
+        clear = True
+    if not isinstance(clear, bool):
+        raise ValueError("'clear' must be a boolean")
+    if clear:
+        ctx.clear_canvas(push_to_undo=True)
+    return clear
 
 
 _XYZ_SETTING_KEYS = ("skip_chemistry_checks", "always_ask_charge")

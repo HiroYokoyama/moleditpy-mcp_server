@@ -76,7 +76,9 @@ _SERVER_INSTRUCTIONS = (
     "Typical flow: read the current state (get_current_molecule, "
     "get_molecule_xyz, get_bond_info), modify it (load_molecule_from_smiles, "
     "load_molecule_by_name, apply_reaction_smarts), then generate input files "
-    "with write_file_with_xyz_block — never retype coordinates by hand.\n"
+    "with write_file_with_xyz_block — never retype coordinates by hand. "
+    "The SMILES, name and MOL-block loads replace the 2D canvas by default "
+    "(undoable); pass clear=false to add to the existing drawing.\n"
     "\n"
     "Before a destructive edit, call push_undo_checkpoint so the user can undo. "
     "3D coordinates only exist after trigger_3d_conversion. File tools are "
@@ -172,6 +174,17 @@ _XYZ_LOAD_PROPERTIES: dict[str, Any] = {
     },
 }
 
+#: Shared by every tool that loads a molecule into the 2D editor.
+_CLEAR_PROPERTY: dict[str, Any] = {
+    "type": "boolean",
+    "description": (
+        "Clear the 2D canvas and the current molecule first (as "
+        "clear_canvas does, with an undo checkpoint), so the new molecule "
+        "replaces what is drawn. Default true. Pass false to add the "
+        "molecule beside the existing structure instead."
+    ),
+}
+
 _TOOLS: list[dict[str, Any]] = [
     # ------------------------------------------------------------------
     # Read molecule state
@@ -246,7 +259,9 @@ _TOOLS: list[dict[str, Any]] = [
         "name": "load_molecule_from_smiles",
         "description": (
             "Load a molecule into the MoleditPy 2D editor from a SMILES string. "
-            "The molecule is drawn on the 2D canvas immediately."
+            "The molecule is drawn on the 2D canvas immediately and replaces "
+            "the current canvas content (undoable); pass clear=false to add it "
+            "to the existing drawing instead."
         ),
         "inputSchema": {
             "type": "object",
@@ -254,7 +269,8 @@ _TOOLS: list[dict[str, Any]] = [
                 "smiles": {
                     "type": "string",
                     "description": "The SMILES string of the molecule to load.",
-                }
+                },
+                "clear": _CLEAR_PROPERTY,
             },
             "required": ["smiles"],
         },
@@ -263,7 +279,8 @@ _TOOLS: list[dict[str, Any]] = [
         "name": "load_from_mol_block",
         "description": (
             "Load a molecule from a MOL/SDF block (multi-line text in V2000 or V3000 format). "
-            "The molecule replaces the current canvas content."
+            "The molecule replaces the current canvas content (undoable); "
+            "pass clear=false to keep the 2D drawing."
         ),
         "inputSchema": {
             "type": "object",
@@ -278,7 +295,8 @@ _TOOLS: list[dict[str, Any]] = [
                         "An array of lines is also accepted if your client "
                         "escapes newlines."
                     ),
-                }
+                },
+                "clear": _CLEAR_PROPERTY,
             },
             "required": ["mol_block"],
         },
@@ -994,6 +1012,8 @@ _TOOLS: list[dict[str, Any]] = [
         "description": (
             "Look up a molecule by its common name or IUPAC name on PubChem, "
             "retrieve its SMILES, and load it into the MoleditPy 2D editor. "
+            "The molecule replaces the current canvas content (undoable); "
+            "pass clear=false to add it to the existing drawing instead. "
             "Examples: 'aspirin', 'caffeine', 'water', 'glucose', 'methanol'."
         ),
         "inputSchema": {
@@ -1002,7 +1022,8 @@ _TOOLS: list[dict[str, Any]] = [
                 "name": {
                     "type": "string",
                     "description": "Common name or IUPAC name, e.g. 'aspirin' or 'acetylsalicylic acid'.",
-                }
+                },
+                "clear": _CLEAR_PROPERTY,
             },
             "required": ["name"],
         },
@@ -2538,7 +2559,10 @@ def dispatch_tool(
             smiles = _str_arg(arguments, "smiles")
             if not smiles:
                 return _tool_err("'smiles' argument is required.")
-            bridge.call("load_smiles", {"smiles": smiles})
+            bridge.call(
+                "load_smiles",
+                {"smiles": smiles, "clear": arguments.get("clear", True)},
+            )
             return _tool_ok(f"Molecule loaded from SMILES: {smiles}")
 
         if name == "load_from_mol_block":
@@ -2546,7 +2570,10 @@ def dispatch_tool(
             mol_block = _text_arg(arguments.get("mol_block", "")).rstrip()
             if not mol_block.strip():
                 return _tool_err("'mol_block' argument is required.")
-            result = bridge.call("load_mol_block", {"mol_block": mol_block})
+            result = bridge.call(
+                "load_mol_block",
+                {"mol_block": mol_block, "clear": arguments.get("clear", True)},
+            )
             if result["success"]:
                 return _tool_ok("Molecule loaded from MOL block.")
             return _tool_err("Failed to parse MOL block. Check the format.")
@@ -2931,7 +2958,10 @@ def dispatch_tool(
             if not mol_name:
                 return _tool_err("'name' argument is required.")
             smiles = _fetch_smiles_by_name(mol_name)
-            bridge.call("load_smiles", {"smiles": smiles})
+            bridge.call(
+                "load_smiles",
+                {"smiles": smiles, "clear": arguments.get("clear", True)},
+            )
             return _tool_ok(f"Loaded {mol_name!r} from PubChem.\nSMILES: {smiles}")
 
         if name == "push_undo_checkpoint":
